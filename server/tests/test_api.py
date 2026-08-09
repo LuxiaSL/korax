@@ -42,6 +42,7 @@ def _grant(world: dict, identity: str, ns: str, band: str) -> None:
         "type": "POLICY", "grade": "n/a", "refs": [],
         "payload": {"grants": [
             {"identity": world["operator"], "ns": "/**", "band": "human"},
+            {"identity": "band:*", "ns": "/**", "band": "reader"},  # the floor
             {"identity": identity, "ns": ns, "band": band},
         ]},
         "ext": {},
@@ -519,3 +520,85 @@ def test_identity_creation_is_open_with_attribution(world: dict) -> None:
         "payload": "sneaking in", "ext": {},
     })
     assert denied.status_code == 403
+
+
+def test_visitor_floor_reads_everywhere_posts_nowhere_private(world: dict) -> None:
+    """§3.3 — the visitor floor: a zero-grant identity reads project
+    nests and the job board, talks in the square, and holds no
+    enactor-shaped power anywhere."""
+    client = world["client"]
+    desk, dtoken = _register(world, "floor-desk")
+    _grant(world, desk, "/proj/**", "desk")
+    posted = _post(world, dtoken, {
+        "author": desk, "ns": "/proj/board", "type": "FINDING",
+        "grade": "verified", "payload": "project-internal result",
+    })
+
+    visitor, vtoken = _register(world, "just-visiting")
+    # reads a project envelope with zero grants of its own
+    r = client.get(f"/envelope/{posted['id']}", headers=auth(vtoken))
+    assert r.status_code == 200, r.text
+    # talks in the square
+    _post(world, vtoken, {
+        "author": visitor, "ns": "/commons/offtopic", "type": "FINDING",
+        "grade": "n/a", "payload": "new here. the dusk chorus is nice",
+    })
+    # but reader band posts nothing in the project nest
+    r = client.post("/post", headers=auth(vtoken), json={
+        "proto": PROTO, "author": visitor, "ns": "/proj/board",
+        "type": "FINDING", "grade": "unverified", "refs": [],
+        "payload": "drive-by", "ext": {},
+    })
+    assert r.status_code == 403
+    # and cannot claim, anywhere, at all
+    loop = _post(world, dtoken, {
+        "author": desk, "ns": "/proj/board", "type": "OPEN",
+        "grade": "n/a", "payload": "claimable loop",
+    })
+    r = client.post("/post", headers=auth(vtoken), json={
+        "proto": PROTO, "author": visitor, "ns": "/proj/board",
+        "type": "CLAIM", "grade": "n/a",
+        "refs": [{"edge": "claims", "id": loop["id"]}],
+        "payload": "gimme", "ext": {"lease_until": "2030-01-01T00:00:00Z"},
+    })
+    assert r.status_code == 403
+
+
+def test_listen_filters_to_and_to_author(world: dict) -> None:
+    """§11.1 — notification is inbound edge activity: `to` monitors one
+    referent, `to_author` is an identity's notification stream."""
+    client = world["client"]
+    desk, dtoken = _register(world, "listener-desk")
+    other, otoken = _register(world, "bystander")
+    _grant(world, desk, "/proj/**", "desk")
+
+    opened = _post(world, dtoken, {
+        "author": desk, "ns": "/proj/board", "type": "OPEN",
+        "grade": "n/a", "payload": "which index format?",
+    })
+    _post(world, world["op_token"], {  # unrelated traffic
+        "author": world["operator"], "ns": "/commons/rakes", "type": "WARN",
+        "grade": "unverified", "payload": "unrelated rake",
+    })
+    reply = _post(world, world["op_token"], {
+        "author": world["operator"], "ns": "/proj/board", "type": "PROPOSAL",
+        "grade": "n/a", "refs": [{"edge": "replies", "id": opened["id"]}],
+        "payload": "use the boring one",
+    })
+
+    # to=<id>: only the envelope touching the referent
+    page = client.get("/read", params={"to": opened["id"]}, headers=auth(dtoken)).json()
+    assert [e["id"] for e in page["envelopes"]] == [reply["id"]]
+
+    # to_author: the desk's notification stream — same result here,
+    # empty for the bystander who authored nothing
+    page = client.get("/read", params={"to_author": desk}, headers=auth(dtoken)).json()
+    assert [e["id"] for e in page["envelopes"]] == [reply["id"]]
+    page = client.get("/read", params={"to_author": other}, headers=auth(otoken)).json()
+    assert page["envelopes"] == []
+    assert page["cursor"] == -1  # nothing consumed; the cursor holds
+
+    # wait returns immediately when the notification already exists
+    page = client.get("/wait", params={"to": opened["id"], "since": opened["id"],
+                                       "timeout": 0.2}, headers=auth(dtoken)).json()
+    assert [e["id"] for e in page["envelopes"]] == [reply["id"]]

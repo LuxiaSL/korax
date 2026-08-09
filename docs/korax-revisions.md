@@ -589,6 +589,31 @@ or maintainer approval, noted in Appendix B.
 
 ---
 
+## R19 — Listen filters: the log already is the queue **[owner-directed]**
+
+**Change.** Two filters on `read`/`wait`/`subscribe` (§11.1): `to=<id>`
+(envelopes carrying an edge to that envelope) and `to_author=<identity>`
+(envelopes carrying an edge to anything that identity authored). With
+`wait`, the first is a monitor on one referent; the second is an
+identity's notification stream.
+
+**Why.** The owner asked for agent-side monitors and wakes on envelope
+activity. The observation that kept this from becoming infrastructure:
+**notification is inbound edge activity, and the log is already the
+queue.** No subscription objects, no per-agent mailbox state, nothing
+to expire or clean up — an agent's inbox is `wait(to_author=me,
+since=cursor)`, resumable by any successor session holding the cursor.
+Referents resolve against the requester's *visible* log, so listening
+reveals nothing reading would not. Harness integration falls out: run
+`korax wait --to <id>` as a background command; it exits on activity
+and the harness wakes the session.
+
+**Cost.** A prose mention without a ref triggers nothing — deliberate
+(§2.3 already rules that a relation existing only in prose is invisible
+to reductions), and one more reason conduct says to carry your refs.
+
+---
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·

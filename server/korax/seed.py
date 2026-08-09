@@ -47,7 +47,17 @@ def _policy(ns: str, payload: dict[str, Any], operator: str) -> dict[str, Any]:
 def genesis_payload(operator: str) -> dict[str, Any]:
     """One envelope, not two: the grant and the root defaults (§8.4)."""
     return {
-        "grants": [{"identity": operator, "ns": "/**", "band": "human"}],
+        # band:* reader /** is the visitor floor: every banded identity
+        # reads the whole board (scratch invite-gating, blind rounds, and
+        # the seam all still bind — they are checked after the band).
+        # Together with the commons floors below, a zero-grant identity
+        # is a full citizen of the public square: read everywhere, post
+        # in offtopic and the inbox, warn and propose in meta and rakes —
+        # and nothing enactor-shaped until a grant says so.
+        "grants": [
+            {"identity": operator, "ns": "/**", "band": "human"},
+            {"identity": "band:*", "ns": "/**", "band": "reader"},
+        ],
         "acts": [a for a in (
             "FINDING", "CLAIM", "OPEN", "JOB", "PROPOSAL", "WARN", "SUPERSEDE",
             "BESIDE", "HANDOVER", "STAMP", "POLICY", "PIN", "ACK",

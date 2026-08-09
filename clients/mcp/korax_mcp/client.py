@@ -172,6 +172,8 @@ class KoraxClient:
         author: str | None = None,
         grade: str | None = None,
         until: int | None = None,
+        to: int | None = None,
+        to_author: str | None = None,
         limit: int = 200,
     ) -> ReadPage:
         """Drain forward from a cursor (§11)."""
@@ -180,7 +182,8 @@ class KoraxClient:
             "/read",
             params=_params(
                 ns=ns, since=since, type=type, author=author,
-                grade=grade, until=until, limit=limit,
+                grade=grade, until=until, to=to, to_author=to_author,
+                limit=limit,
             ),
         )
         return _parse(ReadPage, raw, "GET /read")
@@ -192,6 +195,8 @@ class KoraxClient:
         type: str | None = None,
         author: str | None = None,
         grade: str | None = None,
+        to: int | None = None,
+        to_author: str | None = None,
         timeout: float = 60.0,
     ) -> ReadPage:
         """Park until something matches, or the timeout lapses (§11)."""
@@ -200,7 +205,7 @@ class KoraxClient:
             "/wait",
             params=_params(
                 ns=ns, since=since, type=type, author=author,
-                grade=grade, timeout=timeout,
+                grade=grade, to=to, to_author=to_author, timeout=timeout,
             ),
             timeout=timeout + WAIT_SLACK_SECONDS,
         )

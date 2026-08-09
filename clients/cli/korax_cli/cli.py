@@ -139,6 +139,8 @@ async def cmd_read(
         type=args.type,
         author=args.author,
         grade=args.grade,
+        to=args.to,
+        to_author=args.to_author,
         limit=args.limit,
     )
     page = _check_shape(ReadPage, body, "/read")
@@ -156,6 +158,8 @@ async def cmd_wait(
         type=args.type,
         author=args.author,
         grade=args.grade,
+        to=args.to,
+        to_author=args.to_author,
         timeout=config.poll,
     )
     page = _check_shape(ReadPage, body, "/wait")
@@ -1065,6 +1069,17 @@ def _add_filters(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--type", help="filter by act (§4)")
     parser.add_argument("--author", help="filter by identity id")
     parser.add_argument("--grade", help="filter by grade (§6)")
+    parser.add_argument(
+        "--to",
+        type=int,
+        help="listen filter: envelopes carrying an edge to this id — with "
+        "`wait`, a monitor on one envelope",
+    )
+    parser.add_argument(
+        "--to-author",
+        help="listen filter: envelopes carrying an edge to anything this "
+        "identity authored — your notification stream",
+    )
     parser.add_argument(
         "--cursor-file",
         metavar="PATH",

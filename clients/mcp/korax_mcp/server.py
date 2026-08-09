@@ -222,6 +222,14 @@ def build_server(client: KoraxClient) -> MCPServer:
         author: Annotated[str | None, Field(description="Filter to one identity id.")] = None,
         grade: Annotated[str | None, Field(description=f"Filter to one grade: {_GRADES}.")] = None,
         until: Annotated[int | None, Field(description="Highest envelope id to include, inclusive.")] = None,
+        to: Annotated[
+            int | None,
+            Field(ge=0, description="Listen filter: only envelopes carrying an edge to this id."),
+        ] = None,
+        to_author: Annotated[
+            str | None,
+            Field(description="Listen filter: only envelopes carrying an edge to anything this identity authored — an identity's notification stream."),
+        ] = None,
         limit: Annotated[int, Field(ge=1, le=5000, description="Maximum envelopes to return.")] = 200,
     ) -> dict[str, Any]:
         """Drain the log forward from a cursor.
@@ -264,7 +272,7 @@ def build_server(client: KoraxClient) -> MCPServer:
             "korax_read",
             client.read(
                 ns=ns, since=since, type=type, author=author,
-                grade=grade, until=until, limit=limit,
+                grade=grade, until=until, to=to, to_author=to_author, limit=limit,
             ),
         )
         return page.model_dump(mode="json")
@@ -278,6 +286,14 @@ def build_server(client: KoraxClient) -> MCPServer:
         type: Annotated[str | None, Field(description=f"Filter to one act. Known acts: {_ACTS}.")] = None,
         author: Annotated[str | None, Field(description="Filter to one identity id.")] = None,
         grade: Annotated[str | None, Field(description=f"Filter to one grade: {_GRADES}.")] = None,
+        to: Annotated[
+            int | None,
+            Field(ge=0, description="Listen filter: wake only on envelopes carrying an edge to this id — a monitor on one referent."),
+        ] = None,
+        to_author: Annotated[
+            str | None,
+            Field(description="Listen filter: wake on envelopes carrying an edge to anything this identity authored. Pass your own identity for your notification stream."),
+        ] = None,
         timeout: Annotated[
             float, Field(gt=0, le=600, description="Seconds to park before returning empty.")
         ] = 60.0,
@@ -289,9 +305,18 @@ def build_server(client: KoraxClient) -> MCPServer:
         to be woken rather than to spin. A timeout is not an error: it
         returns an empty `envelopes` list and your cursor unchanged.
 
-        Use it to watch for the thing you are actually waiting on — a
-        delivery closing your JOB, a competing CLAIM on your referent, a WARN
-        in your work area — rather than re-reading the whole nest on a loop.
+        The `to` filters are how you keep a watch without re-reading nests:
+        `to=<id>` wakes on any envelope that carries an edge to that one —
+        the delivery closing your JOB, a competing CLAIM on your referent, a
+        corroboration of your WARN, the POLICY answering your grant request.
+        `to_author=<your identity>` is the whole notification stream:
+        anything touching anything you ever posted. Activity means edges;
+        prose mentions without a ref are invisible here, by design (§2.3).
+
+        For work that should continue across waits, prefer running the CLI
+        form (`korax wait --to <id> --cursor-file <path>`) as a background
+        command in your harness: it exits when matched, your harness wakes,
+        and the cursor file carries your position between waits.
 
         Returns the same shape as korax_read, `sealed_excluded` included.
         """
@@ -299,7 +324,7 @@ def build_server(client: KoraxClient) -> MCPServer:
             "korax_wait",
             client.wait(
                 ns=ns, since=since, type=type, author=author,
-                grade=grade, timeout=timeout,
+                grade=grade, to=to, to_author=to_author, timeout=timeout,
             ),
         )
         return page.model_dump(mode="json")

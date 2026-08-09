@@ -89,7 +89,8 @@ def create_app(board: Board) -> FastAPI:
         return filter_log(board.log, board.timeline, who, board.head)
 
     def matches(env: Envelope, ns: str | None, type_: str | None, author: str | None,
-                grade: str | None, since: int, until: int | None) -> bool:
+                grade: str | None, since: int, until: int | None,
+                to_env: int | None = None, to_targets: set[int] | None = None) -> bool:
         if env.id <= since or (until is not None and env.id > until):
             return False
         if ns and not in_subtree(ns, env.ns):
@@ -100,7 +101,18 @@ def create_app(board: Board) -> FastAPI:
             return False
         if grade and env.grade.value != grade:
             return False
+        # listen filters (§9): activity is inbound edges — quotelinks are
+        # display sugar, the graph is refs (§2.3)
+        if to_env is not None and to_env not in {r.id for r in env.refs}:
+            return False
+        if to_targets is not None and not ({r.id for r in env.refs} & to_targets):
+            return False
         return True
+
+    def authored_by(log, identity: str) -> set[int]:
+        """Referents for to_author — computed over the requester's
+        *visible* log, so listening reveals nothing reading would not."""
+        return {e.id for e in log.envelopes if e.author == identity}
 
     # -- the perch (operator's browser view) --------------------------------
 
@@ -163,15 +175,21 @@ def create_app(board: Board) -> FastAPI:
         type: str | None = None,
         author: str | None = None,
         grade: str | None = None,
+        to: int | None = None,
+        to_author: str | None = None,
         limit: int = Query(default=500, le=5000),
     ) -> dict[str, Any]:
         log, sealed_envs = visible_log(who)
+        targets = authored_by(log, to_author) if to_author else None
         out = [
             dump(e) for e in log.envelopes
-            if matches(e, ns, type, author, grade, since, until)
+            if matches(e, ns, type, author, grade, since, until, to, targets)
         ][:limit]
         cursor = out[-1]["id"] if out else since
-        sealed = sum(1 for e in sealed_envs if matches(e, ns, type, author, grade, since, until))
+        sealed = sum(
+            1 for e in sealed_envs
+            if matches(e, ns, type, author, grade, since, until, to, targets)
+        )
         return {"envelopes": out, "cursor": cursor, "sealed_excluded": sealed}
 
     @app.get("/envelope/{env_id}")
@@ -206,20 +224,31 @@ def create_app(board: Board) -> FastAPI:
         type: str | None = None,
         author: str | None = None,
         grade: str | None = None,
+        to: int | None = None,
+        to_author: str | None = None,
         timeout: float = Query(default=60.0, le=600.0),
     ) -> dict[str, Any]:
         def pending() -> bool:
             log, _sealed = visible_log(who)
+            targets = authored_by(log, to_author) if to_author else None
             return any(
-                matches(e, ns, type, author, grade, since, None) for e in log.envelopes
+                matches(e, ns, type, author, grade, since, None, to, targets)
+                for e in log.envelopes
             )
 
         if not pending():
             await board.wait_for(pending, timeout)
         log, sealed_envs = visible_log(who)
-        out = [dump(e) for e in log.envelopes if matches(e, ns, type, author, grade, since, None)]
+        targets = authored_by(log, to_author) if to_author else None
+        out = [
+            dump(e) for e in log.envelopes
+            if matches(e, ns, type, author, grade, since, None, to, targets)
+        ]
         cursor = out[-1]["id"] if out else since
-        sealed = sum(1 for e in sealed_envs if matches(e, ns, type, author, grade, since, None))
+        sealed = sum(
+            1 for e in sealed_envs
+            if matches(e, ns, type, author, grade, since, None, to, targets)
+        )
         return {"envelopes": out, "cursor": cursor, "sealed_excluded": sealed}
 
     @app.get("/subscribe")
@@ -228,13 +257,17 @@ def create_app(board: Board) -> FastAPI:
         ns: str | None = None,
         since: int = Query(default=-1),
         type: str | None = None,
+        to: int | None = None,
+        to_author: str | None = None,
     ) -> StreamingResponse:
         async def stream():
             cursor = since
             while True:
                 log, _ = visible_log(who)
+                targets = authored_by(log, to_author) if to_author else None
                 fresh_envs = [
-                    e for e in log.envelopes if matches(e, ns, type, None, None, cursor, None)
+                    e for e in log.envelopes
+                    if matches(e, ns, type, None, None, cursor, None, to, targets)
                 ]
                 for env in fresh_envs:
                     cursor = env.id
