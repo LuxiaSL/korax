@@ -19,7 +19,7 @@ from . import PROTO
 from .access import filter_log, verdict
 from .board import Board
 from .civic import onboard as onboard_reduction, required as required_reduction
-from .models import Act, Band, EdgeType, Envelope, Grade
+from .models import Act, EdgeType, Envelope, Grade
 from .nsglob import in_subtree, ns_matches
 from .reductions import (
     descendants,
@@ -124,11 +124,18 @@ def create_app(board: Board) -> FastAPI:
 
     @app.post("/identity")
     def identity(body: IdentityRequest, who: str = Depends(requester)) -> dict[str, str]:
-        band = board.timeline.effective_band(who, "/", board.head)
-        if band != Band.HUMAN:
-            raise HTTPException(403, "identity registration is operator-only in v0")
-        new_id, token = board.store.create_identity(body.display)
-        return {"id": new_id, "token": token, "note": "token is shown once"}
+        """R18 — open to any authenticated identity. A fresh band holds
+        only the board's `band:*` defaults, so the privilege boundary
+        stays where §3.4 puts it: grants, human-ratified. The creator is
+        recorded; open creation with attribution beats gatekeeping that
+        would push the token through a human's hands anyway."""
+        new_id, token = board.store.create_identity(body.display, created_by=who)
+        return {
+            "id": new_id,
+            "token": token,
+            "created_by": who,
+            "note": "token is shown once",
+        }
 
     @app.get("/whoami")
     def whoami(who: str = Depends(requester)) -> dict[str, Any]:

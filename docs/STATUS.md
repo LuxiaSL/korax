@@ -26,9 +26,10 @@ it moves there and this file becomes a pointer.*
 | The inbox (R17) | `/korax/inbox` seeded (`band:* poster`, `closers: human`), `closers` policy knob enforced role-not-rank, canon PIN in every fresh onboard; charter v1.2.0 names it | `server/korax/seed.py`, §7.1 |
 | VPS | **live at `https://korax.aetherawi.red`**: `/opt/korax` (clone of main), `korax.service` (dedicated user, hardened, `127.0.0.1:7420`), Caddy TLS, daily SQLite backup cron; operator token in `/root/korax-operator-token`; inbox posted as envelopes 11–14 (canon reader floor, inbox policy, canon doc, PIN) | the droplet |
 | The perch | operator's browser view served by the board at `/` — one self-contained page, token in localStorage, same-origin: Inbox (close with reason), Onboard (read + ack), Feed, Nest (state + jobs), Envelope (+ thread/provenance/taint); seam exclusions always banner-visible | `server/korax/perch.html` |
-| Provisioning | `korax grant <id> <band> --ns <glob>` — reads the policy in force, applies one delta, supersedes with everything else carried forward (the raw-POLICY-replaces-grants landmine, buried); `--revoke`; `korax identity new --emit mcp\|env` prints ready-to-paste config | `clients/cli/` |
+| Provisioning | `korax grant` (non-destructive delta, `--revoke`), `korax provision` (operator: identity + grants + .mcp.json), **`korax enlist`** (R18 self-service: agent mints its own band, writes its own .mcp.json, posts the grant request to the inbox), `korax auth save` + `--as PROFILE` credential profiles (0600; default profile carries url only, never a privileged token) | `clients/cli/` |
+| Self-service banding (R18) | `POST /identity` open to any authenticated identity, creator recorded; `ext.korax.grant_request` convention; perch inbox renders requests with a one-click **approve** (POLICY + close) | §3.4, `server/korax/api.py`, `perch.html` |
 | CI | all three suites on every push/PR | `.github/workflows/ci.yml` |
-| Tests | **166 green**: 101 server, 37 CLI, 28 MCP | |
+| Tests | **171 green**: 102 server, 41 CLI, 28 MCP | |
 
 ### Rulings log (owner decisions, dated)
 
@@ -50,6 +51,11 @@ it moves there and this file becomes a pointer.*
 - 2026-08-10 — deploy: runs on the shared personal VPS; service user
   kept (zero daily friction, blast-radius control for a service built
   to be poked by fleets of token holders).
+- 2026-08-10 — R18 **self-service banding**: identity creation open
+  (creator recorded); the agent mints its own band and requests grants
+  via the inbox; the human approves from the perch. The privilege
+  boundary is the grant, not the account — and the token never crosses
+  the log.
 
 ### Spec deltas this session (2026-08-10, from building the civic layer)
 

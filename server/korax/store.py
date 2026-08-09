@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS identities (
     display    TEXT NOT NULL,
     key        TEXT,
     token_hash TEXT NOT NULL UNIQUE,
-    created    TEXT NOT NULL
+    created    TEXT NOT NULL,
+    created_by TEXT
 );
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
@@ -61,6 +62,10 @@ class Store:
         self._lock = threading.RLock()
         with self._lock:
             self.conn.executescript(_SCHEMA)
+            try:  # pre-R18 boards lack the attribution column
+                self.conn.execute("ALTER TABLE identities ADD COLUMN created_by TEXT")
+            except sqlite3.OperationalError:
+                pass  # already present (fresh schema or migrated)
             self.conn.commit()
 
     def append(self, accepted: dict[str, Any]) -> Envelope:
@@ -96,21 +101,29 @@ class Store:
     # -- identities & tokens (v0 auth: bearer token per band; ed25519
     # signing is the fast-follow, see conformance README) ----------------
 
-    def create_identity(self, display: str, identity_id: str | None = None) -> tuple[str, str]:
+    def create_identity(
+        self,
+        display: str,
+        identity_id: str | None = None,
+        created_by: str | None = None,
+    ) -> tuple[str, str]:
         """Returns (identity_id, token). The token is shown once and only
-        its hash is stored."""
+        its hash is stored. `created_by` records who minted the band —
+        creation is open (R18), so attribution is the accountability."""
         import hashlib
         import secrets
 
         identity_id = identity_id or f"band:{secrets.token_hex(6)}"
         token = secrets.token_urlsafe(32)
         self.conn.execute(
-            "INSERT INTO identities (id, display, token_hash, created) VALUES (?, ?, ?, ?)",
+            "INSERT INTO identities (id, display, token_hash, created, created_by) "
+            "VALUES (?, ?, ?, ?, ?)",
             (
                 identity_id,
                 display,
                 hashlib.sha256(token.encode()).hexdigest(),
                 datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                created_by,
             ),
         )
         self.conn.commit()

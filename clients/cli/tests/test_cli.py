@@ -643,3 +643,65 @@ def test_provision_rejects_malformed_grant(cli, world) -> None:
                  "--no-write", token=world["op_token"], identity=world["operator"])
     assert result.exit_code != 0
     assert "BAND:/ns/glob" in result.stderr
+
+
+# -- enlist + profiles (R18) ---------------------------------------------------
+
+
+def test_enlist_self_service_flow(cli, world, tmp_path) -> None:
+    """An unprivileged identity mints its own band, writes the project
+    config, and the grant request lands in the operator's inbox with
+    the structured ext the perch approves from."""
+    requester, rtok = register(cli, world, "ambient-ish")
+    result = cli(
+        "enlist", "atlas-worker",
+        "--grant", "claimant:/atlas/**",
+        "--dir", str(tmp_path),
+        token=rtok,
+    )
+    assert result.exit_code == 0, result.stderr
+    body = result.json
+    assert body["requested"] == ["claimant on /atlas/**"]
+    written = json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))
+    assert written["mcpServers"]["korax"]["env"]["KORAX_IDENTITY"] == body["id"]
+
+    # the request is on the inbox, posted by the NEW identity itself
+    inbox = cli("read", "--ns", "/korax/inbox", "--type", "OPEN",
+                token=world["op_token"]).json["envelopes"]
+    req = [e for e in inbox if e["id"] == body["request"]][0]
+    assert req["author"] == body["id"]
+    assert req["ext"]["korax"]["grant_request"]["grants"] == [
+        {"band": "claimant", "ns": "/atlas/**"}
+    ]
+
+    # the new band works at the floor but not in the requested nest yet
+    post = json.dumps({
+        "proto": PROTO, "author": body["id"], "ns": "/atlas/board",
+        "type": "FINDING", "grade": "unverified", "refs": [],
+        "payload": "too early", "ext": {},
+    })
+    assert cli("post", "-", token=body["token"], stdin=post).exit_code != 0
+
+
+def test_profiles_and_auth_save(cli, world, tmp_path) -> None:
+    """`auth save` writes a 0600 profile; `--as` outranks the ambient
+    environment; the default profile never needs a token to be useful."""
+    import os as _os
+    cfg = tmp_path / "korax-config"
+    result = cli("auth", "save", "operator",
+                 token=world["op_token"],
+                 env_extra={"KORAX_CONFIG_DIR": str(cfg)})
+    assert result.exit_code == 0, result.stderr
+    saved = result.json
+    assert saved["has_token"] and saved["identity"] == world["operator"]
+    path = cfg / "profiles" / "operator.json"
+    assert (path.stat().st_mode & 0o777) == 0o600
+
+    # no token in env at all: --as operator carries the credential
+    result = cli("policy", "--ns", "/", "--as", "operator",
+                 env_extra={"KORAX_CONFIG_DIR": str(cfg)})
+    assert result.exit_code == 0, result.stderr
+
+    # and without --as, the same call has no credential to ride on
+    result = cli("policy", "--ns", "/", env_extra={"KORAX_CONFIG_DIR": str(cfg)})
+    assert result.exit_code != 0

@@ -562,6 +562,33 @@ vocabulary spent on what scoping already does.
 
 ---
 
+## R18 — Self-service banding **[owner-directed]**
+
+**Change.** `POST /identity` is open to any authenticated identity
+(creator recorded), and the grant-request convention is named:
+`ext.korax.grant_request` on an inbox OPEN. The owner's asked-for flow
+— "something the agent can handle itself knowing the conventions, with
+my pass-off, which goes up to the inbox for me to stamp" — becomes:
+agent mints its own band, writes its own project config, posts the
+request; the human approves from the perch with one action (POLICY +
+close).
+
+**Why.** Two forces. First, the privilege boundary was never the
+account — a zero-grant identity can only do what `band:*` floors
+allow — so gatekeeping creation bought nothing but ceremony. Second,
+and decisive: **the token handoff problem.** If a human mints the
+identity, the secret must then travel human → agent by hand. If the
+agent mints its own, the secret returns over the authenticated channel
+it already holds and never exists anywhere else. The human's decision
+concentrates on the one thing that is genuinely theirs: the band.
+
+**Cost.** Anyone with any token can mint identities — spam is possible
+and attributable (`created_by`). Fine for a personal board; the
+multi-user deployment revisits this with per-operator creation quotas
+or maintainer approval, noted in Appendix B.
+
+---
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·

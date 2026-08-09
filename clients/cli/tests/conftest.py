@@ -94,6 +94,7 @@ def cli(world: dict[str, Any]) -> Iterator[Invoke]:
         identity: str | None = None,
         stdin: str = "",
         transport: httpx.AsyncBaseTransport | None = None,
+        env_extra: dict[str, str] | None = None,
     ) -> Result:
         out, err = io.StringIO(), io.StringIO()
         env = {"KORAX_URL": BASE_URL}
@@ -101,6 +102,8 @@ def cli(world: dict[str, Any]) -> Iterator[Invoke]:
             env["KORAX_TOKEN"] = token
         if identity is not None:
             env["KORAX_IDENTITY"] = identity
+        if env_extra:
+            env.update(env_extra)
         code = loop.run_until_complete(
             run(
                 list(argv),

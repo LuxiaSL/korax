@@ -491,3 +491,31 @@ def test_perch_is_served_at_root(world: dict) -> None:
     assert r.status_code == 200
     assert "perch" in r.text
     assert "/view/onboard" in r.text  # the page drains onboard like anyone
+
+
+def test_identity_creation_is_open_with_attribution(world: dict) -> None:
+    """R18 — any authenticated identity may mint; the creator is
+    recorded. A fresh band holds only the band:* floor, so the
+    privilege boundary stays at the grant."""
+    client = world["client"]
+    agent, token = _register(world, "minter")
+    r = client.post("/identity", json={"display": "self-made"}, headers=auth(token))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["created_by"] == agent
+
+    # the fresh band can reach the inbox (band:* poster) but not, say,
+    # post a FINDING to a project nest it holds no grant on
+    fresh_token = body["token"]
+    ok = client.post("/post", headers=auth(fresh_token), json={
+        "proto": PROTO, "author": body["id"], "ns": "/korax/inbox",
+        "type": "OPEN", "grade": "n/a", "refs": [],
+        "payload": "grant request", "ext": {},
+    })
+    assert ok.status_code == 200, ok.text
+    denied = client.post("/post", headers=auth(fresh_token), json={
+        "proto": PROTO, "author": body["id"], "ns": "/proj/board",
+        "type": "FINDING", "grade": "unverified", "refs": [],
+        "payload": "sneaking in", "ext": {},
+    })
+    assert denied.status_code == 403

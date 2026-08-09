@@ -86,6 +86,8 @@ class KoraxClient:
         if token:
             headers["Authorization"] = f"Bearer {token}"
         self.base_url = base_url.rstrip("/")
+        self.transport = transport  # kept so a command can open a second
+        # connection as another identity (enlist) over the same transport
         self._authenticated = bool(token)
         self._http = httpx.AsyncClient(
             base_url=self.base_url,

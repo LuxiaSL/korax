@@ -301,15 +301,7 @@ async def cmd_provision(
     superseding POLICY, everything else carried forward), and write the
     project's .mcp.json. Run with the operator token; the band outlives
     every session that will animate it."""
-    grants: list[tuple[str, str]] = []
-    for spec in args.grant or []:
-        band, sep, ns = spec.partition(":")
-        if not sep or not ns.startswith("/"):
-            raise CliError(
-                f"--grant {spec!r}: expected BAND:/ns/glob, e.g. claimant:/atlas/**"
-            )
-        grants.append((band, ns))
-
+    grants = _parse_grants(args.grant)
     created = await client.create_identity(args.display)
     _check_shape(IdentityCreated, created, "/identity")
     identity, new_token = created["id"], created["token"]
@@ -343,42 +335,151 @@ async def cmd_provision(
         "KORAX_TOKEN": new_token,
         "KORAX_IDENTITY": identity,
     }
-    server_block = {
-        "command": "uv",
-        "args": ["run", "--directory", f"{args.repo}/clients/mcp", "korax-mcp"],
-        "env": env,
-    }
-
     result: dict[str, Any] = {
         "id": identity,
         "display": args.display,
         "token": new_token,
         "granted": granted,
         "env": env,
-        "mcp_server": {"korax": server_block},
+        "mcp_server": {"korax": _server_block(args.repo, env)},
+    }
+    if not args.no_write:
+        result["wrote"] = _write_mcp_config(args.dir, _server_block(args.repo, env), rt)
+    rt.emit(result)
+    return 0
+
+
+def _write_mcp_config(directory: str, server_block: dict[str, Any], rt: Runtime) -> str:
+    """Write or merge the project's .mcp.json. It carries a bearer
+    token, so the caller is warned to keep it out of version control."""
+    target = Path(directory) / ".mcp.json"
+    existing: dict[str, Any] = {}
+    if target.exists():
+        try:
+            existing = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise CliError(
+                f"{target} exists but is not readable JSON: {exc}",
+                hint="fix or remove it, or pass --no-write",
+            ) from exc
+    existing.setdefault("mcpServers", {})["korax"] = server_block
+    target.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    rt.warn(
+        f"{target} now carries this identity's bearer token — treat it "
+        "like an ssh key and keep it out of version control"
+    )
+    return str(target)
+
+
+def _parse_grants(specs: list[str] | None) -> list[tuple[str, str]]:
+    grants: list[tuple[str, str]] = []
+    for spec in specs or []:
+        band, sep, ns = spec.partition(":")
+        if not sep or not ns.startswith("/"):
+            raise CliError(
+                f"--grant {spec!r}: expected BAND:/ns/glob, e.g. claimant:/atlas/**"
+            )
+        grants.append((band, ns))
+    return grants
+
+
+def _server_block(repo: str, env: dict[str, str]) -> dict[str, Any]:
+    return {
+        "command": "uv",
+        "args": ["run", "--directory", f"{repo}/clients/mcp", "korax-mcp"],
+        "env": env,
     }
 
+
+async def cmd_enlist(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """R18 self-service: mint your *own* identity (the token comes back
+    to you over the authenticated channel — it never crosses the log),
+    write the project config, and post the grant request to the
+    operator's inbox. Work at the band:* floor until the ruling lands."""
+    grants = _parse_grants(args.grant)
+    created = await client.create_identity(args.display)
+    _check_shape(IdentityCreated, created, "/identity")
+    identity, new_token = created["id"], created["token"]
+
+    env = {
+        "KORAX_URL": config.url,
+        "KORAX_TOKEN": new_token,
+        "KORAX_IDENTITY": identity,
+    }
+    result: dict[str, Any] = {
+        "id": identity,
+        "display": args.display,
+        "token": new_token,
+        "requested": [f"{band} on {ns}" for band, ns in grants],
+        "env": env,
+        "mcp_server": {"korax": _server_block(args.repo, env)},
+    }
     if not args.no_write:
-        target = Path(args.dir) / ".mcp.json"
-        existing: dict[str, Any] = {}
-        if target.exists():
-            try:
-                existing = json.loads(target.read_text(encoding="utf-8"))
-            except (OSError, ValueError) as exc:
-                raise CliError(
-                    f"{target} exists but is not readable JSON: {exc}",
-                    hint="fix or remove it, or pass --no-write",
-                )
-        servers = existing.setdefault("mcpServers", {})
-        servers["korax"] = server_block
-        target.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
-        result["wrote"] = str(target)
-        rt.warn(
-            f"{target} now carries this identity's bearer token — treat it "
-            "like an ssh key and keep it out of version control"
+        result["wrote"] = _write_mcp_config(args.dir, _server_block(args.repo, env), rt)
+
+    if grants:
+        # the request is posted BY the new identity — the band that wants
+        # the grant introduces itself, attributably, at the band:* floor
+        request = Submission(
+            author=identity,
+            ns="/korax/inbox",
+            type="OPEN",
+            grade="n/a",
+            payload=(
+                f"grant request: {args.display} ({identity}) seeks "
+                + ", ".join(f"{band} on {ns}" for band, ns in grants)
+                + " — self-enlisted (R18); working at the band:* floor until ruled"
+            ),
+            ext={"korax": {"grant_request": {
+                "identity": identity,
+                "display": args.display,
+                "grants": [{"band": band, "ns": ns} for band, ns in grants],
+            }}},
         )
+        as_new = KoraxClient(
+            config.url, new_token, transport=client.transport, timeout=config.timeout
+        )
+        try:
+            posted = await as_new.post_envelope(request.to_wire())
+        finally:
+            await as_new.aclose()
+        result["request"] = posted["id"]
 
     rt.emit(result)
+    return 0
+
+
+async def cmd_auth_save(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """Persist the resolved connection as a named profile under
+    ~/.config/korax/profiles/ (0600). `--as NAME` uses it later. Keep
+    privileged tokens in named profiles, never in `default` — the
+    default profile is inherited by every shell, agents included."""
+    identity = config.identity
+    if config.token and not identity:
+        try:
+            identity = (await client.whoami()).get("identity")
+        except ApiError:
+            pass  # offline save is fine; identity stays unset
+    profile = {"url": config.url}
+    if config.token:
+        profile["token"] = config.token
+    if identity:
+        profile["identity"] = identity
+    path = _profiles_dir(getattr(args, "_env", os.environ)) / f"{args.name}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+    rt.emit({
+        "saved": str(path),
+        "profile": args.name,
+        "url": config.url,
+        "has_token": bool(config.token),
+        "identity": identity,
+    })
     return 0
 
 
@@ -448,6 +549,8 @@ CLIENT_CONFORMANCE: dict[str, Any] = {
         "ack",
         "grant",
         "provision",
+        "enlist",
+        "auth save",
         "envelope",
         "policy",
         "identity new",
@@ -659,6 +762,14 @@ def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--url", default=argparse.SUPPRESS, help="board base URL")
     common.add_argument("--token", default=argparse.SUPPRESS, help="bearer token")
+    common.add_argument(
+        "--as",
+        dest="profile",
+        default=argparse.SUPPRESS,
+        metavar="PROFILE",
+        help="use a saved credential profile (`korax auth save PROFILE`); "
+        "an explicit choice, so it outranks the environment",
+    )
     common.add_argument(
         "--timeout",
         type=float,
@@ -874,6 +985,48 @@ def build_parser() -> argparse.ArgumentParser:
     provision.add_argument("--author", help="identity id (default $KORAX_IDENTITY, else /whoami)")
     provision.set_defaults(func=cmd_provision)
 
+    # -- enlist -----------------------------------------------------------------
+    enlist = sub.add_parser(
+        "enlist",
+        parents=[common],
+        help="mint your own identity and request its bands (R18)",
+        description="Self-service: create an identity (the token returns to "
+        "you and never crosses the log), write this project's .mcp.json, "
+        "and post the grant request as an OPEN in /korax/inbox. Keep "
+        "working at the band:* floor until the operator rules.",
+    )
+    enlist.add_argument("display", help="identity display name, e.g. atlas-worker")
+    enlist.add_argument(
+        "--grant",
+        action="append",
+        metavar="BAND:/ns/glob",
+        help="bands to request, repeatable; omit to just mint",
+    )
+    enlist.add_argument("--dir", default=".", help="project directory (default: cwd)")
+    enlist.add_argument("--no-write", action="store_true", help="print the config; write nothing")
+    enlist.add_argument(
+        "--repo",
+        default=_mcp_repo_default(),
+        help="korax monorepo path used in the MCP command (default: this install)",
+    )
+    enlist.set_defaults(func=cmd_enlist)
+
+    # -- auth ------------------------------------------------------------------
+    auth = sub.add_parser(
+        "auth", parents=[common], help="credential profiles for --as"
+    )
+    auth_sub = auth.add_subparsers(dest="auth_command", required=True, metavar="SUBCOMMAND")
+    auth_save = auth_sub.add_parser(
+        "save",
+        parents=[common],
+        help="save the resolved url/token/identity as a named profile (0600)",
+        description="Keep privileged tokens in named profiles, never in "
+        "`default` — the default profile is inherited by every shell, "
+        "agents included; carrying only the board url there is the intent.",
+    )
+    auth_save.add_argument("name", help="profile name, e.g. operator")
+    auth_save.set_defaults(func=cmd_auth_save)
+
     # -- identity -----------------------------------------------------------
     identity = sub.add_parser(
         "identity", parents=[common], help="identity registration (§9 /identity)"
@@ -920,8 +1073,38 @@ def _add_filters(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _profiles_dir(env: Mapping[str, str]) -> Path:
+    base = env.get("KORAX_CONFIG_DIR")
+    return (Path(base) if base else Path.home() / ".config" / "korax") / "profiles"
+
+
+def _load_profile(env: Mapping[str, str], name: str, *, required: bool) -> dict[str, Any]:
+    path = _profiles_dir(env) / f"{name}.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        if required:
+            raise CliError(
+                f"no profile {name!r} at {path}",
+                hint="save one with `korax auth save " + name + "`",
+            ) from None
+        return {}
+    except (OSError, ValueError) as exc:
+        raise CliError(f"profile {name!r} at {path} is unreadable: {exc}") from exc
+    return data if isinstance(data, dict) else {}
+
+
 def resolve_config(args: argparse.Namespace, env: Mapping[str, str]) -> Config:
-    url = getattr(args, "url", None) or env.get("KORAX_URL") or DEFAULT_URL
+    # Precedence: flags > `--as` profile (an explicit choice, like a flag)
+    # > environment > the `default` profile > built-ins. The default
+    # profile should carry the url and never a privileged token — an
+    # agent's shell must not silently inherit the operator's band.
+    chosen = _load_profile(env, args.profile, required=True) if getattr(args, "profile", None) else {}
+    fallback = _load_profile(env, "default", required=False)
+    url = (
+        getattr(args, "url", None) or chosen.get("url") or env.get("KORAX_URL")
+        or fallback.get("url") or DEFAULT_URL
+    )
     if not url.startswith(("http://", "https://")):
         raise CliError(
             f"board URL {url!r} needs an http:// or https:// scheme",
@@ -941,8 +1124,14 @@ def resolve_config(args: argparse.Namespace, env: Mapping[str, str]) -> Config:
     try:
         return Config(
             url=url,
-            token=getattr(args, "token", None) or env.get("KORAX_TOKEN") or None,
-            identity=env.get("KORAX_IDENTITY") or None,
+            token=(
+                getattr(args, "token", None) or chosen.get("token")
+                or env.get("KORAX_TOKEN") or fallback.get("token") or None
+            ),
+            identity=(
+                chosen.get("identity") or env.get("KORAX_IDENTITY")
+                or fallback.get("identity") or None
+            ),
             timeout=timeout,
             poll=poll,
         )
@@ -977,6 +1166,7 @@ async def run(
     except SystemExit as exc:  # --help, or a usage error argparse already printed
         return int(exc.code or 0)
 
+    args._env = environment  # commands that touch profiles need the same env
     try:
         config = resolve_config(args, environment)
     except CliError as exc:
