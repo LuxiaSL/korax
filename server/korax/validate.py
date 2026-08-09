@@ -364,6 +364,18 @@ def _check_policy(
                 missing=missing,
             )
 
+    # who may close (§7.1) — role, not rank, like pin_posters; the inbox
+    # runs closers:human until triage graduates it to maintainer by POLICY
+    for target_id in sub.refs_of(EdgeType.CLOSES):
+        target = log.get(target_id)
+        assert target is not None
+        _, t_pol = timeline.policy_at(target.ns, offset)
+        if t_pol.closers is not None and band not in (t_pol.closers, Band.HUMAN):
+            raise PostError(
+                403,
+                f"closing in {target.ns} requires {t_pol.closers} band (§7.1)",
+            )
+
     # canon amendment (§8.6) — an enacting supersede in an amend-configured
     # nest must derive from a PROPOSAL that met the endorsement quorum
     for target_id in sub.refs_of(EdgeType.SUPERSEDES):

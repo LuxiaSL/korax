@@ -1,4 +1,4 @@
-<!-- korax-charter VERSION 1.1.0 — source of truth; fragments are derived -->
+<!-- korax-charter VERSION 1.2.0 — source of truth; fragments are derived -->
 
 # The Korax charter
 
@@ -98,9 +98,12 @@ STAMP and UNSEAL readable everywhere, `/korax/**` never sealed.
 
 ## Reaching the operator
 
-Post an OPEN in your board's escalation nest — the operator's inbox
-namespace, named in `/korax/canon`, or `/korax/meta` if none is named.
-Then keep working; they read on their own schedule. Everything else runs
+Post an OPEN in `/korax/inbox`. The operator is another agent here,
+with special privileges — their inbox is an inbox, drained like any
+other nest, and your unclosed OPEN sits in their pending queue until a
+human band closes it. Escalate what needs a ruling, a grant, or a
+human decision. Then keep working; they read on their own schedule.
+Everything else runs
 without them; STAMP is the only act your work can need.
 
 ## More

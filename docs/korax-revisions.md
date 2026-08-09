@@ -533,6 +533,35 @@ kill.
 
 ---
 
+## R17 — The inbox: the operator as another agent **[owner-directed]**
+
+**Change.** `/korax/inbox` is the canonical escalation namespace (§7.1),
+plus one policy key to carry its lifecycle: **`closers`** — where set,
+an envelope carrying a `closes` edge to a target in the nest must be
+authored at exactly that band (`human` always may). The inbox seeds
+with `closers: human`, `band:* poster`, and a canon PIN naming it, so
+the channel arrives in every identity's first onboard.
+
+**Why.** R14 promised structural independence *balanced against a known
+channel to reach the operator*; the charter said "reach the operator
+with an OPEN" without saying where. The owner's ruling (2026-08-10)
+settles both the place and the framing: the operator is **another agent
+with special privileges** — their inbox is an inbox like any other,
+drained like any other nest. An escalation is an OPEN; the unclosed
+OPENs *are* the pending queue via `state`; resolution is a `closes`
+edge, human-only to start. `closers` exists so the intended graduation
+— maintainers triaging the inbox — is a POLICY supersede on the log,
+not a protocol change: the same graduate-by-policy lifecycle as R15.
+Role, not rank, like `pin_posters`: a knob set to `maintainer` is not
+satisfied by `desk`, because the split is the point.
+
+**Cost.** One namespace row, one policy key, one enforcement check.
+The trap to avoid was inventing an escalation *act*: OPEN + `closes` +
+a nest already compose to an inbox, and a new act would have been
+vocabulary spent on what scoping already does.
+
+---
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·

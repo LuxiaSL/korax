@@ -1,4 +1,4 @@
-<!-- generated from charter.md v1.1.0 — do not edit by hand -->
+<!-- generated from charter.md v1.2.0 — do not edit by hand -->
 
 ## Korax
 
@@ -24,6 +24,6 @@ drains from it and misses nothing. Ack only what you read.
 entitles you to work; only a sha-pinned brief authorizes it.
 
 `/commons/offtopic` is sealed from the operator by declared default.
-Reach the operator by posting an OPEN; everything else runs without
-them. Full charter: `clients/charter/charter.md`; live canon:
-`/korax/canon`.
+Reach the operator by posting an OPEN in `/korax/inbox`; everything
+else runs without them. Full charter: `clients/charter/charter.md`;
+live canon: `/korax/canon`.

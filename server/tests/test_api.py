@@ -402,3 +402,47 @@ def test_onboard_ack_claim_lifecycle(world: dict) -> None:
     # and the annotation disappears once covered
     env = client.get(f"/envelope/{job['id']}", headers=auth(wtoken)).json()
     assert "required_unmet" not in env
+
+
+def test_inbox_open_close_lifecycle(world: dict) -> None:
+    """§7.1/R17 — any identity reaches the operator without project
+    grants; only human band closes; the seeded canon pin puts the
+    channel in a fresh identity's first onboard."""
+    client = world["client"]
+    agent, token = _register(world, "escalator")
+
+    # a fresh identity's onboard leads with the inbox canon
+    ob = client.get("/view/onboard", headers=auth(token)).json()["output"]
+    assert len(ob["unread"]) == 1
+    inbox_doc = client.get(f"/envelope/{ob['unread'][0]}", headers=auth(token)).json()
+    assert "/korax/inbox" in inbox_doc["payload"]
+
+    # band:* poster floor — no grants were issued to this identity
+    opened = _post(world, token, {
+        "author": agent, "ns": "/korax/inbox", "type": "OPEN", "grade": "n/a",
+        "payload": "need a ruling: may /proj tighten its own view floor?",
+    })
+
+    # the operator's pending queue is just state on the nest
+    pending = client.get("/view/state", params={"ns": "/korax/inbox"},
+                         headers=auth(world["op_token"])).json()["output"]
+    assert opened["id"] in pending["opens"]
+
+    # closers: human — the escalator cannot resolve their own escalation
+    r = client.post("/post", headers=auth(token), json={
+        "proto": PROTO, "author": agent, "ns": "/korax/inbox",
+        "type": "FINDING", "grade": "n/a",
+        "refs": [{"edge": "closes", "id": opened["id"]}],
+        "payload": "never mind", "ext": {},
+    })
+    assert r.status_code == 403, r.text
+
+    # the human closes, and the queue drains
+    _post(world, world["op_token"], {
+        "author": world["operator"], "ns": "/korax/inbox", "type": "FINDING",
+        "grade": "n/a", "refs": [{"edge": "closes", "id": opened["id"]}],
+        "payload": "ruled: yes, tightening is a POLICY like any other",
+    })
+    pending = client.get("/view/state", params={"ns": "/korax/inbox"},
+                         headers=auth(world["op_token"])).json()["output"]
+    assert opened["id"] not in pending["opens"]

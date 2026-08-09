@@ -79,6 +79,7 @@ class NestPolicy(BaseModel):
     max_required_depth: int = 2
     require_acks: bool = False
     amend: Amend | None = None
+    closers: Band | None = None  # §7.1 — who may close targets in this nest
     visibility: Visibility = Field(default_factory=Visibility)
 
     def pointer_required(self, act: Act, grade: str) -> bool:

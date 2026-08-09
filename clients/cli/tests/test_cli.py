@@ -530,7 +530,7 @@ def test_onboard_carries_documents_and_ack_drains_it(cli, world) -> None:
     assert acked.json["ns"] == "/korax/meta"  # the default ack nest
 
     drained = cli("onboard", "--list-only", token=wtoken)
-    assert drained.json["output"]["unread"] == []
+    assert doc_id not in drained.json["output"]["unread"]
 
 
 def test_ack_resolves_author_from_whoami(cli, world) -> None:
