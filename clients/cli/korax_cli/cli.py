@@ -287,6 +287,101 @@ async def cmd_grant(
     return 0
 
 
+def _mcp_repo_default() -> str:
+    """The monorepo root, inferred from this package's own location —
+    correct for the workspace install; --repo overrides elsewhere."""
+    return str(Path(__file__).resolve().parents[3])
+
+
+async def cmd_provision(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """One command from 'this project should exist on the board' to a
+    session that carries it: mint the identity, post its grants (one
+    superseding POLICY, everything else carried forward), and write the
+    project's .mcp.json. Run with the operator token; the band outlives
+    every session that will animate it."""
+    grants: list[tuple[str, str]] = []
+    for spec in args.grant or []:
+        band, sep, ns = spec.partition(":")
+        if not sep or not ns.startswith("/"):
+            raise CliError(
+                f"--grant {spec!r}: expected BAND:/ns/glob, e.g. claimant:/atlas/**"
+            )
+        grants.append((band, ns))
+
+    created = await client.create_identity(args.display)
+    _check_shape(IdentityCreated, created, "/identity")
+    identity, new_token = created["id"], created["token"]
+
+    granted: list[str] = []
+    if grants:
+        current = await client.policy(args.policy_ns)
+        payload = dict(current["payload"])
+        kept = [
+            dict(g) for g in payload.get("grants", [])
+            if not (g.get("identity") == identity and g.get("ns") in {ns for _, ns in grants})
+        ]
+        payload["grants"] = kept + [
+            {"identity": identity, "ns": ns, "band": band} for band, ns in grants
+        ]
+        author = await _resolve_author(args, client, config)
+        submission = Submission(
+            author=author,
+            ns=args.policy_ns,
+            type="POLICY",
+            grade="n/a",
+            refs=({"edge": "supersedes", "id": current["policy"]},),  # type: ignore[arg-type]
+            payload=payload,
+        )
+        policy_env = await client.post_envelope(submission.to_wire())
+        _check_shape(Envelope, policy_env, "/post")
+        granted = [f"{band} on {ns}" for band, ns in grants]
+
+    env = {
+        "KORAX_URL": config.url,
+        "KORAX_TOKEN": new_token,
+        "KORAX_IDENTITY": identity,
+    }
+    server_block = {
+        "command": "uv",
+        "args": ["run", "--directory", f"{args.repo}/clients/mcp", "korax-mcp"],
+        "env": env,
+    }
+
+    result: dict[str, Any] = {
+        "id": identity,
+        "display": args.display,
+        "token": new_token,
+        "granted": granted,
+        "env": env,
+        "mcp_server": {"korax": server_block},
+    }
+
+    if not args.no_write:
+        target = Path(args.dir) / ".mcp.json"
+        existing: dict[str, Any] = {}
+        if target.exists():
+            try:
+                existing = json.loads(target.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise CliError(
+                    f"{target} exists but is not readable JSON: {exc}",
+                    hint="fix or remove it, or pass --no-write",
+                )
+        servers = existing.setdefault("mcpServers", {})
+        servers["korax"] = server_block
+        target.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+        result["wrote"] = str(target)
+        rt.warn(
+            f"{target} now carries this identity's bearer token — treat it "
+            "like an ssh key and keep it out of version control"
+        )
+
+    rt.emit(result)
+    return 0
+
+
 async def cmd_envelope(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
@@ -352,6 +447,7 @@ CLIENT_CONFORMANCE: dict[str, Any] = {
         "onboard",
         "ack",
         "grant",
+        "provision",
         "envelope",
         "policy",
         "identity new",
@@ -745,6 +841,38 @@ def build_parser() -> argparse.ArgumentParser:
     grant_cmd.add_argument("--revoke", action="store_true", help="remove the grant instead")
     grant_cmd.add_argument("--author", help="identity id (default $KORAX_IDENTITY, else /whoami)")
     grant_cmd.set_defaults(func=cmd_grant)
+
+    # -- provision ------------------------------------------------------------
+    provision = sub.add_parser(
+        "provision",
+        parents=[common],
+        help="mint an identity, grant its bands, write .mcp.json (operator)",
+        description="The whole per-project setup in one command, run with "
+        "the operator token: identity new + grants (one superseding POLICY, "
+        "other grants carried forward) + the project's .mcp.json, merged if "
+        "one exists. The .mcp.json carries the token — gitignore it.",
+    )
+    provision.add_argument("display", help="identity display name, e.g. atlas-worker")
+    provision.add_argument(
+        "--grant",
+        action="append",
+        metavar="BAND:/ns/glob",
+        help="repeatable, e.g. --grant claimant:/atlas/** --grant warner:/commons/**",
+    )
+    provision.add_argument("--dir", default=".", help="project directory (default: cwd)")
+    provision.add_argument(
+        "--no-write", action="store_true", help="print the config; write nothing"
+    )
+    provision.add_argument(
+        "--repo",
+        default=_mcp_repo_default(),
+        help="korax monorepo path used in the MCP command (default: this install)",
+    )
+    provision.add_argument(
+        "--policy-ns", default="/", help="namespace whose policy carries the grants"
+    )
+    provision.add_argument("--author", help="identity id (default $KORAX_IDENTITY, else /whoami)")
+    provision.set_defaults(func=cmd_provision)
 
     # -- identity -----------------------------------------------------------
     identity = sub.add_parser(

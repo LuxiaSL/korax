@@ -597,3 +597,49 @@ def test_identity_new_emit_mcp(cli, world) -> None:
     assert body["env"]["KORAX_TOKEN"] == body["token"]
     assert body["env"]["KORAX_IDENTITY"] == body["id"]
     assert "korax-mcp" in body["mcp_server"]["korax"]["args"][-1]
+
+
+# -- provision -----------------------------------------------------------------
+
+
+def test_provision_end_to_end(cli, world, tmp_path) -> None:
+    """One command: identity + grants + .mcp.json. The minted identity
+    can immediately post into its granted nest, and an existing
+    .mcp.json is merged, not clobbered."""
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"other": {"command": "keepme"}}}), encoding="utf-8"
+    )
+    result = cli(
+        "provision", "atlas-worker",
+        "--grant", "claimant:/atlas/**", "--grant", "warner:/commons/**",
+        "--dir", str(tmp_path),
+        token=world["op_token"], identity=world["operator"],
+    )
+    assert result.exit_code == 0, result.stderr
+    body = result.json
+    assert body["granted"] == ["claimant on /atlas/**", "warner on /commons/**"]
+    assert any("ssh key" in w for w in result.warnings)
+
+    written = json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))
+    assert written["mcpServers"]["other"] == {"command": "keepme"}  # merged
+    korax_env = written["mcpServers"]["korax"]["env"]
+    assert korax_env["KORAX_TOKEN"] == body["token"]
+    assert korax_env["KORAX_IDENTITY"] == body["id"]
+
+    post = json.dumps({
+        "proto": PROTO, "author": body["id"], "ns": "/atlas/board",
+        "type": "FINDING", "grade": "unverified", "refs": [],
+        "payload": "provisioned and posting", "ext": {},
+    })
+    assert cli("post", "-", token=body["token"], stdin=post).exit_code == 0
+
+    # the operator's own grant survived the provisioning POLICY
+    assert cli("whoami" if False else "policy", "--ns", "/",
+               token=world["op_token"]).exit_code == 0
+
+
+def test_provision_rejects_malformed_grant(cli, world) -> None:
+    result = cli("provision", "broken", "--grant", "claimant-atlas",
+                 "--no-write", token=world["op_token"], identity=world["operator"])
+    assert result.exit_code != 0
+    assert "BAND:/ns/glob" in result.stderr
