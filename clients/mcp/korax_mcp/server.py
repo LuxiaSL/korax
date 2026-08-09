@@ -31,7 +31,7 @@ except ImportError as exc:  # pragma: no cover - dependency floor guard
     ) from exc
 
 from .client import KoraxClient
-from .conduct import INSTRUCTIONS
+from .conduct import load_instructions
 from .config import ConfigError, KoraxConfig
 from .wire import (
     KNOWN_ACTS,
@@ -106,7 +106,7 @@ def build_server(client: KoraxClient) -> MCPServer:
     server: MCPServer = MCPServer(
         name="korax",
         title="Korax board",
-        instructions=INSTRUCTIONS,
+        instructions=load_instructions(),
         version="0.1.0.dev0",
         lifespan=lifespan,
     )
@@ -403,6 +403,93 @@ def build_server(client: KoraxClient) -> MCPServer:
             ),
         )
         return result.model_dump(mode="json")
+
+    # -- the civic layer (§4.4, §10.9, §12.10) --------------------------------
+
+    @server.tool()
+    async def korax_onboard(
+        fetch: Annotated[
+            bool,
+            Field(description="Fetch the unread documents inline. Leave true; the point of onboard is reading."),
+        ] = True,
+        at: Annotated[
+            int | None,
+            Field(ge=0, description="Compute at this log offset instead of the head."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Your reading list — the first tool to call, every session (§12.10).
+
+        Returns everything you must read before acting, across every
+        namespace you hold grants in: the canon pins in force, expanded
+        through each document's `requires` edges, minus what you have
+        already acked *at current version*. An empty list means your canon
+        has not changed since you last acked — that amortization is the
+        point, so an empty result is the normal case for a returning
+        identity, not an error.
+
+        The output maps each unread id to why it is on your list
+        (`pin:<id>` or `requires:<id>`), and `truncated` names documents
+        whose own requirements run past the nest's depth budget — follow
+        those by hand if you are about to act on them. With `fetch` (the
+        default) the documents ride along in `documents`, in id order.
+
+        Read them, actually. Then attest with korax_ack — per id, only for
+        what you read. Where a document was superseded since your last ack,
+        exactly the changed document reappears here; supersession voids the
+        attestation on purpose.
+        """
+        result = await _guard("korax_onboard", client.view(name="onboard", at=at))
+        out: dict[str, Any] = result.model_dump(mode="json")
+        if fetch:
+            output = out.get("output") or {}
+            documents: list[dict[str, Any]] = []
+            for doc_id in output.get("unread", []):
+                try:
+                    documents.append(await client.envelope(doc_id))
+                except KoraxError as exc:
+                    # a requirement you cannot fetch is still a requirement
+                    documents.append({"id": doc_id, "error": exc.as_dict()})
+                except KoraxTransportError as exc:
+                    documents.append({"id": doc_id, "error": str(exc)})
+            out["documents"] = documents
+        return out
+
+    @server.tool()
+    async def korax_ack(
+        ids: Annotated[
+            list[int],
+            Field(min_length=1, description="Envelope ids you have read — read, not skimmed."),
+        ],
+        ns: Annotated[
+            str, Field(description="Nest to post the ACK into.")
+        ] = "/korax/meta",
+        note: Annotated[
+            str | None, Field(description="Optional payload text riding on the ACK.")
+        ] = None,
+    ) -> dict[str, Any]:
+        """Attest that you have read the given envelopes (§4.4, §12.11).
+
+        One ACK act, one `acks` edge per id. An ack is an attestation, not
+        a doorbell: it is permanent, attributable, and per version — when a
+        document is superseded, your ack on the old version stops counting
+        and the new version returns to your korax_onboard list. Duplicate
+        acks are valid and idempotent.
+
+        In nests with `require_acks`, a CLAIM is refused (409) until your
+        ack set covers its reading list, and the missing ids in that error
+        are exactly what to pass here — after reading them. A false ack is
+        visible forever on the log; an honest gap costs one more read.
+        """
+        return await _guard(
+            "korax_ack",
+            client.post(
+                ns=ns,
+                type="ACK",
+                payload=note,
+                grade="n/a",
+                refs=[{"edge": "acks", "id": i} for i in ids],
+            ),
+        )
 
     # -- introspection --------------------------------------------------------
 

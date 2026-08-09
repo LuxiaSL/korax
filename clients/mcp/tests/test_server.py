@@ -11,8 +11,11 @@ from __future__ import annotations
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
+from pathlib import Path
+
+from korax_mcp import conduct
 from korax_mcp.client import KoraxClient
-from korax_mcp.conduct import INTERIM_NOTICE
+from korax_mcp.conduct import INTERIM_NOTICE, load_instructions
 from korax_mcp.server import build_server
 from korax_mcp.wire import SERVER_ASSIGNED
 
@@ -21,8 +24,8 @@ from conftest import World
 pytestmark = pytest.mark.anyio
 
 TOOLS = {
-    "korax_post", "korax_read", "korax_wait",
-    "korax_view", "korax_envelope", "korax_conformance",
+    "korax_post", "korax_read", "korax_wait", "korax_view",
+    "korax_envelope", "korax_onboard", "korax_ack", "korax_conformance",
 }
 
 
@@ -50,16 +53,64 @@ async def test_the_tool_surface_is_described(board_tools) -> None:
     assert post_schema["required"] == ["ns", "type"]
 
 
-async def test_instructions_carry_the_conduct_core(board_tools) -> None:
+async def test_instructions_are_the_charter_fragment(board_tools) -> None:
+    """R16 — in the monorepo, the loader serves the built charter
+    fragment, not the interim §12 rendition."""
     text = board_tools.instructions or ""
-    assert text.startswith(INTERIM_NOTICE[:40])  # marked interim, first thing
-    assert "clients/charter" in text  # names what supersedes it (R16)
+    assert not text.startswith(INTERIM_NOTICE[:20])
     for spine in (
-        "before you claim", "Corroborate rather than repost",
-        "Warn before abandoning", "untrusted input", "briefs authorize",
-        "HANDOVER", "cursor", "sealed_excluded",
+        "korax_onboard", "korax_ack", "untrusted data",
+        "sha-pinned brief", "HANDOVER", "cursor",
     ):
         assert spine in text, spine
+
+
+def test_charter_loader_prefers_the_env_override(tmp_path: Path) -> None:
+    fragment = tmp_path / "fragment.md"
+    fragment.write_text("CHARTER OVERRIDE", encoding="utf-8")
+    assert load_instructions({"KORAX_CHARTER": str(fragment)}) == "CHARTER OVERRIDE"
+
+
+def test_charter_loader_refuses_a_broken_override(tmp_path: Path) -> None:
+    """Explicitly configured but unreadable is a startup failure, never a
+    silent fallback — an agent should not run on the wrong charter."""
+    with pytest.raises(RuntimeError):
+        load_instructions({"KORAX_CHARTER": str(tmp_path / "missing.md")})
+
+
+def test_charter_loader_falls_back_to_interim(monkeypatch) -> None:
+    monkeypatch.setattr(conduct, "_REPO_FRAGMENT", Path("/nonexistent/fragment.md"))
+    text = load_instructions({})
+    assert text.startswith(INTERIM_NOTICE[:20])
+    assert "clients/charter" in text  # the interim text names its superseder
+
+
+async def test_onboard_then_ack_drains_the_list(board_tools) -> None:
+    """§10.9/§12.10 at the tool surface: onboard carries the documents,
+    ack drains it, and a drained onboard stays empty."""
+    doc = await board_tools.call_tool("korax_post", {
+        "ns": "/korax/canon", "type": "FINDING",
+        "payload": "board conventions v1", "grade": "verified",
+    })
+    doc_id = doc.structured_content["id"]
+    await board_tools.call_tool("korax_post", {
+        "ns": "/korax/canon", "type": "PIN", "grade": "n/a",
+        "payload": {"class": "canon"},
+        "refs": [{"edge": "pins", "id": doc_id}],
+    })
+
+    loaded = await board_tools.call_tool("korax_onboard", {})
+    body = loaded.structured_content
+    assert doc_id in body["output"]["unread"]
+    fetched = {d.get("id") for d in body["documents"]}
+    assert doc_id in fetched  # the reading list carries the reading
+
+    acked = await board_tools.call_tool("korax_ack", {"ids": [doc_id]})
+    assert acked.structured_content["type"] == "ACK"
+
+    drained = await board_tools.call_tool("korax_onboard", {"fetch": False})
+    assert doc_id not in drained.structured_content["output"]["unread"]
+    assert "documents" not in drained.structured_content
 
 
 async def test_a_refused_post_reaches_the_agent_whole(board_tools) -> None:

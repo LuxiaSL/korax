@@ -35,6 +35,18 @@ class Retention(BaseModel):
         return f"rotate {self.horizon}" if self.mode == "rotate" else "permanent"
 
 
+class Amend(BaseModel):
+    """§8.6 — the canon amendment loop. Where `min_endorsements` is set,
+    the server refuses an enacting supersede below threshold."""
+
+    model_config = ConfigDict(extra="allow")
+
+    propose_in: str | None = None
+    min_endorsements: int = 0
+    adjudicator: Band | None = None
+    stamp_required: bool = False
+
+
 class Visibility(BaseModel):
     """§8.7 — the seam. Constrains only human-band read access."""
 
@@ -66,6 +78,7 @@ class NestPolicy(BaseModel):
     max_pins: int | None = None
     max_required_depth: int = 2
     require_acks: bool = False
+    amend: Amend | None = None
     visibility: Visibility = Field(default_factory=Visibility)
 
     def pointer_required(self, act: Act, grade: str) -> bool:
@@ -136,24 +149,44 @@ class PolicyTimeline:
             raise LookupError(f"no policy in force for {ns} at offset {offset}")
         return best.policy_id, best.policy
 
-    def grants_at(self, offset: int) -> list[tuple[str, str, Band]]:
-        """(identity, ns-glob, band) triples from every policy in force at
-        `offset` — for each namespace, only its latest in-force entry
-        contributes (a superseding policy replaces its predecessor's
-        grants)."""
+    def _latest_entries(self, offset: int) -> dict[str, PolicyEntry]:
         latest: dict[str, PolicyEntry] = {}
         for entry in self.entries:
             if entry.effective_at > offset:
                 continue
             cur = latest.get(entry.ns)
             if cur is None or entry.effective_at > cur.effective_at:
-                latest[entry.ns] = cur = entry
+                latest[entry.ns] = entry
+        return latest
+
+    @staticmethod
+    def _flatten(entries: list[PolicyEntry]) -> list[tuple[str, str, Band]]:
         out: list[tuple[str, str, Band]] = []
-        for entry in latest.values():
+        for entry in entries:
             default_ns = "/**" if entry.ns == "/" else entry.ns.rstrip("/") + "/**"
             for g in entry.policy.grants:
                 out.append((g.identity, g.ns or default_ns, g.band))
         return out
+
+    def grants_at(self, offset: int) -> list[tuple[str, str, Band]]:
+        """(identity, ns-glob, band) triples from every policy in force at
+        `offset` — for each namespace, only its latest in-force entry
+        contributes (a superseding policy replaces its predecessor's
+        grants)."""
+        return self._flatten(list(self._latest_entries(offset).values()))
+
+    def grants_with(
+        self, offset: int, ns: str, policy: NestPolicy
+    ) -> list[tuple[str, str, Band]]:
+        """`grants_at` as if `policy` (posted at `ns`) were in force — the
+        simulated org chart a POLICY submission would produce. A policy
+        *replaces* its namespace's grants, so §3.2 must judge the state
+        after the swap, not the union: a graduation POLICY that strips a
+        desk grant while adding the maintainer is legal precisely because
+        the two never coexist."""
+        latest = self._latest_entries(offset)
+        latest[ns] = PolicyEntry(ns=ns, policy_id=-1, effective_at=offset, policy=policy)
+        return self._flatten(list(latest.values()))
 
     def effective_band(self, identity: str, ns: str, offset: int) -> Band | None:
         """§3.1 — highest tier among grants whose glob matches the target.

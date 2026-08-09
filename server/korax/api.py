@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from . import PROTO
 from .access import filter_log, verdict
 from .board import Board
+from .civic import onboard as onboard_reduction, required as required_reduction
 from .models import Act, Band, EdgeType, Envelope, Grade
 from .nsglob import in_subtree, ns_matches
 from .reductions import (
@@ -31,7 +32,10 @@ from .reductions import (
 )
 from .validate import PostError
 
-VIEWS = ["state", "thread", "provenance", "descendants", "taint", "fresh", "jobs", "of-record"]
+VIEWS = [
+    "state", "thread", "provenance", "descendants", "taint", "fresh",
+    "jobs", "of-record", "onboard", "required",
+]
 
 
 class IdentityRequest(BaseModel):
@@ -54,6 +58,8 @@ def create_app(board: Board) -> FastAPI:
         body: dict[str, Any] = {"code": exc.code, "message": exc.message}
         if exc.policy_id is not None:
             body["policy"] = exc.policy_id  # §9.1 — a 409 names its policy
+        if exc.missing is not None:
+            body["missing"] = exc.missing  # §4.4 — the error is the reading list
         return JSONResponse(status_code=exc.code, content=body)
 
     @app.exception_handler(HTTPException)
@@ -161,7 +167,17 @@ def create_app(board: Board) -> FastAPI:
             raise HTTPException(
                 403, "sealed at post time; a covering UNSEAL is required (§8.7)"
             )
-        return dump(env)
+        out = dump(env)
+        # §10.10 — prerequisites arrive annotated on the document, not as
+        # separate ceremony the client must remember to perform
+        closure = required_reduction(board.log, board.timeline, board.head, env_id, who)
+        if closure["unread"] or closure["truncated"]:
+            out["required_unmet"] = {
+                "unread": closure["unread"],
+                "via": closure["via"],
+                "truncated": closure["truncated"],
+            }
+        return out
 
     @app.get("/wait")
     async def wait(
@@ -224,6 +240,7 @@ def create_app(board: Board) -> FastAPI:
         ns_set: str | None = None,
         horizon: str = "P7D",
         at: int | None = None,
+        identity: str | None = None,
     ) -> dict[str, Any]:
         log, sealed_envs = visible_log(who)
         offset = at if at is not None else (log.envelopes[-1].id if len(log) else 0)
@@ -252,6 +269,10 @@ def create_app(board: Board) -> FastAPI:
                 output = thread(log, offset, _req(id, "id"))
             elif name == "fresh":
                 output = fresh(log, tl, offset, _req(ns_set, "ns_set").split(","), horizon)
+            elif name == "onboard":
+                output = onboard_reduction(log, tl, offset, identity or who)
+            elif name == "required":
+                output = required_reduction(log, tl, offset, _req(id, "id"), identity or who)
             else:
                 raise HTTPException(404, f"unknown view; supported: {VIEWS}")
         except LookupError as exc:

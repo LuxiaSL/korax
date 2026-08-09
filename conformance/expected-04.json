@@ -1,0 +1,132 @@
+{
+  "fixture": "fixture-04.jsonl",
+  "proto": "korax/0.1",
+  "conventions": {
+    "at_offset_inclusive": true,
+    "ordering": "all list outputs in ascending id unless stated",
+    "via_labels": "each unread id maps to its sources: `pin:<pin id>` or `requires:<the envelope whose requires edge pulled it in>`",
+    "version_resolution": "every requirement resolves to the current version of its lineage before the ack check — an ack on a superseded version does not cover (4.4)"
+  },
+  "checks": [
+    {
+      "offset": 15,
+      "view": "onboard",
+      "args": { "identity": "band:e1" },
+      "cite": "10.9",
+      "expect": {
+        "identity": "band:e1",
+        "unread": [],
+        "via": {},
+        "truncated": [10]
+      },
+      "why": "e1 acked the full closure at 15; onboard is EMPTY for a returning identity whose canon has not changed — the amortization is the point. 10 still reports truncation: its requires -> 9 sits one past max_required_depth 2."
+    },
+    {
+      "offset": 15,
+      "view": "onboard",
+      "args": { "identity": "band:e2" },
+      "cite": "10.9",
+      "expect": {
+        "identity": "band:e2",
+        "unread": [8, 10, 11, 12],
+        "via": {
+          "8": ["pin:13"],
+          "10": ["requires:11"],
+          "11": ["requires:12"],
+          "12": ["pin:14"]
+        },
+        "truncated": [10]
+      },
+      "why": "the full load-in for an identity with no acks: both pinned docs plus the requires chain 12 -> 11 -> 10; 9 is past the depth horizon and 10 is reported truncated rather than the cap being silent."
+    },
+    {
+      "offset": 19,
+      "view": "onboard",
+      "args": { "identity": "band:e1" },
+      "cite": "10.9 / 4.4",
+      "expect": {
+        "identity": "band:e1",
+        "unread": [19],
+        "via": { "19": ["pin:13"] },
+        "truncated": [10]
+      },
+      "why": "acks voided by canon supersession: 19 superseded 8, the pin follows the lineage, and exactly the changed document reappears — nothing else."
+    },
+    {
+      "offset": 24,
+      "view": "required",
+      "args": { "id": 23, "identity": "band:e2" },
+      "cite": "10.10",
+      "expect": {
+        "target": 23,
+        "identity": "band:e2",
+        "unread": [20, 21],
+        "via": {
+          "20": ["requires:23"],
+          "21": ["pin:22"]
+        },
+        "truncated": []
+      },
+      "why": "the unmet closure for acting on one envelope: the job's own requires (the motivating rake) plus the nest's canon pin."
+    },
+    {
+      "offset": 24,
+      "view": "required",
+      "args": { "id": 23, "identity": "band:e1" },
+      "cite": "10.10",
+      "expect": {
+        "target": 23,
+        "identity": "band:e1",
+        "unread": [],
+        "via": {},
+        "truncated": []
+      },
+      "why": "e1 drained the reading list at 24; the CLAIM at 25 is accepted because this closure is empty."
+    },
+    {
+      "offset": 30,
+      "view": "jobs",
+      "args": { "ns": "/atlas/jobs" },
+      "cite": "10.8",
+      "expect": {
+        "eval_ts": "2026-08-10T15:30:00Z",
+        "forest": {},
+        "open": [],
+        "taken": [],
+        "delivered": [{ "job": 23, "by": 26, "grade": "unverified" }],
+        "lapsed": [],
+        "inadmissible_claims": []
+      },
+      "why": "the kb migration ran the whole require_acks gauntlet and closed clean."
+    },
+    {
+      "offset": 30,
+      "view": "jobs",
+      "args": { "ns": "/commons/jobs" },
+      "cite": "10.8 / 3.2",
+      "expect": {
+        "eval_ts": "2026-08-10T15:30:00Z",
+        "forest": {},
+        "open": [],
+        "taken": [],
+        "delivered": [{ "job": 27, "by": 30, "grade": "n/a" }],
+        "lapsed": [],
+        "inadmissible_claims": []
+      },
+      "why": "the graduation ceremony as a job-board lifecycle: the delivery that closes the JOB is the POLICY itself (R15) — request, claim, ruling, all attributable."
+    },
+    {
+      "offset": 30,
+      "view": "onboard",
+      "args": { "identity": "band:e1" },
+      "cite": "10.9",
+      "expect": {
+        "identity": "band:e1",
+        "unread": [19],
+        "via": { "19": ["pin:13"] },
+        "truncated": [10]
+      },
+      "why": "stable across the graduation: the /atlas/jobs pin target (21) is acked, only the unre-read canon v2 remains."
+    }
+  ]
+}

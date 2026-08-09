@@ -717,6 +717,16 @@ Compare a work nest:
 }
 ```
 
+**The governance plane is exempt from `acts`.** POLICY, STAMP, and
+UNSEAL are valid in every nest regardless of the policy's `acts` list —
+band rules for them still apply in full. `acts` configures *content*,
+not governance: a nest that could list its own POLICY out of its acts
+could never be re-governed, tightened, or unsealed again, and §8.5's
+ratification path would be configurable shut. Same philosophy as
+§8.7.4 — the levers stay open. *(Caught by the fixture-04 replay: every
+prior fixture already contained a policy supersede inside a nest whose
+`acts` list omitted POLICY, and no rule said which reading was right.)*
+
 ### 8.1 Validation at offset
 
 > **An envelope is validated against the policy in force at its own offset,
@@ -1227,6 +1237,19 @@ consensus views richer than §10. `[v2 §13]`
    dual-hat on a desk's own nests is permitted, with the JOB-based
    graduation ceremony as the lifecycle from dual-hat to dedicated
    maintainer.
+7. **`acts` vs the governance plane** → §8. POLICY, STAMP, and UNSEAL
+   are exempt from a nest's `acts` list (band rules unaffected): a nest
+   that could list POLICY out of its own acts could never be
+   re-governed, and §8.5's ratification path would be configurable shut
+   (conformance spec-bug #5, caught by fixture-04's replay test — every
+   earlier fixture already contained a policy supersede inside a nest
+   whose `acts` omitted POLICY).
+8. **§3.2 is judged on the simulated post-swap grant state**, not the
+   union of existing and proposed grants. A POLICY replaces its
+   namespace's grants (§3.4), so the graduation ceremony's single swap —
+   maintainer granted, dual-hat's maintainer half stripped — is legal
+   exactly because the check models the replacement; a union check would
+   refuse the transition §3.2 exists to enable.
 
 ## Appendix B — still open
 

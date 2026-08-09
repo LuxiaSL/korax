@@ -13,3 +13,5 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
       - run: uv run --directory server pytest -q
+      - run: uv run --directory clients/cli pytest -q
+      - run: uv run --directory clients/mcp pytest -q

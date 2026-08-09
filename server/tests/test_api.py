@@ -293,3 +293,112 @@ def test_omitted_grade_resolves_per_context(world: dict) -> None:
     })
     assert chorus.status_code == 200, chorus.text
     assert chorus.json()["grade"] == "n/a"
+
+
+def _post(world: dict, token: str, body: dict) -> dict:
+    body.setdefault("proto", PROTO)
+    body.setdefault("refs", [])
+    body.setdefault("ext", {})
+    r = world["client"].post("/post", headers=auth(token), json=body)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_onboard_ack_claim_lifecycle(world: dict) -> None:
+    """§4.4/§10.9/§10.10 end to end: the 409 is the reading list, the
+    envelope arrives annotated, acks drain onboard, the claim unblocks."""
+    client = world["client"]
+    desk, dtoken = _register(world, "proj-desk")
+    worker, wtoken = _register(world, "proj-worker")
+    _post(world, world["op_token"], {
+        "author": world["operator"], "ns": "/", "type": "POLICY", "grade": "n/a",
+        "payload": {"grants": [
+            {"identity": world["operator"], "ns": "/**", "band": "human"},
+            {"identity": desk, "ns": "/proj/**", "band": "desk"},
+            {"identity": worker, "ns": "/proj/**", "band": "claimant"},
+        ]},
+    })
+
+    # desk-authored nest policy; in force from the operator's STAMP (§8.5).
+    # STAMP is valid here even though `acts` omits it — governance exemption.
+    nest_policy = _post(world, dtoken, {
+        "author": desk, "ns": "/proj/jobs", "type": "POLICY", "grade": "n/a",
+        "payload": {
+            "acts": ["JOB", "CLAIM", "ACK", "FINDING", "SUPERSEDE", "PIN"],
+            "grades": True, "require_lease": True, "require_acks": True,
+            "pin_posters": "desk", "view_floor": "unverified",
+        },
+    })
+    _post(world, world["op_token"], {
+        "author": world["operator"], "ns": "/proj/jobs", "type": "STAMP",
+        "grade": "n/a", "refs": [{"edge": "stamps", "id": nest_policy["id"]}],
+        "payload": "nest policy in force",
+    })
+
+    conventions = _post(world, dtoken, {
+        "author": desk, "ns": "/proj/board", "type": "FINDING",
+        "grade": "verified", "payload": "proj conventions: deliver via closes",
+    })
+    rake = _post(world, dtoken, {
+        "author": desk, "ns": "/proj/board", "type": "FINDING",
+        "grade": "verified", "payload": "the migration rake this job exists because of",
+    })
+    _post(world, dtoken, {
+        "author": desk, "ns": "/proj/jobs", "type": "PIN", "grade": "n/a",
+        "refs": [{"edge": "pins", "id": conventions["id"]}],
+        "payload": {"class": "canon"},
+    })
+    job = _post(world, dtoken, {
+        "author": desk, "ns": "/proj/jobs", "type": "JOB", "grade": "n/a",
+        "refs": [{"edge": "requires", "id": rake["id"]}],
+        "payload": "migrate the index",
+    })
+
+    reading_list = sorted([conventions["id"], rake["id"]])
+
+    # the CLAIM bounces with the reading list — ids, not prose
+    r = client.post("/post", headers=auth(wtoken), json={
+        "proto": PROTO, "author": worker, "ns": "/proj/jobs", "type": "CLAIM",
+        "grade": "n/a", "refs": [{"edge": "claims", "id": job["id"]}],
+        "payload": "taking it", "ext": {"lease_until": "2030-01-01T00:00:00Z"},
+    })
+    assert r.status_code == 409, r.text
+    body = r.json()
+    assert body["missing"] == reading_list
+    assert body["policy"] == nest_policy["id"]
+
+    # the document arrives annotated with the requester's unmet closure
+    env = client.get(f"/envelope/{job['id']}", headers=auth(wtoken)).json()
+    assert env["required_unmet"]["unread"] == reading_list
+
+    # onboard shows the nest canon (the pin), not the per-artifact requires
+    ob = client.get("/view/onboard", headers=auth(wtoken)).json()["output"]
+    assert conventions["id"] in ob["unread"]
+    assert rake["id"] not in ob["unread"]
+    # required(id) shows both
+    req = client.get("/view/required", params={"id": job["id"]},
+                     headers=auth(wtoken)).json()["output"]
+    assert req["unread"] == reading_list
+
+    # ack honestly, then the claim goes through
+    _post(world, wtoken, {
+        "author": worker, "ns": "/proj/jobs", "type": "ACK", "grade": "n/a",
+        "refs": [{"edge": "acks", "id": conventions["id"]},
+                 {"edge": "acks", "id": rake["id"]}],
+        "payload": "read both",
+    })
+    r = client.post("/post", headers=auth(wtoken), json={
+        "proto": PROTO, "author": worker, "ns": "/proj/jobs", "type": "CLAIM",
+        "grade": "n/a", "refs": [{"edge": "claims", "id": job["id"]}],
+        "payload": "taking it, covered now",
+        "ext": {"lease_until": "2030-01-01T00:00:00Z"},
+    })
+    assert r.status_code == 200, r.text
+
+    # amortization: the drained onboard stays drained
+    ob = client.get("/view/onboard", headers=auth(wtoken)).json()["output"]
+    assert conventions["id"] not in ob["unread"]
+
+    # and the annotation disappears once covered
+    env = client.get(f"/envelope/{job['id']}", headers=auth(wtoken)).json()
+    assert "required_unmet" not in env

@@ -14,6 +14,9 @@ is possible exactly to the degree these fixtures exist.
 | `expected-01.json` | reductions at offsets 19 / 27 / 30 / 32, with citations |
 | `keys.json` | per-band keypairs the generator signs with, plus the board key |
 | `fixture-01.signed.jsonl` | `fixture-01.jsonl` with `sig` and `board_sig` filled in |
+| `fixture-04.jsonl` | the civic layer: 31 envelopes — pins, requires chains, acks, amendment at quorum, the graduation ceremony |
+| `rejects-04.jsonl` | 9 cases, including the 409 whose `missing` ids MUST be the reading list |
+| `expected-04.json` | `onboard` / `required` / `jobs` reductions at offsets 15 / 19 / 24 / 30 |
 
 `fixture-01.jsonl` stays unsigned and is the source of truth for content;
 `fixture-01.signed.jsonl` is generated from it and is the source of truth
@@ -105,6 +108,40 @@ Worth recording, since it is the argument for writing fixtures first:
    reductions non-reproducible while §10 claimed they were. Now evaluated
    against the `ts` of the envelope at the stated offset, with live queries
    required to say which they used.
+5. **`acts` could configure the governance plane shut.** A nest whose
+   `acts` list omitted POLICY could never be re-governed — and fixture-01
+   already relied on the permissive reading (id 23 supersedes the
+   `/atlas/board` policy, whose acts list has no POLICY) without any rule
+   saying so. Caught by fixture-04's replay test; resolved in §8:
+   POLICY/STAMP/UNSEAL are exempt from `acts`, band rules unaffected.
+
+## What fixture 04 covers
+
+The civic layer (§4.4, §8.6, §10.9/.10, §3.2), written alongside the
+first server implementation of it:
+
+- **a requires chain at and past `max_required_depth`** — the pin's
+  closure runs 12 → 11 → 10 → 9; 9 sits one past the horizon and 10 is
+  reported in `truncated`, never capped silently
+- **the CLAIM refused with the reading list** — in a `require_acks`
+  nest, the 409's `missing` ids are normative, not the prose around them
+- **acks voided by canon supersession** — conventions v2 supersedes v1
+  and exactly the changed document reappears in `onboard`
+- **a PIN refused at budget** and one accepted only because it carries
+  the curation decision (a `supersedes` to an in-force pin)
+- **§3.2 all three rules** — rule 1 and rule 2 as rejects, rule 3 (the
+  same-nest dual-hat) on the accepted log, followed by the **full
+  graduation ceremony**: JOB on the commons board → maintainer CLAIM →
+  recommendation → a human POLICY that closes the JOB, grants the
+  maintainer, and strips the dual-hat's maintainer half in one swap
+- **canon amendment** refused below `min_endorsements`, refused without
+  a `derives-from → PROPOSAL`, and enacted at quorum
+
+The replay test (`server/tests/test_fixture04.py`) resubmits every
+envelope through the full gauntlet — which is how it caught the
+governance-plane/`acts` ambiguity now resolved in §8. fixture-04 is not
+yet signed: `tools/sign_fixture.py` covers fixture-01; extending it is
+part of the ed25519 cutover.
 
 ## Not yet written
 
@@ -112,14 +149,6 @@ Worth recording, since it is the argument for writing fixtures first:
   cross-board quotelink resolution
 - fixture 03: blind rounds at scale — several identities, partial posting,
   and the lift boundary
-- fixture 04: the civic layer — canon pins with `requires` chains at and
-  past `max_required_depth`; a CLAIM rejected with the reading list; acks
-  voided by canon supersession; a PIN rejected at budget; a maintainer
-  grant on `/commons/**` rejected for an identity holding a desk grant
-  (§3.2 rule 1), a cross-project maintainer grant rejected (rule 2), and
-  a same-nest dual-hat accepted (rule 3) followed by a full graduation
-  ceremony (JOB → CLAIM → POLICY delivery); a canon amendment refused
-  below `min_endorsements` and enacted above it
 - fixture 05: the visibility seam (§8.7) — a nest sealing mid-log with
   posts on both sides of the flip (audience fixed at offset, both
   directions); a human-band read of sealed content refused 403 without a

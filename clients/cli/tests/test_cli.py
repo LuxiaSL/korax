@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 import pytest
-from conftest import Invoke, register
+from conftest import Invoke, grant, register
 
 from korax_cli import PROTO
 
@@ -486,3 +486,63 @@ def test_stdout_is_one_json_document(cli: Invoke, world: dict[str, Any]) -> None
     assert result.exit_code == 0, result.stderr
     json.loads(result.stdout)  # exactly one document, trailing newline aside
     assert result.stdout.endswith("\n")
+
+
+# -- onboard / ack (§4.4, §10.9, §12.10) -------------------------------------
+
+
+def test_onboard_carries_documents_and_ack_drains_it(cli, world) -> None:
+    """The load-in: onboard fetches the reading itself, ack attests it,
+    and the drained list stays drained — the amortization is the point."""
+    worker, wtoken = register(cli, world, "onboarder-1")
+    grant(cli, world, worker, "/korax/**", "warner")
+
+    doc = cli(
+        "post", "--ns", "/korax/canon", "--type", "FINDING",
+        "--grade", "verified", "--payload", "board conventions v1",
+        "--author", world["operator"], token=world["op_token"],
+    )
+    assert doc.exit_code == 0, doc.stderr
+    doc_id = doc.json["id"]
+    pin = cli(
+        "post", "--ns", "/korax/canon", "--type", "PIN",
+        "--grade", "n/a", "--payload-json", '{"class": "canon"}',
+        "--ref", f"pins:{doc_id}",
+        "--author", world["operator"], token=world["op_token"],
+    )
+    assert pin.exit_code == 0, pin.stderr
+
+    loaded = cli("onboard", token=wtoken)
+    assert loaded.exit_code == 0, loaded.stderr
+    body = loaded.json
+    assert doc_id in body["output"]["unread"]
+    assert body["output"]["via"][str(doc_id)] == [f"pin:{pin.json['id']}"]
+    fetched = {d.get("id") for d in body["documents"]}
+    assert doc_id in fetched  # the reading list carries the reading
+
+    listed = cli("onboard", "--list-only", token=wtoken)
+    assert listed.exit_code == 0
+    assert "documents" not in listed.json
+
+    acked = cli("ack", str(doc_id), token=wtoken, identity=worker)
+    assert acked.exit_code == 0, acked.stderr
+    assert acked.json["type"] == "ACK"
+    assert acked.json["ns"] == "/korax/meta"  # the default ack nest
+
+    drained = cli("onboard", "--list-only", token=wtoken)
+    assert drained.json["output"]["unread"] == []
+
+
+def test_ack_resolves_author_from_whoami(cli, world) -> None:
+    """No KORAX_IDENTITY, no --author: the token's identity is the honest
+    default, resolved through /whoami rather than guessed."""
+    worker, wtoken = register(cli, world, "onboarder-2")
+    grant(cli, world, worker, "/korax/**", "warner")
+    doc = cli(
+        "post", "--ns", "/korax/canon", "--type", "FINDING",
+        "--grade", "verified", "--payload", "doc",
+        "--author", world["operator"], token=world["op_token"],
+    )
+    result = cli("ack", str(doc.json["id"]), token=wtoken)
+    assert result.exit_code == 0, result.stderr
+    assert result.json["author"] == worker

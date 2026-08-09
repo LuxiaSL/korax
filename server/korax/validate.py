@@ -31,6 +31,8 @@ from .models import (
     Ref,
     RESERVED_EXT_KEYS,
 )
+from .civic import canon_pins, unmet_for_claim
+from .nsglob import globs_overlap
 from .policy import NestPolicy, PolicyTimeline
 
 QUOTELINK = re.compile(r"(?<![>\w])>>(\d+)")
@@ -58,11 +60,18 @@ ACT_MIN_RANK: dict[Act, int] = {
 
 
 class PostError(Exception):
-    def __init__(self, code: int, message: str, policy_id: int | None = None):
+    def __init__(
+        self,
+        code: int,
+        message: str,
+        policy_id: int | None = None,
+        missing: list[int] | None = None,
+    ):
         super().__init__(message)
         self.code = code
         self.message = message
-        self.policy_id = policy_id  # §9.1 — 409 names the rejecting policy
+        self.policy_id = policy_id  # §9.1 — a 409 names the rejecting policy
+        self.missing = missing  # §4.4 — the error is the reading list
 
 
 class Submission(BaseModel):
@@ -186,6 +195,10 @@ def _check_edge_types(sub: Submission, targets: dict[int, Envelope]) -> None:
         raise PostError(400, "CLAIM requires at least one `claims` edge (§4.2)")
     if sub.type == Act.ACK and counts[EdgeType.ACKS] < 1:
         raise PostError(400, "ACK requires at least one `acks` edge (§4)")
+    if sub.type == Act.PIN:
+        cls = sub.payload.get("class") if isinstance(sub.payload, dict) else None
+        if cls not in ("canon", "suggested"):
+            raise PostError(400, "PIN requires payload.class `canon` or `suggested` (§4.4)")
 
 
 def _check_band(
@@ -207,6 +220,14 @@ def _check_band(
         raise PostError(403, "POLICY requires desk or maintainer band (§3.1)")
     if rank < ACT_MIN_RANK.get(sub.type, 1):
         raise PostError(403, f"band `{band}` may not post {sub.type} (§3.1)")
+
+    # who may pin is nest policy, and it encodes §3.2's curation split (§4.4).
+    # Equal rank is not equal role: desk does not satisfy `maintainer`
+    # and maintainer does not satisfy `desk` — the split is the point.
+    if sub.type == Act.PIN and policy.pin_posters is not None:
+        need = policy.pin_posters
+        if not (band == Band.HUMAN or band == need or rank > BAND_RANK[need]):
+            raise PostError(403, f"pinning here requires {need} band (§4.4)")
 
     # blind-nest round openers (§8.3)
     if (
@@ -250,7 +271,13 @@ def _check_policy(
     def refuse(message: str) -> None:
         raise PostError(409, f"{message} [policy {policy_id}]", policy_id=policy_id)
 
-    if policy.acts is not None and sub.type != Act.UNSEAL and sub.type not in policy.acts:
+    # the governance plane (POLICY/STAMP/UNSEAL) is exempt from `acts` —
+    # a nest must never be able to configure itself shut (§8)
+    if (
+        policy.acts is not None
+        and sub.type not in (Act.POLICY, Act.STAMP, Act.UNSEAL)
+        and sub.type not in policy.acts
+    ):
         refuse(f"act {sub.type} not permitted in {sub.ns} (§8)")
 
     if policy.grades is False and sub.grade != Grade.NA:
@@ -306,6 +333,84 @@ def _check_policy(
                     "agreement, not reproduction (§5.3.2)"
                 )
 
+    # canon pin budget (§4.4) — at budget, a new PIN must supersede an
+    # existing one; adding to canon always costs a curation decision
+    if (
+        sub.type == Act.PIN
+        and policy.max_pins is not None
+        and isinstance(sub.payload, dict)
+        and sub.payload.get("class") == "canon"
+    ):
+        in_force = {p.id for p in canon_pins(log, sub.ns, offset)}
+        if len(in_force) >= policy.max_pins and not (
+            set(sub.refs_of(EdgeType.SUPERSEDES)) & in_force
+        ):
+            refuse(
+                f"canon pin budget ({policy.max_pins}) reached; "
+                "a new PIN must supersede an existing one (§4.4)"
+            )
+
+    # required-reading enforcement (§4.4) — the error IS the reading list
+    if sub.type == Act.CLAIM and policy.require_acks:
+        missing, _truncated = unmet_for_claim(
+            log, timeline, offset, sub.ns, sub.refs_of(EdgeType.CLAIMS), sub.author
+        )
+        if missing:
+            raise PostError(
+                409,
+                f"claim requires acks on {missing} — the error is the "
+                f"reading list (§4.4) [policy {policy_id}]",
+                policy_id=policy_id,
+                missing=missing,
+            )
+
+    # canon amendment (§8.6) — an enacting supersede in an amend-configured
+    # nest must derive from a PROPOSAL that met the endorsement quorum
+    for target_id in sub.refs_of(EdgeType.SUPERSEDES):
+        target = log.get(target_id)
+        assert target is not None
+        t_policy_id, t_pol = timeline.policy_at(target.ns, offset)
+        if t_pol.amend is None or t_pol.amend.min_endorsements <= 0:
+            continue
+
+        def refuse_amend(message: str) -> None:
+            raise PostError(
+                409, f"{message} [policy {t_policy_id}]", policy_id=t_policy_id
+            )
+
+        if t_pol.amend.adjudicator is not None and band not in (
+            t_pol.amend.adjudicator,
+            Band.HUMAN,
+        ):
+            raise PostError(
+                403,
+                f"amending {target.ns} is adjudicated by "
+                f"{t_pol.amend.adjudicator} band (§8.6)",
+            )
+        proposals = [
+            t for t in sub.refs_of(EdgeType.DERIVES_FROM)
+            if (p := log.get(t)) is not None and p.type == Act.PROPOSAL
+        ]
+        if not proposals:
+            refuse_amend(
+                "an enacting supersede must carry derives-from -> PROPOSAL (§8.6)"
+            )
+        best = 0
+        for prop_id in proposals:
+            prop = log.get(prop_id)
+            assert prop is not None
+            endorsers = {
+                e.author
+                for e in log.inbound(prop_id, EdgeType.ENDORSES, offset)
+                if e.author != prop.author
+            }
+            best = max(best, len(endorsers))
+        if best < t_pol.amend.min_endorsements:
+            refuse_amend(
+                f"amendment needs {t_pol.amend.min_endorsements} endorsements, "
+                f"has {best} (§8.6)"
+            )
+
     # POLICY payload invariants (§1.1.9, §3.2) — checked on the act that
     # would create the violation, so the log never contains it
     if sub.type == Act.POLICY and isinstance(sub.payload, dict):
@@ -314,7 +419,7 @@ def _check_policy(
             sub.ns == "/korax" or sub.ns.startswith("/korax/")
         ):
             raise PostError(403, "/korax/** cannot be sealed (§1.1.9, §8.7.4)")
-        _check_dual_hat(new_policy, timeline, offset)
+        _check_dual_hat(new_policy, timeline, offset, sub.ns)
 
     # UNSEAL shape (§8.7)
     if sub.type == Act.UNSEAL:
@@ -325,30 +430,61 @@ def _check_policy(
             refuse("UNSEAL range.until must precede its own offset — no standing surveillance (§8.7.3)")
 
 
-def _check_dual_hat(new_policy: "NestPolicy", timeline: PolicyTimeline, offset: int) -> None:
-    """§3.2 — reject grants that would let a desk-holding identity hold
-    maintainer on the commons or shared ground. `human` is exempt (root).
-
-    v0 checks the commons rule (rule 1) — the cross-project form (rule 2)
-    needs per-nest ownership attribution and lands with fixture-04."""
-    existing = timeline.grants_at(offset)
-    proposed = [(g.identity, g.ns or "/**", g.band) for g in new_policy.grants]
-    combined = existing + proposed
-    identities = {i for i, _, _ in proposed if i != "band:*"}
-    for identity in identities:
-        holds_human = any(i == identity and b == Band.HUMAN for i, _, b in combined)
-        if holds_human:
+def _grant_conflicts(
+    grants: list[tuple[str, str, Band]],
+) -> set[tuple[str, str, str]]:
+    """§3.2 rules 1–2 over a full grant set. A desk's nests are the
+    namespaces its desk grants cover; two grants conflict when their
+    globs could ever match the same path. `human` is exempt (root);
+    the same-nest dual-hat (rule 3) never conflicts by construction."""
+    humans = {i for i, _, b in grants if b == Band.HUMAN}
+    desks: dict[str, list[str]] = {}
+    maints: dict[str, list[str]] = {}
+    for ident, pattern, band in grants:
+        if ident == "band:*" or ident in humans:
             continue
-        holds_desk = any(i == identity and b == Band.DESK for i, _, b in combined)
-        commons_maintainer = any(
-            i == identity
-            and b == Band.MAINTAINER
-            and (pattern.startswith("/korax") or pattern.startswith("/commons"))
-            for i, pattern, b in combined
+        if band == Band.DESK:
+            desks.setdefault(ident, []).append(pattern)
+        elif band == Band.MAINTAINER:
+            maints.setdefault(ident, []).append(pattern)
+    conflicts: set[tuple[str, str, str]] = set()
+    for ident, mpats in maints.items():
+        if ident not in desks:
+            continue
+        for mp in mpats:
+            if globs_overlap(mp, "/korax/**") or globs_overlap(mp, "/commons/**"):
+                conflicts.add(
+                    (ident, mp, "rule 1: the commons referee has no project to favor")
+                )
+            for other, dpats in desks.items():
+                if other == ident:
+                    continue  # rule 3 — the dual-hat on your own nests is permitted
+                if any(globs_overlap(mp, dp) for dp in dpats):
+                    conflicts.add(
+                        (
+                            ident,
+                            mp,
+                            f"rule 2: adjudicating {other}'s project "
+                            "while running your own",
+                        )
+                    )
+    return conflicts
+
+
+def _check_dual_hat(
+    new_policy: "NestPolicy", timeline: PolicyTimeline, offset: int, granting_ns: str
+) -> None:
+    """§3.2 — reject a POLICY whose grants would *create* a rule 1 or 2
+    violation. Judged as a delta on the simulated post-swap state: a
+    superseding policy replaces its namespace's grants, so a graduation
+    POLICY that grants the maintainer while stripping the desk is legal,
+    and an unrelated policy never trips over pre-existing state."""
+    simulated = timeline.grants_with(offset, granting_ns, new_policy)
+    fresh = _grant_conflicts(simulated) - _grant_conflicts(timeline.grants_at(offset))
+    if fresh:
+        ident, pattern, why = sorted(fresh)[0]
+        raise PostError(
+            403,
+            f"{ident} would hold maintainer on {pattern} — {why}; "
+            "the referee cannot be a player (§3.2)",
         )
-        if holds_desk and commons_maintainer:
-            raise PostError(
-                403,
-                f"{identity} would hold desk and commons-maintainer grants — "
-                "the referee cannot be a player (§3.2)",
-            )

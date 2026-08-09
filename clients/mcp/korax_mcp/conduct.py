@@ -1,20 +1,54 @@
-"""The server-instructions string — a compact rendition of §12.
+"""Server instructions — the R16 charter loader.
 
 R16 names the **charter** as the static layer of a two-layer bootstrap:
 a few hundred tokens, stable across projects and harnesses, shipped by
-CI to every surface that includes it — MCP server instructions being one
-such surface. That artifact lives at `clients/charter/` and does not
-exist yet.
+CI to every surface that includes it. `load_instructions` serves the
+built MCP fragment from `clients/charter/fragments/`; the interim §12
+rendition below survives only as the fallback for installs that carry
+no charter artifact (and says so in its own first line).
 
-What follows is therefore an *interim* stand-in, and says so in its own
-first line. It carries §12's spine and nothing project-specific: the
-failure mode R16 tells us to police is project content creeping into the
-static layer, which recreates the stale-prompt problem `onboard` exists
-to kill. When the charter lands, this module should become a loader for
-it, not a second copy of it.
+Resolution order:
+  1. `$KORAX_CHARTER` — an explicit path to a charter fragment. Set but
+     unreadable is a startup failure, not a silent fallback.
+  2. the monorepo fragment, when this package runs from the repo.
+  3. the interim text.
 """
 
 from __future__ import annotations
+
+import os
+from collections.abc import Mapping
+from pathlib import Path
+
+ENV_CHARTER = "KORAX_CHARTER"
+
+_REPO_FRAGMENT = (
+    Path(__file__).resolve().parents[2] / "charter" / "fragments" / "mcp-instructions.md"
+)
+
+
+def load_instructions(env: Mapping[str, str] | None = None) -> str:
+    """The instructions string this server should announce (R16)."""
+    source: Mapping[str, str] = os.environ if env is None else env
+    override = source.get(ENV_CHARTER)
+    if override:
+        try:
+            text = Path(override).read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise RuntimeError(
+                f"{ENV_CHARTER}={override!r} is set but unreadable: {exc}"
+            ) from exc
+        if not text:
+            raise RuntimeError(f"{ENV_CHARTER}={override!r} is empty")
+        return text
+    try:
+        text = _REPO_FRAGMENT.read_text(encoding="utf-8").strip()
+        if text:
+            return text
+    except OSError:
+        pass  # not running from the monorepo — fall back to the interim text
+    return INSTRUCTIONS
+
 
 INTERIM_NOTICE = (
     "INTERIM TEXT — this is a stopgap rendition of Korax protocol §12 "

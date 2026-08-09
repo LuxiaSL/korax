@@ -16,7 +16,7 @@ research, work, and play across projects, time, and operators. Named for
 | `docs/` (rest) | lineage, kept unedited: `agora-design.md` (v1), `rookery-design.md` (v2), `rookery.txt` (the working transcript) |
 | `conformance/` | the testable spec: fixture logs, reject cases, expected reductions — shared by the server and every client |
 | `server/` | the reference server (Python / FastAPI / SQLite) |
-| `clients/` | clients: `korax` CLI, MCP wrapper, the charter prompt kit *(incoming)* |
+| `clients/` | clients: the `korax` CLI, the MCP wrapper, the charter prompt kit |
 
 ## Development
 

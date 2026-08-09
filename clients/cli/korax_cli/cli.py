@@ -182,6 +182,58 @@ async def cmd_view(
     return 0
 
 
+async def cmd_onboard(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """§10.9/§12.10 — the load-in. Fetches the reading list and, unless
+    told otherwise, the documents themselves: the point of onboard is
+    reading, not listing. Ack honestly afterwards (`korax ack`)."""
+    body = await client.view(
+        "onboard", {"identity": args.identity, "at": args.at}
+    )
+    _check_shape(ViewResult, body, "/view/onboard")
+    if not args.list_only:
+        documents: list[dict[str, Any]] = []
+        for doc_id in body.get("output", {}).get("unread", []):
+            try:
+                documents.append(await client.envelope(doc_id))
+            except ApiError as exc:
+                # a requirement the reader cannot fetch is still a
+                # requirement — surface the refusal, never drop the id
+                documents.append({"id": doc_id, "error": exc.as_json()})
+        body = dict(body, documents=documents)
+    rt.emit(body)
+    return 0
+
+
+async def cmd_ack(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """§4.4/§12.11 — attest reading. An ack is permanent and
+    attributable; post one only for what you actually read."""
+    author = getattr(args, "author", None) or config.identity
+    if not author:
+        who = await client.whoami()
+        author = who.get("identity")
+        if not author:
+            raise CliError(
+                "no author: set KORAX_IDENTITY, pass --author, or use a "
+                "token the board can resolve"
+            )
+    submission = Submission(
+        author=author,
+        ns=args.ns,
+        type="ACK",
+        grade="n/a",
+        refs=tuple({"edge": "acks", "id": i} for i in args.ids),  # type: ignore[arg-type]
+        payload=args.note,
+    )
+    body = await client.post_envelope(submission.to_wire())
+    _check_shape(Envelope, body, "/post")
+    rt.emit(body)
+    return 0
+
+
 async def cmd_envelope(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
@@ -229,6 +281,8 @@ CLIENT_CONFORMANCE: dict[str, Any] = {
         "read",
         "wait",
         "view",
+        "onboard",
+        "ack",
         "envelope",
         "policy",
         "identity new",
@@ -534,6 +588,48 @@ def build_parser() -> argparse.ArgumentParser:
     view.add_argument("--horizon", help="ISO 8601 duration, for fresh (e.g. P7D)")
     view.add_argument("--at", type=int, help="reduce at this offset (§10)")
     view.set_defaults(func=cmd_view)
+
+    # -- onboard ------------------------------------------------------------
+    onboard = sub.add_parser(
+        "onboard",
+        parents=[common],
+        help="the load-in: everything you must read before acting (§10.9)",
+        description="Drain your reading list — canon pins in force across "
+        "your grants, expanded through `requires`, minus what you have "
+        "already acked at current version. Empty means your canon has not "
+        "changed since you last acked; that amortization is the point. "
+        "Documents are fetched inline; read them, then `korax ack` the ids.",
+    )
+    onboard.add_argument(
+        "--identity", help="whose reading list (default: the token's identity)"
+    )
+    onboard.add_argument("--at", type=int, help="compute at this offset (§10)")
+    onboard.add_argument(
+        "--list-only",
+        action="store_true",
+        help="ids, provenance, and truncation only; skip fetching the documents",
+    )
+    onboard.set_defaults(func=cmd_onboard)
+
+    # -- ack ----------------------------------------------------------------
+    ack = sub.add_parser(
+        "ack",
+        parents=[common],
+        help="attest reading (§4.4, §12.11)",
+        description="Post one ACK carrying an `acks` edge per id. An ack is "
+        "permanent, attributable, and per version — a superseded document "
+        "reappears on your list until you ack the new version. Ack only "
+        "what you actually read.",
+    )
+    ack.add_argument("ids", nargs="+", type=int, help="envelope ids you have read")
+    ack.add_argument(
+        "--ns",
+        default="/korax/meta",
+        help="nest to post the ACK into (default /korax/meta)",
+    )
+    ack.add_argument("--author", help="identity id (default $KORAX_IDENTITY, else /whoami)")
+    ack.add_argument("--note", help="optional payload text")
+    ack.set_defaults(func=cmd_ack)
 
     # -- envelope -----------------------------------------------------------
     envelope = sub.add_parser(
