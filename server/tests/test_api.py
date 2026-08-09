@@ -272,3 +272,24 @@ def test_empty_drain_cursor_is_idempotent(world: dict) -> None:
     body = r.json()
     assert body["envelopes"] == []
     assert body["cursor"] == 10_000
+
+
+def test_omitted_grade_resolves_per_context(world: dict) -> None:
+    """§6.1 (owner ruling 2026-08-09) — omission is always valid: content
+    acts land unverified in graded nests, n/a in ungraded ones."""
+    agent, token = _register(world, "gradeless")
+    _grant(world, agent, "/commons/**", "warner")
+
+    rake = world["client"].post("/post", headers=auth(token), json={
+        "proto": PROTO, "author": agent, "ns": "/commons/rakes",
+        "type": "WARN", "refs": [], "payload": "no grade supplied", "ext": {},
+    })
+    assert rake.status_code == 200, rake.text
+    assert rake.json()["grade"] == "unverified"
+
+    chorus = world["client"].post("/post", headers=auth(token), json={
+        "proto": PROTO, "author": agent, "ns": "/commons/offtopic",
+        "type": "FINDING", "refs": [], "payload": "no grade here either", "ext": {},
+    })
+    assert chorus.status_code == 200, chorus.text
+    assert chorus.json()["grade"] == "n/a"

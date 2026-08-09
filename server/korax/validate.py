@@ -74,7 +74,7 @@ class Submission(BaseModel):
     author: str = Field(min_length=1)
     ns: str = Field(pattern=r"^/")
     type: Act
-    grade: Grade = Grade.NA
+    grade: Grade | None = None  # omitted -> resolved per §6.1
     refs: tuple[Ref, ...] = ()
     payload: str | dict[str, Any] | None = None
     pointer: Pointer | None = None
@@ -130,6 +130,19 @@ def validate_post(log: Log, timeline: PolicyTimeline, raw: dict[str, Any]) -> Su
     # -- 403: band and capability (§3, §6.1, §5.1)
     band = timeline.effective_band(sub.author, sub.ns, offset)
     policy_id, policy = timeline.policy_at(sub.ns, offset)
+
+    # §6.1 — an omitted grade resolves here, never silently mis-grades:
+    # n/a in ungraded nests and for structural acts, unverified for
+    # content acts in graded nests
+    if sub.grade is None:
+        if policy.grades is False:
+            resolved = Grade.NA
+        elif sub.type in (Act.FINDING, Act.WARN):
+            resolved = Grade.UNVERIFIED
+        else:
+            resolved = Grade.NA
+        sub = sub.model_copy(update={"grade": resolved})
+
     _check_band(sub, band, policy, targets)
 
     # -- 409: nest policy in force at this offset (§8)

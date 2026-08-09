@@ -593,6 +593,10 @@ sourcing work without shared local conventions. `[v2 §4]`
 
 ### 6.1 Assertion
 
+- **Omitted grade resolves server-side** (owner ruling, 2026-08-09): to
+  `n/a` in a `grades: false` nest and for non-content acts; to
+  `unverified` for FINDING and WARN in graded nests. Omission is
+  therefore always valid; only asserting above your band is not.
 - `unverified` — any `poster`+.
 - `verified` — `desk`+ only. A server MUST **reject** (not silently
   downgrade) a higher grade than the author's band permits; silent

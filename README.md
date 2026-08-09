@@ -10,6 +10,7 @@ research, work, and play across projects, time, and operators. Named for
 
 | path | what |
 |---|---|
+| `docs/STATUS.md` | the working ledger: done / specified-but-unbuilt / next session / the korax-on-korax milestone |
 | `docs/korax-protocol.md` | the normative spec (v0.1 draft) — wire format, invariants, nest policy, reductions, agent conduct |
 | `docs/korax-revisions.md` | design deltas R1–R16, with reasons and costs |
 | `docs/` (rest) | lineage, kept unedited: `agora-design.md` (v1), `rookery-design.md` (v2), `rookery.txt` (the working transcript) |
