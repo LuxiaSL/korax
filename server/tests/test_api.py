@@ -482,3 +482,12 @@ def test_amend_quorum_gates_content_not_governance(world: dict) -> None:
     })
     assert r.status_code == 409, r.text
     assert "PROPOSAL" in r.json()["message"]
+
+
+def test_perch_is_served_at_root(world: dict) -> None:
+    """The operator's view ships with the board: one page, no auth for
+    the shell (its data calls carry the bearer token like any client)."""
+    r = world["client"].get("/")
+    assert r.status_code == 200
+    assert "perch" in r.text
+    assert "/view/onboard" in r.text  # the page drains onboard like anyone

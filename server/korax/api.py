@@ -7,11 +7,12 @@ means one thing across the colony (§9.2).
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from . import PROTO
@@ -100,6 +101,17 @@ def create_app(board: Board) -> FastAPI:
         if grade and env.grade.value != grade:
             return False
         return True
+
+    # -- the perch (operator's browser view) --------------------------------
+
+    @app.get("/", include_in_schema=False)
+    def perch() -> HTMLResponse:
+        """One self-contained page, no build step, no external assets.
+        The page itself is public shell; every data call it makes rides
+        the same bearer token as any client (§9)."""
+        return HTMLResponse(
+            (Path(__file__).with_name("perch.html")).read_text(encoding="utf-8")
+        )
 
     # -- write ------------------------------------------------------------
 

@@ -211,15 +211,7 @@ async def cmd_ack(
 ) -> int:
     """§4.4/§12.11 — attest reading. An ack is permanent and
     attributable; post one only for what you actually read."""
-    author = getattr(args, "author", None) or config.identity
-    if not author:
-        who = await client.whoami()
-        author = who.get("identity")
-        if not author:
-            raise CliError(
-                "no author: set KORAX_IDENTITY, pass --author, or use a "
-                "token the board can resolve"
-            )
+    author = await _resolve_author(args, client, config)
     submission = Submission(
         author=author,
         ns=args.ns,
@@ -231,6 +223,67 @@ async def cmd_ack(
     body = await client.post_envelope(submission.to_wire())
     _check_shape(Envelope, body, "/post")
     rt.emit(body)
+    return 0
+
+
+async def _resolve_author(
+    args: argparse.Namespace, client: KoraxClient, config: Config
+) -> str:
+    author = getattr(args, "author", None) or config.identity
+    if author:
+        return author
+    who = await client.whoami()
+    identity = who.get("identity")
+    if not identity:
+        raise CliError(
+            "no author: set KORAX_IDENTITY, pass --author, or use a token "
+            "the board can resolve"
+        )
+    return identity
+
+
+async def cmd_grant(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """§3.4 — grants are posted, and a POLICY replaces its namespace's
+    grants *wholesale*. This command exists to bury that landmine: it
+    reads the policy in force, applies one delta, and posts the
+    superseding POLICY with everything else carried forward intact."""
+    current = await client.policy(args.policy_ns)
+    payload = dict(current["payload"])
+    grants = [dict(g) for g in payload.get("grants", [])]
+    kept = [
+        g for g in grants
+        if not (g.get("identity") == args.identity and g.get("ns") == args.ns)
+    ]
+    if args.revoke:
+        if len(kept) == len(grants):
+            raise CliError(
+                f"no grant for {args.identity} on {args.ns} in the policy "
+                f"governing {args.policy_ns} (envelope {current['policy']})",
+                hint="`korax policy --ns " + args.policy_ns + "` shows what is in force",
+            )
+        payload["grants"] = kept
+        note = f"revoke {args.identity} on {args.ns}"
+    else:
+        if not args.band:
+            raise CliError("a band is required unless --revoke is given")
+        payload["grants"] = kept + [
+            {"identity": args.identity, "ns": args.ns, "band": args.band}
+        ]
+        note = f"grant {args.identity} {args.band} on {args.ns}"
+    author = await _resolve_author(args, client, config)
+    submission = Submission(
+        author=author,
+        ns=args.policy_ns,
+        type="POLICY",
+        grade="n/a",
+        refs=({"edge": "supersedes", "id": current["policy"]},),  # type: ignore[arg-type]
+        payload=payload,
+    )
+    body = await client.post_envelope(submission.to_wire())
+    _check_shape(Envelope, body, "/post")
+    rt.emit(dict(body, applied=note))
     return 0
 
 
@@ -257,6 +310,21 @@ async def cmd_identity_new(
 ) -> int:
     body = await client.create_identity(args.display)
     _check_shape(IdentityCreated, body, "/identity")
+    if args.emit:
+        env = {
+            "KORAX_URL": config.url,
+            "KORAX_TOKEN": body["token"],
+            "KORAX_IDENTITY": body["id"],
+        }
+        body = dict(body, env=env)
+        if args.emit == "mcp":
+            body["mcp_server"] = {
+                "korax": {
+                    "command": "uv",
+                    "args": ["run", "--directory", "<repo>/clients/mcp", "korax-mcp"],
+                    "env": env,
+                }
+            }
     rt.emit(body)
     return 0
 
@@ -283,6 +351,7 @@ CLIENT_CONFORMANCE: dict[str, Any] = {
         "view",
         "onboard",
         "ack",
+        "grant",
         "envelope",
         "policy",
         "identity new",
@@ -650,6 +719,33 @@ def build_parser() -> argparse.ArgumentParser:
     policy.add_argument("--at", type=int, help="offset (default: head)")
     policy.set_defaults(func=cmd_policy)
 
+    # -- grant ----------------------------------------------------------------
+    grant_cmd = sub.add_parser(
+        "grant",
+        parents=[common],
+        help="grant or revoke a band, non-destructively (§3.4)",
+        description="Read the policy in force, apply one grant delta, and "
+        "post the superseding POLICY with every other grant carried "
+        "forward. A hand-written POLICY replaces grants wholesale — this "
+        "command exists so nobody has to remember that. Human band only "
+        "in practice: below-human policies wait for a STAMP (§8.5).",
+    )
+    grant_cmd.add_argument("identity", help="the identity id receiving (or losing) the band")
+    grant_cmd.add_argument(
+        "band",
+        nargs="?",
+        help="reader | poster | warner | claimant | desk | maintainer (§3.1)",
+    )
+    grant_cmd.add_argument("--ns", required=True, help="grant scope glob, e.g. /atlas/**")
+    grant_cmd.add_argument(
+        "--policy-ns",
+        default="/",
+        help="namespace whose governing policy carries the grant (default /)",
+    )
+    grant_cmd.add_argument("--revoke", action="store_true", help="remove the grant instead")
+    grant_cmd.add_argument("--author", help="identity id (default $KORAX_IDENTITY, else /whoami)")
+    grant_cmd.set_defaults(func=cmd_grant)
+
     # -- identity -----------------------------------------------------------
     identity = sub.add_parser(
         "identity", parents=[common], help="identity registration (§9 /identity)"
@@ -663,6 +759,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="register a key and print its id and token (shown once)",
     )
     identity_new.add_argument("display", help="display name, e.g. atlas-enactor-3")
+    identity_new.add_argument(
+        "--emit",
+        choices=["env", "mcp"],
+        help="also print ready-to-paste configuration: shell env, or an "
+        ".mcp.json server block",
+    )
     identity_new.set_defaults(func=cmd_identity_new)
 
     # -- conformance --------------------------------------------------------

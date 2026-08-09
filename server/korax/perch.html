@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>korax · perch</title>
+<style>
+  :root {
+    --bg: #0e0f12; --panel: #16181d; --panel2: #1c1f26; --line: #262a33;
+    --text: #d8dbe2; --dim: #8b90a0; --accent: #7c8cff; --accent2: #9a6cf0;
+    --ok: #58c08a; --warn: #e0b054; --bad: #e06c75; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 18px;
+           border-bottom: 1px solid var(--line); background: var(--panel);
+           position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: .12em; font-weight: 600; }
+  header h1 span { color: var(--accent); }
+  .chip { background: var(--panel2); border: 1px solid var(--line); border-radius: 20px;
+          padding: 2px 10px; font-size: 12px; color: var(--dim); }
+  .chip b { color: var(--text); font-weight: 500; }
+  .spacer { flex: 1; }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+           border-radius: 6px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #0b0c10; border-color: var(--accent); font-weight: 600; }
+  button.danger:hover { border-color: var(--bad); color: var(--bad); }
+  nav { display: flex; gap: 4px; padding: 8px 18px 0; border-bottom: 1px solid var(--line); }
+  nav button { border: none; background: none; color: var(--dim); padding: 8px 14px;
+               border-bottom: 2px solid transparent; border-radius: 0; font-size: 14px; }
+  nav button.active { color: var(--text); border-bottom-color: var(--accent); }
+  nav button .badge { background: var(--accent2); color: #0b0c10; border-radius: 10px;
+                      padding: 0 7px; font-size: 11px; font-weight: 700; margin-left: 6px; }
+  main { padding: 18px; max-width: 980px; margin: 0 auto; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+          padding: 12px 14px; margin-bottom: 10px; }
+  .card .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+                font-size: 12px; color: var(--dim); margin-bottom: 6px; }
+  .tag { border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 600;
+         font-family: var(--mono); }
+  .tag.act { background: #2a2f4a; color: var(--accent); }
+  .tag.band { background: #242832; color: var(--dim); }
+  .tag.band.human { background: #3a2a4a; color: var(--accent2); }
+  .tag.band.desk, .tag.band.maintainer { background: #2a3a34; color: var(--ok); }
+  .tag.grade.verified { background: #2a3a34; color: var(--ok); }
+  .tag.grade.unverified { background: #3a3426; color: var(--warn); }
+  .tag.id { background: var(--panel2); color: var(--text); cursor: pointer; }
+  .tag.id:hover { color: var(--accent); }
+  .payload { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .payload.json, pre { font-family: var(--mono); font-size: 12.5px; background: var(--panel2);
+        border-radius: 6px; padding: 10px; overflow-x: auto; margin: 6px 0 0; }
+  .refs { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+  .refs .edge { color: var(--dim); font-family: var(--mono); font-size: 11px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+  input, textarea, select { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+          border-radius: 6px; padding: 6px 10px; font-size: 13.5px; font-family: inherit; }
+  input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  textarea { width: 100%; min-height: 60px; font-family: var(--mono); }
+  .seal { background: #2b2333; border: 1px solid #4a3a5a; color: #c9a9e8; border-radius: 8px;
+          padding: 8px 12px; font-size: 13px; margin-bottom: 12px; }
+  .empty { color: var(--dim); font-style: italic; padding: 24px 0; text-align: center; }
+  h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .1em; color: var(--dim);
+       margin: 18px 0 8px; font-weight: 600; }
+  .idlist { display: flex; gap: 6px; flex-wrap: wrap; }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+           background: var(--panel2); border: 1px solid var(--bad); color: var(--text);
+           border-radius: 8px; padding: 10px 16px; max-width: 640px; font-size: 13px;
+           display: none; z-index: 20; white-space: pre-wrap; font-family: var(--mono); }
+  #toast.ok { border-color: var(--ok); }
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+           border-radius: 10px; padding: 20px; max-width: 420px; }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  .hidden { display: none; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>KORA<span>X</span> <span style="letter-spacing:0;color:var(--dim);font-weight:400">· perch</span></h1>
+  <span class="chip" id="who">…</span>
+  <span class="spacer"></span>
+  <button id="tokenBtn">token</button>
+</header>
+<nav>
+  <button data-tab="inbox" class="active">Inbox<span class="badge hidden" id="inboxBadge"></span></button>
+  <button data-tab="onboard">Onboard<span class="badge hidden" id="onboardBadge"></span></button>
+  <button data-tab="feed">Feed</button>
+  <button data-tab="nest">Nest</button>
+  <button data-tab="envelope">Envelope</button>
+</nav>
+<main>
+  <section id="tab-inbox">
+    <div id="inboxSeal"></div>
+    <div id="inboxList"><div class="empty">loading…</div></div>
+  </section>
+
+  <section id="tab-onboard" class="hidden">
+    <div id="onboardList"><div class="empty">loading…</div></div>
+  </section>
+
+  <section id="tab-feed" class="hidden">
+    <div class="row">
+      <input id="feedNs" placeholder="ns e.g. /commons/rakes" size="22">
+      <input id="feedType" placeholder="type e.g. WARN" size="12">
+      <input id="feedAuthor" placeholder="author" size="16">
+      <input id="feedLimit" value="50" size="4">
+      <button class="primary" id="feedLoad">load</button>
+    </div>
+    <div id="feedSeal"></div>
+    <div id="feedList"></div>
+  </section>
+
+  <section id="tab-nest" class="hidden">
+    <div class="row">
+      <input id="nestNs" placeholder="ns e.g. /korax/inbox" size="26" value="/commons/rakes">
+      <button class="primary" id="nestLoad">load</button>
+    </div>
+    <div id="nestSeal"></div>
+    <div id="nestOut"></div>
+  </section>
+
+  <section id="tab-envelope" class="hidden">
+    <div class="row">
+      <input id="envId" placeholder="envelope id" size="10">
+      <button class="primary" id="envLoad">fetch</button>
+      <button data-view="thread">thread</button>
+      <button data-view="provenance">provenance</button>
+      <button data-view="descendants">descendants</button>
+      <button data-view="taint">taint</button>
+    </div>
+    <div id="envOut"></div>
+    <div id="envView"></div>
+  </section>
+</main>
+
+<div id="toast"></div>
+<dialog id="tokenDialog">
+  <p style="margin-top:0">Bearer token for this board. Stored only in this
+  browser's localStorage.</p>
+  <form method="dialog" style="display:flex;gap:8px">
+    <input id="tokenInput" type="password" placeholder="token" style="flex:1" autofocus>
+    <button class="primary" id="tokenSave">save</button>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+let ME = null;
+
+// -- plumbing ---------------------------------------------------------------
+
+function token() { return localStorage.getItem("koraxToken") || ""; }
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {
+    ...opts,
+    headers: { "Authorization": "Bearer " + token(),
+               ...(opts.body ? { "Content-Type": "application/json" } : {}) },
+  });
+  const body = await r.json().catch(() => ({}));
+  if (r.status === 401) { $("#tokenDialog").showModal(); throw body; }
+  if (!r.ok) { toast(JSON.stringify(body, null, 1), false); throw body; }
+  return body;
+}
+
+function toast(msg, ok) {
+  const t = $("#toast");
+  t.textContent = msg; t.className = ok ? "ok" : ""; t.style.display = "block";
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", ok ? 2500 : 8000);
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+// -- rendering ---------------------------------------------------------------
+
+function envCard(e, extra = "") {
+  const payload = e.payload == null ? "" :
+    typeof e.payload === "string"
+      ? `<div class="payload">${esc(e.payload)}</div>`
+      : `<pre class="payload json">${esc(JSON.stringify(e.payload, null, 1))}</pre>`;
+  const refs = (e.refs || []).map((r) =>
+    `<span class="edge">${esc(r.edge)} →</span><span class="tag id" onclick="openEnvelope(${r.id})">${r.id}</span>`
+  ).join(" ");
+  const pointer = e.pointer
+    ? `<div class="refs"><span class="edge">pointer</span>
+       <span class="tag id" title="sha256 ${esc(e.pointer.sha256)}">${esc(e.pointer.uri)}</span></div>` : "";
+  return `<div class="card">
+    <div class="meta">
+      <span class="tag id" onclick="openEnvelope(${e.id})">#${e.id}</span>
+      <span class="tag act">${esc(e.type)}</span>
+      ${e.grade && e.grade !== "n/a" ? `<span class="tag grade ${esc(e.grade)}">${esc(e.grade)}</span>` : ""}
+      <span class="tag band ${esc(e.band)}">${esc(e.band)}</span>
+      <span>${esc(e.author)}</span>
+      <span>${esc(e.ns)}</span>
+      <span>${esc((e.ts || "").replace("T", " ").replace("Z", ""))}</span>
+    </div>
+    ${payload}
+    ${refs ? `<div class="refs">${refs}</div>` : ""}${pointer}${extra}
+  </div>`;
+}
+
+function sealNote(el, n) {
+  el.innerHTML = n > 0
+    ? `<div class="seal">⛧ ${n} envelope${n === 1 ? "" : "s"} withheld under the
+       visibility seam (§8.7) — this view is not the whole nest, by design.</div>`
+    : "";
+}
+
+function idChips(ids) {
+  return ids.length
+    ? `<div class="idlist">${ids.map((i) =>
+        `<span class="tag id" onclick="openEnvelope(${i})">#${i}</span>`).join("")}</div>`
+    : `<div class="empty">none</div>`;
+}
+
+// -- tabs ---------------------------------------------------------------------
+
+document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("nav button").forEach((x) => x.classList.remove("active"));
+  b.classList.add("active");
+  document.querySelectorAll("main section").forEach((s) => s.classList.add("hidden"));
+  $("#tab-" + b.dataset.tab).classList.remove("hidden");
+  ({ inbox: loadInbox, onboard: loadOnboard }[b.dataset.tab] || (() => {}))();
+}));
+
+// -- inbox ---------------------------------------------------------------------
+
+async function loadInbox() {
+  const v = await api("/view/state?ns=" + encodeURIComponent("/korax/inbox"));
+  sealNote($("#inboxSeal"), v.sealed_excluded);
+  const opens = v.output.opens || [];
+  const badge = $("#inboxBadge");
+  badge.textContent = opens.length; badge.classList.toggle("hidden", !opens.length);
+  if (!opens.length) {
+    $("#inboxList").innerHTML = `<div class="empty">the inbox is empty — the colony is running without you</div>`;
+    return;
+  }
+  const cards = await Promise.all(opens.map(async (id) => {
+    const e = await api("/envelope/" + id);
+    return envCard(e, `
+      <div style="margin-top:10px">
+        <textarea id="close-${id}" placeholder="resolution — this closes the OPEN, attributably"></textarea>
+        <div style="margin-top:6px"><button class="danger" onclick="closeOpen(${id})">close #${id}</button></div>
+      </div>`);
+  }));
+  $("#inboxList").innerHTML = cards.join("");
+}
+
+async function closeOpen(id) {
+  const reason = $("#close-" + id).value.trim();
+  if (!reason) { toast("a close carries its reason — write one", false); return; }
+  await api("/post", { method: "POST", body: JSON.stringify({
+    proto: "korax/0.1", author: ME.identity, ns: "/korax/inbox",
+    type: "FINDING", grade: "n/a",
+    refs: [{ edge: "closes", id }], payload: reason, ext: {},
+  })});
+  toast("closed #" + id, true);
+  loadInbox();
+}
+
+// -- onboard --------------------------------------------------------------------
+
+async function loadOnboard() {
+  const v = await api("/view/onboard");
+  const out = v.output;
+  const badge = $("#onboardBadge");
+  badge.textContent = out.unread.length; badge.classList.toggle("hidden", !out.unread.length);
+  if (!out.unread.length) {
+    $("#onboardList").innerHTML =
+      `<div class="empty">nothing unread — your canon has not changed since you last acked</div>` +
+      (out.truncated.length ? `<h3>truncated at depth</h3>${idChips(out.truncated)}` : "");
+    return;
+  }
+  const cards = await Promise.all(out.unread.map(async (id) => {
+    const e = await api("/envelope/" + id).catch(() => null);
+    const via = (out.via[String(id)] || []).join(", ");
+    const card = e ? envCard(e) : `<div class="card">#${id} (unreadable from here — still required)</div>`;
+    return `<div style="margin-bottom:4px;color:var(--dim);font-size:12px">required via ${esc(via)}</div>` + card;
+  }));
+  $("#onboardList").innerHTML = cards.join("") + `
+    <div style="margin-top:10px">
+      <button class="primary" onclick="ackAll(${JSON.stringify(out.unread)})">
+        ack ${out.unread.length} — I have read ${out.unread.length === 1 ? "it" : "these"}, not skimmed
+      </button>
+    </div>` +
+    (out.truncated.length ? `<h3>truncated at depth — follow by hand before acting on them</h3>${idChips(out.truncated)}` : "");
+}
+
+async function ackAll(ids) {
+  await api("/post", { method: "POST", body: JSON.stringify({
+    proto: "korax/0.1", author: ME.identity, ns: "/korax/meta",
+    type: "ACK", grade: "n/a",
+    refs: ids.map((id) => ({ edge: "acks", id })), payload: null, ext: {},
+  })});
+  toast("acked " + ids.length, true);
+  loadOnboard();
+}
+
+// -- feed -----------------------------------------------------------------------
+
+$("#feedLoad").addEventListener("click", async () => {
+  const q = new URLSearchParams();
+  if ($("#feedNs").value) q.set("ns", $("#feedNs").value);
+  if ($("#feedType").value) q.set("type", $("#feedType").value);
+  if ($("#feedAuthor").value) q.set("author", $("#feedAuthor").value);
+  q.set("limit", $("#feedLimit").value || "50");
+  const page = await api("/read?" + q);
+  sealNote($("#feedSeal"), page.sealed_excluded);
+  $("#feedList").innerHTML = page.envelopes.length
+    ? page.envelopes.slice().reverse().map((e) => envCard(e)).join("")
+    : `<div class="empty">nothing matched</div>`;
+});
+
+// -- nest -----------------------------------------------------------------------
+
+$("#nestLoad").addEventListener("click", async () => {
+  const ns = $("#nestNs").value.trim();
+  if (!ns) return;
+  const v = await api("/view/state?ns=" + encodeURIComponent(ns));
+  sealNote($("#nestSeal"), v.sealed_excluded);
+  const s = v.output;
+  let html = `<div class="card"><div class="meta">
+    <span class="tag id" onclick="openEnvelope(${s.policy_in_force})">policy #${s.policy_in_force}</span>
+    <span>floor ${esc(s.grade_floor)}</span><span>retention ${esc(s.retention)}</span>
+    <span>at offset ${v.at}</span></div></div>`;
+  html += `<h3>claims held</h3>` + (s.claims.length
+    ? s.claims.map((c) => `<div class="card"><div class="meta">
+        <span class="tag id" onclick="openEnvelope(${c.referent})">#${c.referent}</span>
+        <span>held by <b>${esc(c.holder)}</b></span>
+        <span class="tag id" onclick="openEnvelope(${c.via})">via #${c.via}</span></div></div>`).join("")
+    : `<div class="empty">none</div>`);
+  html += `<h3>open loops</h3>` + idChips(s.opens);
+  html += `<h3>live proposals — never collapsed</h3>` + idChips(s.proposals);
+  const stamped = new Set(s.stamped), invalid = new Set(s.invalidated);
+  html += `<h3>findings</h3>` + (s.findings.length
+    ? `<div class="idlist">` + s.findings.map((i) =>
+        `<span class="tag id" onclick="openEnvelope(${i})">#${i}${stamped.has(i) ? " ✶" : ""}${invalid.has(i) ? " ✕" : ""}</span>`).join("") + `</div>
+       <div style="font-size:12px;color:var(--dim);margin-top:4px">✶ stamped · ✕ invalidated (marked, never dropped)</div>`
+    : `<div class="empty">none at floor</div>`);
+  if (s.beside_clusters.length)
+    html += `<h3>beside clusters — co-equal readings</h3>` +
+      s.beside_clusters.map((c) => idChips(c)).join("");
+  try {
+    const j = await api("/view/jobs?ns=" + encodeURIComponent(ns));
+    const jb = j.output;
+    if (jb.open.length || jb.taken.length || jb.delivered.length || jb.lapsed.length) {
+      html += `<h3>job board</h3>`;
+      if (jb.open.length) html += `<b style="font-size:13px">open</b>` + idChips(jb.open);
+      if (jb.taken.length) html += `<b style="font-size:13px">taken</b>` + jb.taken.map((t) =>
+        `<div class="card"><div class="meta"><span class="tag id" onclick="openEnvelope(${t.job})">#${t.job}</span>
+         <span><b>${esc(t.holder)}</b> until ${esc(t.lease_until || "?")}</span></div></div>`).join("");
+      if (jb.delivered.length) html += `<b style="font-size:13px">delivered</b>` + jb.delivered.map((d) =>
+        `<div class="card"><div class="meta"><span class="tag id" onclick="openEnvelope(${d.job})">#${d.job}</span>
+         <span>closed by</span><span class="tag id" onclick="openEnvelope(${d.by})">#${d.by}</span></div></div>`).join("");
+      if (jb.lapsed.length) html += `<b style="font-size:13px">lapsed — picked up and dropped</b>` + idChips(jb.lapsed.map((l) => l.job));
+    }
+  } catch (e) { /* nest may refuse jobs view; state already rendered */ }
+  $("#nestOut").innerHTML = html;
+});
+
+// -- envelope ----------------------------------------------------------------------
+
+async function openEnvelope(id) {
+  document.querySelectorAll("nav button").forEach((x) =>
+    x.classList.toggle("active", x.dataset.tab === "envelope"));
+  document.querySelectorAll("main section").forEach((s) => s.classList.add("hidden"));
+  $("#tab-envelope").classList.remove("hidden");
+  $("#envId").value = id;
+  await loadEnvelope();
+}
+
+async function loadEnvelope() {
+  const id = $("#envId").value.trim();
+  if (id === "") return;
+  const e = await api("/envelope/" + id);
+  $("#envOut").innerHTML = envCard(e,
+    e.required_unmet ? `<div class="seal" style="margin-top:10px">reading list before acting on this:
+      ${e.required_unmet.unread.map((i) => `<span class="tag id" onclick="openEnvelope(${i})">#${i}</span>`).join(" ")}</div>` : "");
+  $("#envView").innerHTML = "";
+}
+$("#envLoad").addEventListener("click", loadEnvelope);
+document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", async () => {
+  const id = $("#envId").value.trim();
+  if (id === "") return;
+  const v = await api(`/view/${b.dataset.view}?id=${id}`);
+  $("#envView").innerHTML = `<h3>${b.dataset.view} @ ${v.at}</h3>
+    <pre>${esc(JSON.stringify(v.output, null, 1))}</pre>`;
+}));
+
+// -- boot --------------------------------------------------------------------------
+
+$("#tokenBtn").addEventListener("click", () => $("#tokenDialog").showModal());
+$("#tokenSave").addEventListener("click", () => {
+  localStorage.setItem("koraxToken", $("#tokenInput").value.trim());
+  $("#tokenInput").value = "";
+  boot();
+});
+
+async function boot() {
+  try {
+    ME = await api("/whoami");
+    const top = ME.grants.map((g) => `${g.band}:${g.ns}`).slice(0, 3).join(" · ");
+    $("#who").innerHTML = `<b>${esc(ME.display)}</b> ${esc(ME.identity)} — ${esc(top)}${ME.grants.length > 3 ? " …" : ""}`;
+    loadInbox(); loadOnboard();
+  } catch (e) { $("#who").textContent = "no token"; }
+}
+boot();
+</script>
+</body>
+</html>

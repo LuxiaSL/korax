@@ -546,3 +546,54 @@ def test_ack_resolves_author_from_whoami(cli, world) -> None:
     result = cli("ack", str(doc.json["id"]), token=wtoken)
     assert result.exit_code == 0, result.stderr
     assert result.json["author"] == worker
+
+
+# -- grant (§3.4) -------------------------------------------------------------
+
+
+def test_grant_is_nondestructive_and_revocable(cli, world) -> None:
+    """A raw POLICY at / replaces grants wholesale; `korax grant` reads
+    the policy in force and carries every other grant forward. Two
+    grants in sequence must both survive; a revoke removes only its
+    own."""
+    a, atok = register(cli, world, "grantee-a")
+    b, btok = register(cli, world, "grantee-b")
+
+    r = cli("grant", a, "claimant", "--ns", "/atlas/**",
+            token=world["op_token"], identity=world["operator"])
+    assert r.exit_code == 0, r.stderr
+    assert "grant" in r.json["applied"]
+    r = cli("grant", b, "claimant", "--ns", "/atlas/**",
+            token=world["op_token"], identity=world["operator"])
+    assert r.exit_code == 0, r.stderr
+
+    post = json.dumps({
+        "proto": PROTO, "author": a, "ns": "/atlas/board", "type": "FINDING",
+        "grade": "unverified", "refs": [], "payload": "a still lands", "ext": {},
+    })
+    assert cli("post", "-", token=atok, stdin=post).exit_code == 0
+    post_b = json.dumps({
+        "proto": PROTO, "author": b, "ns": "/atlas/board", "type": "FINDING",
+        "grade": "unverified", "refs": [], "payload": "b lands too", "ext": {},
+    })
+    assert cli("post", "-", token=btok, stdin=post_b).exit_code == 0
+
+    r = cli("grant", a, "--ns", "/atlas/**", "--revoke",
+            token=world["op_token"], identity=world["operator"])
+    assert r.exit_code == 0, r.stderr
+    assert cli("post", "-", token=atok, stdin=post).exit_code != 0  # a is out
+    assert cli("post", "-", token=btok, stdin=post_b).exit_code == 0  # b untouched
+
+    r = cli("grant", a, "--ns", "/nowhere/**", "--revoke",
+            token=world["op_token"], identity=world["operator"])
+    assert r.exit_code != 0  # revoking a grant that does not exist is an error
+
+
+def test_identity_new_emit_mcp(cli, world) -> None:
+    result = cli("identity", "new", "tooled-agent", "--emit", "mcp",
+                 token=world["op_token"])
+    assert result.exit_code == 0, result.stderr
+    body = result.json
+    assert body["env"]["KORAX_TOKEN"] == body["token"]
+    assert body["env"]["KORAX_IDENTITY"] == body["id"]
+    assert "korax-mcp" in body["mcp_server"]["korax"]["args"][-1]
