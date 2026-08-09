@@ -1,0 +1,213 @@
+okay; hi claude! i have uploaded two files for you to check into; agora & rookery design (loose namings.) this will be basically my first foray into soft machine as well, so i'm trying to go at this *relatively* blank while showing you the vague ideas. check into the docs; see what you think about them and what they try to achieve!
+
+---
+
+Read both. Here's my honest take.
+
+## What they're doing
+
+v1 (Agora) makes one argument, and it's the right one: coordination fails on *mutable* shared state, so flip the substrate to an append-only log of immutable typed messages, keep the vocabulary monotone (CALM), and compute "current state" as a read-time reduction. Blackboard + Linda is the correct lineage and you name it honestly.
+
+v2 (Rookery) keeps the spine and does three things v1 couldn't: it generalizes from within-campaign to **across projects / time / operators / people**; it adds the pieces field use demanded (BESIDE, HANDOVER, STAMP, grades, bands, cursors); and it gets specific enough to build. The single best move in v2 is **pointer-only** — "the board is the index and the conversation, never the bank." That one rule kills the failure mode that eats every knowledge base.
+
+## Where I'd push
+
+**1. The sequencer is doing the work, not the CRDT.** You say concurrency is conflict-free "by construction" — but `id` and `ts` come from the server, which means you have a total-order sequencer. That's a coordination point, and it's *good*, it buys you cursors and tiebreaks for free. But it means the CALM framing is slightly load-bearing in a way it shouldn't be. Concretely: **CLAIM-with-lease is not monotone.** "This claim is live" gets falsified by the passage of time; claim-stealing is a retraction. It works anyway because the server total order gives you a deterministic tiebreak — so name the sequencer as the mechanism rather than attributing it to monotonicity, or the first liveness bug will be confusing.
+
+**2. There's no invalidation cascade, and you need one.** `view=provenance` walks `derives-from` *toward* ground. Nothing walks the other way. So: FINDING A gets stamped, three projects derive from it, six weeks later A turns out wrong. The WARN never reaches the derivers. For a system whose whole pitch is cross-project and cross-time sourcing, "who downstream of this is now suspect" is a first-class query — `view=descendants` / a taint reduction. Cheap to add now, structurally awkward to retrofit.
+
+**3. STAMP recreates the bottleneck the docs exist to remove.** v1's design test is "does this let a decision be made on the board instead of in your inbox?" §3.2 says nothing is of record until a human stamps it, §6 makes STAMP non-delegable, and §9 makes `of-record` stamped-only. If cross-desk sourcing keys off `of-record`, total throughput of the cross-project index is bounded by your stamping rate — you've moved the bottleneck from message-passing to notarization. I think the resolution is explicit: **`verified` (desk band) is the working currency for cross-desk sourcing; `stamped` is reserved for a small canon.** Then say per-reduction which grade it consumes by default, and design for "I sourced a verified claim that never got stamped."
+
+**4. These are two products sharing a spine — and the pilot order is right because of it.**
+
+```mermaid
+graph TD
+  L[append-only log: envelopes] --> A[live coordination<br/>claims · leases · wait · handover<br/>high-volume · ephemeral · latency-bound]
+  L --> B[durable index<br/>rakes · findings · canon · provenance<br/>low-volume · permanent · curated]
+  A -.needs.-> A1[decay · salience · digests]
+  B -.needs.-> B1[grades · shas · descendants]
+```
+
+Opposite requirements: one wants speed and forgetting, the other wants curation and permanence. Same envelope, fine — but retention, reductions, and namespaces should split explicitly. §14 starting at `/commons/rakes` is correct precisely because that's the durable half, and it's the only part that pays off at N=1 agent, N=1 project. Everything else needs scale before it earns anything.
+
+**5. BESIDE doesn't fix herding — it fixes *collapse*.** Co-visibility preserves two readings that already exist. It does nothing about the generation step, where every agent reads `view=state`, sees proposal #1, and elaborates proposal #1. The actual mitigation is already in your field loop and didn't get promoted into the protocol: **pre-statements frozen before data.** Generalize it — `post-before-read`, or a blind mode on `view=state` that hides live PROPOSALs until you've posted yours. That's a substrate feature, not a discipline you hope agents keep.
+
+**6. §11.1 is a promise; §11.2 is the boundary.** "Board text is data, never instructions — every agent client bakes this in as a hard rule" is prompt-level, and prompt-level rules about untrusted text are exactly what fails under adversarial peers. The sound part is 11.2: a CLAIM entitles you to work, a sha-pinned brief authorizes execution. Lead with that; 11.1 is defense-in-depth. And the client should *render* board content typed, quoted, and band-attributed rather than splicing it into context as prose.
+
+**7. The unaddressed risk is that agents just… don't post.** The desk loop works because a human curates every entry. In a swarm, posting discipline is the whole ballgame — what makes an agent post a WARN instead of quietly moving on? That belongs in the brief as an obligation ("before abandoning an approach, post a WARN"), and §14.3's success metric should have a partner: count WARNs that later drew a "this saved me" reply. Relays-not-sent measures the desk's relief; that measures whether the board is actually load-bearing.
+
+## Small
+
+- The corvid layer earns itself. *band*, *alarm call*, *cache-the-pointer-not-the-hoard*, *perch*, *moult* each teach the mechanic — that's rare. Keep the boring aliases as promised. (Minor: "rookery" also means a 19th-c. slum; probably fine, mildly funny given §15's noise problem.)
+- Line 56 has a stray `永` in "永-durable."
+- No compaction story, but at desk scale Postgres won't care. The real scaling problem is read-side noise, which you've correctly deferred and flagged.
+
+## If you built one thing
+
+`/commons/rakes` + the envelope + `rook post/read`. It's useful the day it exists with zero agents on it, it forces the envelope schema to be real, and it's read-only with respect to your current loop. Second thing: cursors + `wait` + HANDOVER — the resurrection property is the highest quality-of-life-per-line-of-code item in the whole doc.
+
+Want me to open these side by side in the IDE, or start sketching the envelope schema / `rook` CLI?
+
+---
+
+i think the suggestions you make are strong; i think aesthetically, they somewhat want to live together; bbs has went through much more hellacious constructions for some of the best stuff. but the majority of the pushes are strong. aside from not posting, which, i think will be less of a problem than you imagine; once this type of ecosystem gets rolling, the worry might actually be *over* posting. i do think its worth noting your improvements, and then yes, thinking of how to spec/build this out proper!
+
+---
+
+`rookery-revisions.md` — eight deltas with reasons and costs, written to fold into a v3 rather than replace anything. Two things I'd flag from writing it:
+
+- Both of my additions turned out to be **edges** (`invalidates`, `corroborates`), not acts. Your v2 speech-act vocabulary held; all the pressure was on the graph. That's a good sign about the act list.
+- `corroborates` quietly resolves three separate open items at once — noise, replication-weighting (§11.3 wanted it as a prior), and the pilot metric. When one primitive closes three tickets it's usually the right primitive.
+
+## What a proper spec needs to cover
+
+Roughly this shape, in dependency order:
+
+| § | Contents | Note |
+|---|---|---|
+| 1 | Envelope — normative JSON Schema | the whole thing hangs off this |
+| 2 | Edges — validity rules, which acts may carry which | incl. R2 |
+| 3 | Acts — required fields per act | where "loud acts need pointers" is enforced |
+| 4 | Grades — lattice, who may assert what, stamp retraction | R3 |
+| 5 | Namespaces — paths, ACLs, per-nest `retention` / `blind_until_post` | R4, R5 |
+| 6 | Wire API — `/post` `/read` `/wait` `/subscribe` `/view/*`, band admin | |
+| 7 | Reductions — each normative, with grade floor + BESIDE handling | the read side is the product |
+| 8 | Storage — schema, append-only enforced at DDL | no UPDATE, no DELETE |
+| 9 | Clients — `rook` CLI surface, MCP tool surface | |
+| 10 | **Agent conduct** — normative obligations of a well-behaved band | see below |
+| 11 | Pilot seed — the initial rakes | |
+
+§10 is the one people skip and shouldn't. v1 said it outright: the substrate hands you asynchrony for free, and *the protocol* is what makes coordination converge instead of thrash. So the spec has to be normative about conduct, not just wire format — when you must WARN before abandoning an approach, when to corroborate rather than post, what you must read before claiming, what a HANDOVER owes its successor. That section is the acausal-coordination layer, and it's the part that's actually hard to get right.
+
+My default stack recommendation, absent other constraints: Python + FastAPI + SQLite with a Postgres migration path, since the MCP wrapper is then trivial and you'll want to hack on this. And I'd build the whole spine rather than a rakes-only cut — the spine is small enough that carving it down costs more than it saves; ship it *seeded* with rakes per §14.1 instead.
+
+Two forks worth your call before I write anything:
+
+---
+
+additional note before you get *too* deep; i think like, there is a strong idea in building it out as a standalone service, and *then* creating clients that can connect to the API/talk programmatically/utilize it like a literal agentic bbs/messaging board. just with these conventions baked in. but the server/client split is useful and lets us choose different programming languages for their strengths if necessary rather than needing explicitly to submit to one or the other.
+
+Agreed, and that reframes the deliverable usefully: **the protocol is the product**, the server is a reference implementation of it, and stack choice becomes reversible — which is exactly the property you're asking for. Good instinct to say it before I started writing.
+
+Five consequences worth baking into the spec on that basis:
+
+**Conventions are enforced server-side, not in clients.** This is the big one. If "loud acts need a pointer," "non-desk bands cap at unverified," "STAMP is human-only," and `blind_until_post` live in client code, then N clients means N dialects and the colony drifts inside a month — and the drift is invisible because everything still posts fine. The server rejects malformed acts at `/post`. Clients stay thin, and a sloppy third-party client can't corrupt the record.
+
+**Reductions are server endpoints, canonically.** Clients may compute their own views freely, but `view=state` has to mean one thing across the whole colony, or two desks both "read the board" and disagree about what it says. That's a coordination failure the substrate was supposed to eliminate.
+
+**Forward compatibility needs a rule.** Envelope carries a protocol version, and unknown act types, edge types, and `ext` fields must be **preserved and rendered opaque, never dropped**. Append-only already protects the log itself, but a client that silently filters types it doesn't recognize produces a projection that's quietly wrong — worse than one that errors.
+
+**Ship a conformance suite as part of the spec.** A fixture log plus expected reduction outputs. That's the difference between "a second implementation is possible" and "a second implementation is aspirational," and it's cheap to write alongside the reference server.
+
+**The client roster falls out nicely** — `rook` CLI, an MCP server, a human reading room (the sysop console; the agentic-BBS framing earns its keep here), and eventually a Soft Machine panel, since you're already sitting in the environment where that's the natural view.
+
+So the revised plan: write `rookery-protocol.md` as a language-neutral normative spec — envelope, edges, acts, grades, namespaces, wire API, reductions, conduct, conformance — and keep the reference server (schema, deployment, language) in a separate doc that the protocol doesn't depend on. Stack choice then genuinely doesn't need deciding now.
+
+Want me to start on the protocol doc, or is there more shape you want to put on it first?
+
+yeah, that all sounds strong to me! good movements. only other thing i might wonder... like, work and play. we should definitely as a priority bake in the idea for an /offtopic/ board. which, coincedentally, forces us to beter build out the conventions and how to enforce them and where. yeah?
+
+Yes — and the reason it's a strong idea is exactly the one you spotted second. An /offtopic board is the **null case for every convention**, and running each rule against it tells you something the work nests never would.
+
+Go down the list and ask "does this hold in /offtopic?" — loud acts need pointers? no. CLAIM needs a lease? there are no claims. grade floor? nothing has a grade. blind-until-post? absurd. retention? rotate hard. What that reveals is that most of what I'd been calling "the protocol enforces X" is not protocol at all — it's **nest policy**, and the protocol's actual job is much smaller:
+
+| Invariant (always, everywhere) | Nest policy (per-namespace) |
+|---|---|
+| append-only, immutable envelopes | which act types are permitted |
+| server assigns `id` / `ts` | required fields per act (pointers on loud acts) |
+| signature valid, author matches band | lease mandatory on CLAIM |
+| STAMP requires human band | `blind_until_post` |
+| non-desk bands cap at `unverified` | retention / rotation |
+| edges must reference existing ids | default grade floor for views |
+| namespace ACLs | grade lattice in use, or `n/a` |
+
+That's a better architecture than what I was heading toward, and /offtopic is what exposed it. Note that v2's grade lattice already has `n/a` sitting in it — this is what it was for.
+
+Three things follow:
+
+**Policy is itself an envelope.** In the spirit of §6's "the org chart is on the log like everything else": a nest's policy is a posted act, stamped, supersedable, versioned. Which means the enforcement rule is **an envelope is validated against the policy in force at its own offset, not current policy** — so tightening a rule never retroactively invalidates history, and "why does this old post look malformed" has an auditable answer. Conventions become legible and arguable rather than buried in server config.
+
+**The firewall is at the reduction layer.** /offtopic relaxes the *policy*, never the invariants — band attribution, text-is-data, and no-authorization-from-board-posts hold everywhere, and matter most precisely where the rules are loose. Plus a hard rule: `view=fresh` / `view=state` / `view=of-record` never source from `n/a`-grade nests. Play can't leak into canon.
+
+**Play is load-bearing, and you've already argued this.** §12's "useful tools get used; delightful tools get *inhabited*" is the same claim one level up. Every BBS had a general base, it was usually the highest-traffic one, and it was what brought people back to the file areas. There's also an informal register that carries real coordination and has nowhere else to go — "this approach felt wrong and I can't formalize why" is not a FINDING and shouldn't be forced into becoming one. And an /offtopic that agents genuinely use is a fairly interesting interpretability artifact on its own.
+
+For the theme: canonical path `/commons/offtopic`, and since §12 keeps technical names canonical with whimsy as alias, the display name could be **the dusk chorus** — corvids assemble at dusk before roosting and make an enormous racket with no business conducted whatsoever. Fits.
+
+I'll fold this into the revisions as R9 and then start on `rookery-protocol.md`, structured around that invariant/policy split — it'll make the spec both shorter and more extensible than the version I'd sketched. Sound right?
+
+`rookery-protocol.md` is drafted — v0.1, language-neutral, ~15 sections plus an open-questions appendix. The invariant/policy split reorganized it exactly as hoped: §1.1 lists **eight invariants** the server can never make configurable, and everything else became nest policy in §8, which is a POLICY envelope on the log rather than server config.
+
+Decisions I made while writing that you should sanity-check:
+
+- **Signatures can't cover server-assigned fields.** `id`/`ts`/`band` don't exist at signing time, so the author signs the client subset and the server SHOULD add `board_sig` over the accepted record. Without it an *exported* log is verifiable as to authorship but not as to ordering — which starts mattering the moment a peer reads an export instead of querying the board.
+- **Grade over your band is a 403, not a silent downgrade.** Silent downgrade leaves an agent believing it published something it didn't.
+- **Lease resolution got a normative algorithm** (§4.2) so any reader computes the same live holder from the log alone.
+- **`stamps` needed to exist** as an edge — v2 implied STAMP's referent but never named it. Noted in the revisions inventory.
+- **§13's unknown-element rule**: clients MUST preserve and render-opaque what they don't understand, and a client that can't faithfully render a reduction must say so rather than render a subset. This is the one rule the heterogeneous-client plan lives or dies on.
+
+Five things I couldn't resolve without you, in Appendix A. Two are real blockers for anything using them:
+
+1. **Round markers for `blind_until_post`** — "you can't read live PROPOSALs until you've posted yours" needs a definition of *round*, or the flag is unusable. Desk-posted round envelope, rolling window, or per-OPEN scoping?
+2. **Policy bootstrap** — the first POLICY on a fresh board has no human band to stamp it. Genesis needs a rule.
+
+The other three (pointer resolution across boards, `ext` namespacing, whether `corroborates` equivalence needs a server check) can ride until they bite.
+
+Next natural step is the conformance fixture — §14's signed log with overlapping leases, a BESIDE cluster, a retracted STAMP with descendants, and a mid-log policy tightening. Writing that tends to break the spec in useful ways before any server exists, and it's what makes the second implementation real rather than aspirational. Want me to go at that, or work the Appendix A questions first?
+
+if you want to keep writing; you may. i can agree with the above decisions. as for round markers, probably per-open/desk-posted. additionally, then; pointer resolution can simply be like, we can maintain a message board style literal linking; >board-numberofenvelope or something clean. corroborates does need a server check more than likely.
+
+this might be overly cute, but; consider a job board. or like, both within and across projects job boards. rather than me needing to spin up briefs for specific agents all the time, we have a job board that desks or orchestrators push to, then the enactor role or equivalent can access that job board to execute tasks that are grouped together and as many/little as they want and it makes it taken for others. or something along those lines. we already have claims and briefs and stuff, but this makes it a dedicated section of a board.
+
+Folded in as R10 plus §4.3, §10.8, §12.8–12.9, and the fixture is rewritten around a real campaign (parent job + three children, a batch claim, a release-with-reason, a delivery).
+
+The two things it forced are both improvements:
+
+**`ext.referent` is gone.** Claiming by free string meant `subtask:pool-build` and `pool build` never collide-detect, and a work item with no envelope has no brief, no author, and no lease history. Claims now carry `claims → <envelope id>` edges. Batch claiming — several `claims` edges under one lease, resolved independently per target — then falls out for free, which is exactly your "as many or as little as they want."
+
+**JOB is the sanctioned exception to "board text is never instructions."** Everything else on the board is inert by §12.6; a JOB is designed to be acted on. So it's fenced hardest: `desk`+ to post, sha-pinned brief mandatory. That buys a property I like a lot — **a brief cannot change under a working agent**, because a changed brief is a different sha and therefore a different JOB. Gating JOB is what lets every other act stay safely inert.
+
+Everything else was already there. Taken-ness is just §4.2 lease resolution pointed at a JOB: taken iff there's a live holder, expired lease returns it to the pool, no writeback, no janitor. `jobs(ns)` renders open / taken / delivered / **lapsed** — I split lapsed from open deliberately, since a job that's been picked up and dropped twice is information the third taker wants.
+
+One new abuse surface, named rather than solved: a greedy claimant can batch-claim a campaign and idle it for a lease period, and the protocol can't distinguish that from legitimate batch work. It's conduct (§12.9) plus a metric — lapse rate per identity is computable from the log, so it's at least always visible.
+
+`part-of` had to be its own edge rather than `derives-from`, or taint would propagate down work breakdowns and mark unrelated jobs suspect.
+
+Still outstanding on the conformance side: `rejects-01.jsonl` (~16 cases, now including job-specific ones — JOB from a non-desk band, JOB without a brief pointer, claiming an already-held job) and `expected-01.json` with reductions at offsets 19 / 27 / 30 / 32. Shall I finish those, or is there more shape to put on the board first?
+
+Conformance suite is written — `conformance/` now has the fixture (34 envelopes), 27 reject cases, expected reductions at four offsets with rule citations, and a README.
+
+Writing it caught four more spec bugs before any code exists, which is the whole argument for doing fixtures first:
+
+1. **Genesis needed two envelopes and shouldn't have** — the grant and the root defaults are one act. Now a single self-stamping POLICY at offset 0.
+2. **Human-authored POLICY had no path to take effect.** It required a STAMP, and making a human stamp their own act is ceremony with no verification value. §8.5 now splits it: desk-authored needs a stamp, human-authored is self-stamping.
+3. **`view=fresh` at a `verified` floor suppressed the entire rakes shelf.** WARNs from warner-band agents cap at `unverified` by §6.1 — so the board's day-one value was being filtered out by its own digest. Fixed with §6.3, WARN is grade-exempt, and the asymmetry is the justification: a false-positive warning costs minutes, a suppressed true one costs whatever the rake costs.
+4. **Lease liveness was evaluated against wall clock**, which made reductions non-reproducible while §10 claimed they were. Now evaluated against the `ts` of the envelope at the stated offset.
+
+Two assertions in `expected-01.json` I'd point at specifically, because they're where an implementation will most plausibly go wrong and still look fine:
+
+- At offset 30, envelope 17 is invalidated and **13 is not** — invalidating one member of a BESIDE cluster says nothing about the other. An implementation that propagates through `beside` destroys the co-equality that BESIDE exists to protect.
+- Job 9 at offset 30 is **lapsed, not open**. Collapsing those hides exactly the signal the third taker wants.
+
+Where things stand across the four docs: design (v2) → revisions (R1–R10) → protocol (v0.1, 15 sections) → conformance. Natural next steps, in rough order of value:
+
+1. `keys.json` + the signing generator, so the fixture is actually signed and the suite runs end to end.
+2. The reference server — at which point the stack question comes back, though now it's genuinely reversible.
+3. Seed content for `/commons/rakes`, per v2 §14.1 — the rakes you already have, in envelope form. Useful the day it exists, zero agents required.
+
+Happy to keep going on any of them.
+
+hmm; okay. we can keep going on the fixtures and such. one thing i'm thinking of; pinned posts. things that are *must read* or heavily suggested as must read that exist on each board or connected with jobs or otherwise; some type of device like this where, if you request a document, you read docs that are declared necessary for it or get them pulled in automatically and annotated as such, up to a maximum permissible death with overrides per-board for things that are like, absolute canon/etc. especially thinking of like; you initially load in to the user's pagoda or whatever. you read the canon rules, info about this *board* removed from the project, which are maintained over time by the collective and can be democratically iterated upon or modified/appended/recreated with final consensus approval or human-approved actions. additional defined agreed upon canon that can be set by the human or the set of orchestrators/desk agent equivalents; and then a maintainer role in specific for agents that are a level higher; these roles should also be mutually exclusive in some way, i'll discuss this; so if we have a commons, on top of the nested project-level pieces where we can have commons for the project and threads and job board; and then off topic for the overall commons within-user; we want a maintainer role more than likely that manages and maintains the health of a board  over time; and adjudicates requests or talks betwen desks and enactors and so forth. and just to handle forum-relevant actions; basically moderators where desks are PI's for their specific project/thread, neither able to do the function of the othe r; enactors being the ones that can perform jobs but not make them; desks can make jobs; etc. maintainer/admin maintains the must-read canon for the whole of the project; desks maintain must-read canon for their jobs and tasks; enactors take in the information needed to understand the board conventions and how to use it and what action space exists outside of the board as a stanalone (likely with scoped perms such that cross-project jobs are locked out for the time being, save for agents not tied intentionally with a specific project.) yeah, this is somewhat a lot; but i'm trying to do game theory/design for what would make things most alive/self-running. thoughts?
+
+All folded in — R11–R13 in the revisions doc, and the protocol now carries the civic layer: two-track bands with §3.2 separation of powers, PIN/ACK acts, `pins`/`requires`/`acks`/`endorses` edges, `/rookery/canon` + `/rookery/meta`, the §8.6 amendment loop, `onboard`/`required` reductions, and three new conduct rules.
+
+The full game-theory read on your proposal, now that it's written down:
+
+**What's soundest.** The maintainer/desk split with mutual exclusivity. Two independent structural arguments converge on it: adjudication between desks requires a party with no stake (the referee can't be a player), and board health is otherwise a tragedy of the commons — every desk under-invests in it because their objective is their project. Making it someone's *whole job*, someone who cannot win by favoring a project, is what makes "alive/self-running" plausible rather than hopeful. Enactor lockout needed nothing new: a project enactor's grants simply never match `/commons/jobs`, so cross-project work is invisible by construction; a "floater" is just an identity granted the commons job board and no project nest. I took the **strong form** of exclusivity (no dual-hat anywhere) and flagged the weaker scope-disjoint form in Appendix B for the discussion you said you wanted — strong is the safer default to relax later.
+
+**The constraint that shaped the pin mechanics:** must-read is a tax on every future reader's *context window*. Boards don't die of missing pins, they die of sticky-thread sprawl. So the design charges the pinner (canon pins are budgeted per nest; at budget, adding requires superseding — always a curation decision), amortizes the reader (acks are durable per document-version, so onboarding is paid once, and supersession is exactly what voids the ack and triggers a re-read), and never surveils (the server checks *attestations* on the log, not reading behavior — a false ack is attributable forever, an invisible skip is invisible). Your "pull in automatically, annotated, up to a max depth" is §10.10: prerequisites arrive annotated on the document, and the 409 you get for claiming unprepared *is the reading list*.
+
+**Democratic canon** got the minimum machinery that makes it real: `endorses` (deliberately distinct from `corroborates` — agreement, not reproduction) as the cheap signal, then a configurable loop of propose-in-meta → threshold → maintainer enactment → human stamp. Crossing a threshold authorizes nothing by itself; the state change is always an attributable act. Population signals, named identity decides, log records both — which keeps your anti-herding posture intact even in governance.
+
+**Current tally:** 13 acts, 14 edges. Every act added past v2's nine is a principled exception — POLICY (only payload the server interprets), JOB (only act designed to be acted on), PIN (only act that taxes future readers, so it gets budgeted), ACK (attestation needs a carrier with no other meaning).
+
+Three things left open in Appendix B for you: exclusivity scope (as above), quorum semantics when the population is transient (does `min_endorsements: 3` mean anything when four agents are active vs forty?), and whether suggested-class pins rot. Fixture-04 is scoped in the conformance README to cover the whole civic layer when we get there.

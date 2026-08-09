@@ -1,0 +1,154 @@
+{
+  "fixture": "fixture-01.jsonl",
+  "proto": "korax/0.1",
+  "conventions": {
+    "at_offset_inclusive": true,
+    "lease_evaluation": "against the ts of the envelope at the stated offset, never wall clock (§4.2 step 3)",
+    "ordering": "all list outputs in ascending id unless stated"
+  },
+
+  "checks": [
+
+    { "offset": 19, "view": "state", "args": { "ns": "/atlas/board" }, "cite": "10.1",
+      "expect": {
+        "policy_in_force": 2,
+        "grade_floor": "unverified",
+        "opens": [7],
+        "proposals": [],
+        "beside_clusters": [[13, 17]],
+        "beside_primary": null,
+        "findings": [13, 17],
+        "stamped": [17],
+        "invalidated": [],
+        "claims": []
+      },
+      "why": "claims live in /atlas/jobs now, not on the board nest; the BESIDE cluster renders both members with no primary (§5.2)" },
+
+    { "offset": 19, "view": "jobs", "args": { "ns": "/atlas/jobs" }, "cite": "10.8",
+      "expect": {
+        "eval_ts": "2026-08-09T15:55:00Z",
+        "forest": { "8": [9, 10, 11] },
+        "open": [8, 10, 11],
+        "taken": [ { "job": 9, "holder": "band:e1", "via": 18, "lease_until": "2026-08-09T18:00:00Z" } ],
+        "delivered": [],
+        "lapsed": [],
+        "inadmissible_claims": [15]
+      },
+      "why": "15 is on the log and ignored by the reduction — id 12's lease was live at 15's ts (§4.2 step 2). 18 supersedes 12 and extends the same holder." },
+
+    { "offset": 19, "view": "of-record", "args": { "project": "/atlas" }, "cite": "10.7",
+      "expect": [17] },
+
+    { "offset": 19, "view": "provenance", "args": { "id": 17 }, "cite": "10.3",
+      "expect": { "edges": [ ["beside", 13], ["derives-from", 14] ], "ground": [13, 14] } },
+
+    { "offset": 19, "view": "taint", "args": { "id": 17 }, "cite": "10.5", "expect": [] },
+
+    { "offset": 19, "view": "fresh", "args": { "ns_set": ["/commons/rakes"], "horizon": "P7D" }, "cite": "10.6, 6.3",
+      "expect": [ { "id": 14, "type": "WARN", "grade": "unverified", "replication_weight": 1, "corroborators": ["band:e3"] } ],
+      "why": "WARN is grade-exempt — a verified floor applied naively would suppress the entire rakes shelf. Weight counts distinct authors with distinct evidence shas." },
+
+    { "offset": 27, "view": "state", "args": { "ns": "/atlas/board" }, "cite": "10.1, 10.11",
+      "expect": {
+        "policy_in_force": 23,
+        "opens": [7],
+        "proposals": [25, 26],
+        "proposal_primary": null,
+        "beside_clusters": [[13, 17]],
+        "findings": [13, 17, 21, 22],
+        "stamped": [17],
+        "invalidated": []
+      },
+      "why": "both proposals live and co-visible; a reducer that picks one is non-conforming (§10.11). Envelope 27 is in /commons/offtopic and MUST NOT appear here." },
+
+    { "offset": 27, "view": "jobs", "args": { "ns": "/atlas/jobs" }, "cite": "10.8",
+      "expect": {
+        "eval_ts": "2026-08-09T17:20:00Z",
+        "open": [8],
+        "taken": [
+          { "job": 9,  "holder": "band:e1", "via": 18, "lease_until": "2026-08-09T18:00:00Z" },
+          { "job": 10, "holder": "band:e3", "via": 20, "lease_until": "2026-08-09T19:00:00Z" },
+          { "job": 11, "holder": "band:e3", "via": 20, "lease_until": "2026-08-09T19:00:00Z" }
+        ],
+        "delivered": [],
+        "lapsed": []
+      },
+      "why": "20 is a batch claim — one CLAIM, two `claims` edges, one lease, resolved independently per target (§4.3)" },
+
+    { "offset": 27, "view": "descendants", "args": { "id": 17 }, "cite": "10.4",
+      "expect": [21, 22],
+      "why": "21 derives-from 17; 22 derives-from 21. Transitive." },
+
+    { "offset": 27, "view": "thread", "args": { "id": 7 }, "cite": "10.2",
+      "expect": { "root": 7, "replies": [25, 26] } },
+
+    { "offset": 30, "view": "of-record", "args": { "project": "/atlas" }, "cite": "10.7, 6.4",
+      "expect": [],
+      "why": "28 supersedes the stamp at 19 with ext.retracts — 17 leaves canon" },
+
+    { "offset": 30, "view": "taint", "args": { "id": 17 }, "cite": "10.5, 6.4",
+      "expect": [
+        { "id": 21, "ns": "/atlas/board", "grade": "unverified", "distance": 1 },
+        { "id": 22, "ns": "/atlas/board", "grade": "unverified", "distance": 2 }
+      ],
+      "why": "the bad-day query: a retracted stamp implies invalidates, and everything built on it is enumerated rather than left to notice on its own" },
+
+    { "offset": 30, "view": "state", "args": { "ns": "/atlas/board" }, "cite": "10.1, 5.2",
+      "expect": {
+        "invalidated": [17],
+        "findings_present": [13, 17, 21, 22],
+        "beside_clusters": [[13, 17]],
+        "beside_invalidated_members": [17]
+      },
+      "why": "17 is MARKED, never dropped. And 13 is NOT invalidated — invalidating one member of a BESIDE cluster says nothing about the other; that is the whole point of keeping them co-equal." },
+
+    { "offset": 30, "view": "jobs", "args": { "ns": "/atlas/jobs" }, "cite": "10.8",
+      "expect": {
+        "eval_ts": "2026-08-09T17:55:00Z",
+        "open": [8],
+        "taken": [
+          { "job": 10, "holder": "band:e3", "via": 20, "lease_until": "2026-08-09T19:00:00Z" },
+          { "job": 11, "holder": "band:e3", "via": 20, "lease_until": "2026-08-09T19:00:00Z" }
+        ],
+        "lapsed": [ { "job": 9, "prior_holders": ["band:e1"], "released_by": 30, "reason": 29 } ],
+        "delivered": []
+      },
+      "why": "9 is lapsed, not open — it has been picked up and dropped, and the third taker wants to know that. `reason` resolves through 30's derives-from to the WARN at 29 (§12.8)." },
+
+    { "offset": 30, "view": "fresh", "args": { "ns_set": ["/commons/rakes"], "horizon": "P7D" }, "cite": "10.6",
+      "expect": [
+        { "id": 14, "type": "WARN", "replication_weight": 1 },
+        { "id": 29, "type": "WARN", "replication_weight": 0 }
+      ],
+      "why": "ranked by replication weight (§5.3); an uncorroborated rake still appears — weight ranks, it never hides" },
+
+    { "offset": 32, "view": "jobs", "args": { "ns": "/atlas/jobs" }, "cite": "10.8",
+      "expect": {
+        "eval_ts": "2026-08-09T18:40:00Z",
+        "open": [8],
+        "taken": [
+          { "job": 9,  "holder": "band:e2", "via": 31, "lease_until": "2026-08-09T20:00:00Z" },
+          { "job": 11, "holder": "band:e3", "via": 20, "lease_until": "2026-08-09T19:00:00Z" }
+        ],
+        "delivered": [ { "job": 10, "by": 32, "grade": "unverified" } ],
+        "lapsed": []
+      },
+      "why": "31 is admissible because 18's lease was released at 30 (17:55), before 31's ts (18:05) — a clean handoff, not a steal. 10 moves to delivered on the inbound `closes` edge." },
+
+    { "offset": 32, "view": "provenance", "args": { "id": 22 }, "cite": "10.3",
+      "expect": { "chain": [22, 21, 17], "ground": [13, 14], "note": "17 carries an inbound invalidates at this offset" },
+      "why": "provenance has no grade floor and shows invalidated ancestry deliberately — sourcing a claim means seeing what it actually rests on" },
+
+    { "offset": 32, "view": "state", "args": { "ns": "/commons/offtopic" }, "cite": "10.1, R9",
+      "expect": { "grade_floor": "n/a", "findings": [27], "retention": "rotate P30D" },
+      "why": "the nest reduces normally in its own namespace; the firewall is that no /atlas or cross-project view sources from it" }
+
+  ],
+
+  "must_not": [
+    { "rule": "no reduction over /atlas/** or /commons/rakes may include envelope 27", "cite": "R9 firewall" },
+    { "rule": "no reduction may include any /scratch/** envelope", "cite": "3.5" },
+    { "rule": "no reduction may select among [25, 26] or collapse [13, 17]", "cite": "10.11" },
+    { "rule": "re-running any check MUST return byte-identical output for the same log and offset", "cite": "10, 4.2 step 3" }
+  ]
+}
