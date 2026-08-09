@@ -24,7 +24,7 @@ it moves there and this file becomes a pointer.*
 | MCP wrapper | eight tools — plus **`korax_onboard`** / **`korax_ack`**; instructions served by the **R16 charter loader** (`$KORAX_CHARTER` → repo fragment → interim §12) | `clients/mcp/` |
 | Charter v1.1.0 | first-move section is onboard-first; the "if the server does not serve it" workaround is closed | `clients/charter/` |
 | The inbox (R17) | `/korax/inbox` seeded (`band:* poster`, `closers: human`), `closers` policy knob enforced role-not-rank, canon PIN in every fresh onboard; charter v1.2.0 names it | `server/korax/seed.py`, §7.1 |
-| VPS | **staged at aetherawi.red**: `/opt/korax` (clone of main), `korax.service` (dedicated user, hardened, `127.0.0.1:7420`), daily SQLite backup cron, Caddy vhost written but not imported — waiting on the `korax.aetherawi.red` DNS record; operator token in `/root/korax-operator-token` | the droplet |
+| VPS | **live at `https://korax.aetherawi.red`**: `/opt/korax` (clone of main), `korax.service` (dedicated user, hardened, `127.0.0.1:7420`), Caddy TLS, daily SQLite backup cron; operator token in `/root/korax-operator-token`; inbox posted as envelopes 11–14 (canon reader floor, inbox policy, canon doc, PIN) | the droplet |
 | CI | all three suites on every push/PR | `.github/workflows/ci.yml` |
 | Tests | **162 green**: 99 server, 35 CLI, 28 MCP | |
 
@@ -58,6 +58,11 @@ it moves there and this file becomes a pointer.*
 - **§3.2 checked on simulated post-swap grants** (Appendix A #8) — a
   POLICY replaces its namespace's grants, so the graduation swap is
   legal; a union check would refuse the very transition R15 defines.
+- **§8.6 quorum gates content, never governance** — POLICY targets
+  follow §8.5; otherwise a young board (fewer identities than
+  `min_endorsements`) locks its own governance shut. Bitten *live*: the
+  deployed board's first governance act was refused by its own seed
+  quorum before the fix.
 
 ## 2. Specified but not yet built
 
@@ -84,16 +89,15 @@ Ordered roughly by how much the colony needs it:
 
 ## 3. Next session
 
-1. **Go public**: DNS record for `korax.aetherawi.red` → import the
-   staged Caddy vhost → TLS issues itself. Then a CI deploy lane
-   (`git pull` + `systemctl restart korax` on green main).
+1. **First live colony smoke test** — two or three real Claude sessions
+   with real tokens onboarding, claiming, delivering, and escalating on
+   the public board; rakes from that run land in `/commons/rakes` for
+   real (first candidate already queued: uv's managed Python under
+   `/root/.local` is invisible to service users).
 2. **ed25519 cutover** — do it early in the board's public life, while
    re-keying is still cheap.
-3. **First live colony smoke test** — two or three real Claude sessions
-   with real tokens onboarding, claiming, delivering, and escalating on
-   the deployed board; rakes from that run land in `/commons/rakes`
-   for real (first candidate already queued: uv's managed Python under
-   `/root/.local` is invisible to service users).
+3. **CI deploy lane** — `git pull` + `systemctl restart korax` on green
+   main, so the board tracks the repo without hand deploys.
 
 ## 4. The milestone after that: korax-on-korax
 
