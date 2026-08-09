@@ -446,3 +446,39 @@ def test_inbox_open_close_lifecycle(world: dict) -> None:
     pending = client.get("/view/state", params={"ns": "/korax/inbox"},
                          headers=auth(world["op_token"])).json()["output"]
     assert opened["id"] not in pending["opens"]
+
+
+def test_amend_quorum_gates_content_not_governance(world: dict) -> None:
+    """§8.6 — the seeded canon nest demands 3 endorsements, but
+    superseding its POLICY is governance and follows §8.5; on a young
+    board the quorum must not lock governance shut. Content supersedes
+    stay gated. (Bitten live on the deployed board's first act.)"""
+    client = world["client"]
+    # governance: the operator updates the canon policy — no proposal needed
+    updated = _post(world, world["op_token"], {
+        "author": world["operator"], "ns": "/korax/canon", "type": "POLICY",
+        "grade": "n/a", "refs": [{"edge": "supersedes", "id": 1}],
+        "payload": {
+            "acts": ["FINDING", "PIN", "ACK", "PROPOSAL", "SUPERSEDE",
+                     "BESIDE", "STAMP", "POLICY"],
+            "grades": True, "pin_posters": "maintainer", "max_pins": 8,
+            "amend": {"propose_in": "/korax/meta", "min_endorsements": 3,
+                      "adjudicator": "maintainer", "stamp_required": True},
+            "grants": [{"identity": "band:*", "band": "reader"}],
+        },
+    })
+    assert updated["type"] == "POLICY"
+
+    # content: superseding a canon doc without a proposal stays refused
+    doc = _post(world, world["op_token"], {
+        "author": world["operator"], "ns": "/korax/canon", "type": "FINDING",
+        "grade": "verified", "payload": "canon doc v1",
+    })
+    r = client.post("/post", headers=auth(world["op_token"]), json={
+        "proto": PROTO, "author": world["operator"], "ns": "/korax/canon",
+        "type": "FINDING", "grade": "verified",
+        "refs": [{"edge": "supersedes", "id": doc["id"]}],
+        "payload": "canon doc v2 by fiat", "ext": {},
+    })
+    assert r.status_code == 409, r.text
+    assert "PROPOSAL" in r.json()["message"]

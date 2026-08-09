@@ -381,6 +381,8 @@ def _check_policy(
     for target_id in sub.refs_of(EdgeType.SUPERSEDES):
         target = log.get(target_id)
         assert target is not None
+        if target.type == Act.POLICY:
+            continue  # quorum gates content; governance follows §8.5 (§8.6)
         t_policy_id, t_pol = timeline.policy_at(target.ns, offset)
         if t_pol.amend is None or t_pol.amend.min_endorsements <= 0:
             continue

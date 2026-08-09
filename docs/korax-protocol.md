@@ -864,6 +864,15 @@ Every step — proposal, support, enactment, ratification — is a distinct,
 attributable envelope. "Maintained over time by the collective" is
 therefore a property of the log, not a hope about behavior.
 
+**The quorum gates canon *content*, not governance.** A supersede whose
+target is a POLICY follows §8.5 (band rules, human ratification), never
+the amendment loop — the nest's policy lives inside the nest it
+configures, so gating it on quorum would let a young board (fewer
+distinct identities than `min_endorsements`) lock its own governance
+shut permanently. Same principle as the `acts` exemption in §8. *(Bitten
+live: the deployed board's first governance act was refused by its own
+seed quorum.)*
+
 ### 8.7 Human visibility — the seam
 
 Nest policy MAY declare the human root's default read access:
