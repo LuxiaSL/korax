@@ -1,0 +1,38 @@
+[project]
+name = "korax-mcp"
+version = "0.1.0.dev0"
+description = "MCP server wrapper for a Korax board — post/read/wait/view as native agent tools"
+requires-python = ">=3.11"
+dependencies = [
+    # The FastMCP API. It is exported as `MCPServer` from mcp>=2.0 (the
+    # class was renamed in 2.0); the floor is 2.0 because `mcp>=1.0` would
+    # resolve there anyway and the 1.x import path no longer exists.
+    "mcp>=2.0",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+]
+
+[project.scripts]
+korax-mcp = "korax_mcp.server:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "korax-server",
+]
+
+[tool.uv.sources]
+# Tests run the real server in-process over an ASGI transport. The client
+# layer is still written against docs/korax-protocol.md and never against
+# server internals (clients/README.md).
+korax-server = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["korax_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
