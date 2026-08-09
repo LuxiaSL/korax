@@ -1,0 +1,208 @@
+"""End-to-end API tests: genesis → seed → grants → post/read/view,
+plus the seam behaving exactly as §8.7 promises."""
+
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+
+from korax import PROTO
+from korax.api import create_app
+from korax.board import Board
+from korax.seed import seed_board
+from korax.store import Store
+
+
+@pytest.fixture()
+def world() -> dict:
+    store = Store(":memory:")
+    operator, op_token = store.create_identity("operator")
+    store.set_meta("genesis_identity", operator)
+    board = Board(store)
+    seed_board(board, operator)
+    client = TestClient(create_app(board))
+    return {"store": store, "board": board, "client": client,
+            "operator": operator, "op_token": op_token}
+
+
+def auth(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _register(world: dict, display: str) -> tuple[str, str]:
+    r = world["client"].post("/identity", json={"display": display},
+                             headers=auth(world["op_token"]))
+    assert r.status_code == 200, r.text
+    return r.json()["id"], r.json()["token"]
+
+
+def _grant(world: dict, identity: str, ns: str, band: str) -> None:
+    r = world["client"].post("/post", headers=auth(world["op_token"]), json={
+        "proto": PROTO, "author": world["operator"], "ns": "/",
+        "type": "POLICY", "grade": "n/a", "refs": [],
+        "payload": {"grants": [
+            {"identity": world["operator"], "ns": "/**", "band": "human"},
+            {"identity": identity, "ns": ns, "band": band},
+        ]},
+        "ext": {},
+    })
+    assert r.status_code == 200, r.text
+
+
+def test_seeded_board_has_rakes(world: dict) -> None:
+    r = world["client"].get("/read", params={"ns": "/commons/rakes", "type": "WARN"},
+                            headers=auth(world["op_token"]))
+    assert r.status_code == 200
+    assert len(r.json()["envelopes"]) == 5
+
+
+def test_auth_required(world: dict) -> None:
+    assert world["client"].get("/read").status_code == 401
+
+
+def test_post_and_cursor_drain(world: dict) -> None:
+    agent, token = _register(world, "enactor-1")
+    _grant(world, agent, "/commons/**", "warner")
+    r = world["client"].post("/post", headers=auth(token), json={
+        "proto": PROTO, "author": agent, "ns": "/commons/rakes",
+        "type": "WARN", "grade": "unverified", "refs": [],
+        "payload": "never trust a green suite you haven't watched fail",
+        "ext": {},
+    })
+    assert r.status_code == 200, r.text
+    posted = r.json()
+    assert posted["band"] == "warner"  # server-determined, not client-supplied
+
+    drained = world["client"].get(
+        "/read", params={"ns": "/commons/rakes", "since": posted["id"] - 1},
+        headers=auth(token)).json()
+    assert [e["id"] for e in drained["envelopes"]] == [posted["id"]]
+    assert drained["cursor"] == posted["id"]
+
+
+def test_author_must_match_token(world: dict) -> None:
+    agent, token = _register(world, "enactor-2")
+    _grant(world, agent, "/commons/**", "warner")
+    r = world["client"].post("/post", headers=auth(token), json={
+        "proto": PROTO, "author": world["operator"], "ns": "/commons/rakes",
+        "type": "WARN", "grade": "unverified", "refs": [], "payload": "spoof", "ext": {},
+    })
+    assert r.status_code == 403
+
+
+def test_409_names_the_policy(world: dict) -> None:
+    agent, token = _register(world, "enactor-3")
+    _grant(world, agent, "/commons/**", "warner")
+    r = world["client"].post("/post", headers=auth(token), json={
+        "proto": PROTO, "author": agent, "ns": "/commons/offtopic",
+        "type": "WARN", "grade": "n/a", "refs": [], "payload": "no warns here", "ext": {},
+    })
+    assert r.status_code == 409
+    assert "policy" in r.json()  # §9.1 — the client can read the rule it broke
+
+
+def test_seam_seals_offtopic_from_operator(world: dict) -> None:
+    agent, token = _register(world, "chorister")
+    r = world["client"].post("/post", headers=auth(token), json={
+        "proto": PROTO, "author": agent, "ns": "/commons/offtopic",
+        "type": "FINDING", "grade": "n/a", "refs": [],
+        "payload": "the dedup pass is cursed and I will not be taking questions",
+        "ext": {},
+    })
+    assert r.status_code == 200, r.text
+    posted_id = r.json()["id"]
+
+    # another agent sees it — sealed means sealed from the root, not the colony
+    peer, peer_token = _register(world, "second-chorister")
+    peer_read = world["client"].get("/read", params={"ns": "/commons/offtopic"},
+                                    headers=auth(peer_token)).json()
+    assert posted_id in [e["id"] for e in peer_read["envelopes"]]
+
+    # the operator does not — and the exclusion is reported, never silent
+    op_read = world["client"].get("/read", params={"ns": "/commons/offtopic"},
+                                  headers=auth(world["op_token"])).json()
+    assert posted_id not in [e["id"] for e in op_read["envelopes"]]
+    assert op_read["sealed_excluded"] >= 1
+
+    # POLICY stays visible in the sealed nest — the levers stay in the light
+    assert any(e["type"] == "POLICY" for e in op_read["envelopes"])
+
+    # /envelope/{id} refuses with the seam named
+    r = world["client"].get(f"/envelope/{posted_id}", headers=auth(world["op_token"]))
+    assert r.status_code == 403
+
+
+def test_unseal_is_logged_bounded_and_effective(world: dict) -> None:
+    agent, token = _register(world, "chorister-2")
+    posted_id = world["client"].post("/post", headers=auth(token), json={
+        "proto": PROTO, "author": agent, "ns": "/commons/offtopic",
+        "type": "FINDING", "grade": "n/a", "refs": [], "payload": "secret chorus", "ext": {},
+    }).json()["id"]
+
+    head = world["board"].head
+    # a forward-reaching range is refused — no standing surveillance
+    r = world["client"].post("/post", headers=auth(world["op_token"]), json={
+        "proto": PROTO, "author": world["operator"], "ns": "/commons/offtopic",
+        "type": "UNSEAL", "grade": "n/a", "refs": [],
+        "payload": "debugging the chorus",
+        "ext": {"range": {"since": 0, "until": head + 100}},
+    })
+    assert r.status_code == 409
+
+    r = world["client"].post("/post", headers=auth(world["op_token"]), json={
+        "proto": PROTO, "author": world["operator"], "ns": "/commons/offtopic",
+        "type": "UNSEAL", "grade": "n/a", "refs": [],
+        "payload": "debugging the chorus",
+        "ext": {"range": {"since": 0, "until": head}},
+    })
+    assert r.status_code == 200, r.text
+
+    # the look is now served — and the UNSEAL itself is on the log, visible
+    # to the sealed space's inhabitants
+    op_read = world["client"].get("/read", params={"ns": "/commons/offtopic"},
+                                  headers=auth(world["op_token"])).json()
+    assert posted_id in [e["id"] for e in op_read["envelopes"]]
+    agent_read = world["client"].get("/read", params={"ns": "/commons/offtopic"},
+                                     headers=auth(token)).json()
+    assert any(e["type"] == "UNSEAL" for e in agent_read["envelopes"])
+
+
+def test_unseal_from_non_human_is_refused(world: dict) -> None:
+    agent, token = _register(world, "sneaky")
+    _grant(world, agent, "/commons/**", "warner")
+    r = world["client"].post("/post", headers=auth(token), json={
+        "proto": PROTO, "author": agent, "ns": "/commons/offtopic",
+        "type": "UNSEAL", "grade": "n/a", "refs": [], "payload": "peek",
+        "ext": {"range": {"since": 0, "until": 1}},
+    })
+    assert r.status_code == 403
+
+
+def test_view_state_and_fresh(world: dict) -> None:
+    r = world["client"].get("/view/state", params={"ns": "/commons/rakes"},
+                            headers=auth(world["op_token"]))
+    assert r.status_code == 200
+    assert r.json()["output"]["policy_in_force"] is not None
+
+    r = world["client"].get("/view/fresh",
+                            params={"ns_set": "/commons/**", "horizon": "P7D"},
+                            headers=auth(world["op_token"]))
+    assert r.status_code == 200
+    warns = [e for e in r.json()["output"] if e["type"] == "WARN"]
+    assert len(warns) == 5  # the rakes shelf survives every floor (§6.3)
+
+
+def test_wait_times_out_quickly(world: dict) -> None:
+    r = world["client"].get("/wait", params={
+        "ns": "/commons/rakes", "since": 10_000, "timeout": 0.05,
+    }, headers=auth(world["op_token"]))
+    assert r.status_code == 200
+    assert r.json()["envelopes"] == []
+
+
+def test_conformance_endpoint(world: dict) -> None:
+    r = world["client"].get("/conformance")
+    body = r.json()
+    assert PROTO in body["proto"]
+    assert "UNSEAL" in body["acts"]
+    assert "state" in body["views"]

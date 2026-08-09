@@ -282,6 +282,16 @@ def _check_policy(
                     "agreement, not reproduction (§5.3.2)"
                 )
 
+    # POLICY payload invariants (§1.1.9, §3.2) — checked on the act that
+    # would create the violation, so the log never contains it
+    if sub.type == Act.POLICY and isinstance(sub.payload, dict):
+        new_policy = NestPolicy.model_validate(sub.payload)
+        if new_policy.visibility.human_read == "sealed" and (
+            sub.ns == "/korax" or sub.ns.startswith("/korax/")
+        ):
+            raise PostError(403, "/korax/** cannot be sealed (§1.1.9, §8.7.4)")
+        _check_dual_hat(new_policy, timeline, offset)
+
     # UNSEAL shape (§8.7)
     if sub.type == Act.UNSEAL:
         rng = sub.ext.get("range")
@@ -289,3 +299,32 @@ def _check_policy(
             raise PostError(400, "UNSEAL requires ext.range {since, until} (§8.7)")
         if int(rng["until"]) >= offset:
             refuse("UNSEAL range.until must precede its own offset — no standing surveillance (§8.7.3)")
+
+
+def _check_dual_hat(new_policy: "NestPolicy", timeline: PolicyTimeline, offset: int) -> None:
+    """§3.2 — reject grants that would let a desk-holding identity hold
+    maintainer on the commons or shared ground. `human` is exempt (root).
+
+    v0 checks the commons rule (rule 1) — the cross-project form (rule 2)
+    needs per-nest ownership attribution and lands with fixture-04."""
+    existing = timeline.grants_at(offset)
+    proposed = [(g.identity, g.ns or "/**", g.band) for g in new_policy.grants]
+    combined = existing + proposed
+    identities = {i for i, _, _ in proposed if i != "band:*"}
+    for identity in identities:
+        holds_human = any(i == identity and b == Band.HUMAN for i, _, b in combined)
+        if holds_human:
+            continue
+        holds_desk = any(i == identity and b == Band.DESK for i, _, b in combined)
+        commons_maintainer = any(
+            i == identity
+            and b == Band.MAINTAINER
+            and (pattern.startswith("/korax") or pattern.startswith("/commons"))
+            for i, pattern, b in combined
+        )
+        if holds_desk and commons_maintainer:
+            raise PostError(
+                403,
+                f"{identity} would hold desk and commons-maintainer grants — "
+                "the referee cannot be a player (§3.2)",
+            )
