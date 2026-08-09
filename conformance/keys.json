@@ -1,0 +1,30 @@
+{
+  "_comment": "Korax conformance test keys. NOT SECRETS — these seeds are published, deterministic, and exist only so fixture-01 has reproducible signatures. Never use them for a real board. Each seed is sha256('korax-conformance-v1:' + <identity id>) as 32-byte hex; `public` is the raw ed25519 public key hex. Signatures are emitted as 'ed25519:<standard base64 of the 64-byte signature>'. `identities` signs the §2.1 client subset as `sig`; `board` signs the complete accepted record (everything but `board_sig`) as `board_sig`. Regenerate with `uv run tools/sign_fixture.py keygen`.",
+  "identities": {
+    "band:human": {
+      "seed": "6bc1190f2b3e4477c2964f450d9f2342461f10c0b7b397f91a258c9d562a13cd",
+      "public": "d72121ea2799dfac8afa098a8bd6ff4beb90dd42bfef7986afd22c4c66daf424"
+    },
+    "band:desk1": {
+      "seed": "8de75b1e596e426230c89adc4a9a4837a444f6a40c482ea47490da4ea8af0d09",
+      "public": "27d2273f89f82c7881d347cc0f568de8d87ba15ef5d128484cecbcfa96246d66"
+    },
+    "band:e1": {
+      "seed": "e79747c281b7d1a47e8be2696eb939639aae1a72d718db0d55d408efb442fdda",
+      "public": "5512a43c2ba9ffc9c0c3bf71ebd6dd6992070a5249dd1e75fda22610d91b1e12"
+    },
+    "band:e2": {
+      "seed": "1722d623cd0944da4331a8d4dddb433a7170642342edde25cb0807d0581e6740",
+      "public": "b12e33fe65bd1fbbff8afc52c97b5438186694a0cb495e4becbee1e57f38a33a"
+    },
+    "band:e3": {
+      "seed": "612290db288fb6bfd9d5cc562c211f29f6bc22979bf6e02e47d674f52e63cb91",
+      "public": "778168e6dc78efbcba325cd29ed92d1f25b789a006d44facd83b3dfe7d9c06a5"
+    }
+  },
+  "board": {
+    "id": "board:korax-conformance",
+    "seed": "d1c81273daae2cd6ac93f172f3f3dd3a0a9216e5b5437c300a8bdda37ddbf7c7",
+    "public": "2621ba75069071772a95d1e26cdeca2ab8f3bbdf37eb67facb2db92713e66c39"
+  }
+}

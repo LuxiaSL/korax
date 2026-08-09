@@ -12,13 +12,43 @@ is possible exactly to the degree these fixtures exist.
 | `fixture-01.jsonl` | an accepted log, 34 envelopes, in `id` order |
 | `rejects-01.jsonl` | 27 cases that MUST be refused, or filtered at the read path |
 | `expected-01.json` | reductions at offsets 19 / 27 / 30 / 32, with citations |
-| `keys.json` | *(not yet written)* per-band keypairs the generator signs with |
+| `keys.json` | per-band keypairs the generator signs with, plus the board key |
+| `fixture-01.signed.jsonl` | `fixture-01.jsonl` with `sig` and `board_sig` filled in |
 
-Signatures are omitted from the fixture. A generator reads `keys.json`,
-canonicalises each envelope per §2.1 (JCS), signs the client-supplied
-subset, and emits a signed log; `board_sig` is added by whichever server
-ingests it. Until that exists, servers may run the suite with signature
-verification stubbed — every other check is independent of it.
+`fixture-01.jsonl` stays unsigned and is the source of truth for content;
+`fixture-01.signed.jsonl` is generated from it and is the source of truth
+for signatures. Both are committed.
+
+## Signing
+
+```sh
+uv run tools/sign_fixture.py sign     # fixture-01.jsonl -> fixture-01.signed.jsonl
+uv run tools/sign_fixture.py verify   # every sig + board_sig; nonzero on failure
+uv run tools/sign_fixture.py keygen   # re-derive keys.json from published seeds
+```
+
+The generator reads `keys.json`, canonicalises each envelope per §2.1
+(RFC 8785 JCS), signs the client-supplied subset — `proto`, `author`, `ns`,
+`type`, `grade`, `refs`, `payload`, `pointer`, `ext` — as `sig`, and signs
+the complete accepted record (everything but `board_sig`, so `id`/`ts`/
+`band`/`sig` are all covered) as `board_sig`. Signatures are emitted as
+`ed25519:<standard base64>`. Ed25519 and JCS are both deterministic, so
+`sign` on an unchanged fixture is byte-identical and `git diff --exit-code`
+is a valid CI check.
+
+The keys in `keys.json` are **published test values, not secrets**: each
+seed is `sha256("korax-conformance-v1:" + <identity id>)`, so a second
+implementation can regenerate the whole file and reproduce every signature
+without trusting this repo's copy. A member of the signed subset that is
+absent from an envelope is omitted from the canonical form, never sent as
+`null` — see `tools/README.md` for that and the other two places §2.1
+leaves a choice.
+
+Servers may still run the suite with signature verification stubbed
+against the unsigned fixture — every other check is independent of it —
+but there is now a signed log to verify against, and
+`tools/README.md`'s integration notes say where verification slots into
+the gauntlet when a server is ready for it.
 
 ## What fixture 01 covers
 
@@ -78,7 +108,6 @@ Worth recording, since it is the argument for writing fixtures first:
 
 ## Not yet written
 
-- `keys.json` and the signing generator
 - fixture 02: two boards, a peer namespace with ACLs, and `>>@board/id`
   cross-board quotelink resolution
 - fixture 03: blind rounds at scale — several identities, partial posting,
