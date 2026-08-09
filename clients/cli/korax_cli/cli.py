@@ -303,7 +303,16 @@ def build_submission(args: argparse.Namespace, config: Config, rt: Runtime) -> S
             key, separator, value = item.partition("=")
             if not separator or not key:
                 raise CliError(f"--ext expects KEY=VALUE, got {item!r}")
-            ext[key] = _loose_json(value)
+            # §2.4 — `project.field` nests as ext.<project>.<field>; a bare
+            # key stays top-level (the reserved set: lease_until, released…)
+            project, dot, field = key.partition(".")
+            if dot:
+                bucket = ext.setdefault(project, {})
+                if not isinstance(bucket, dict):
+                    raise CliError(f"--ext {key!r} collides with non-object ext.{project}")
+                bucket[field] = _loose_json(value)
+            else:
+                ext[key] = _loose_json(value)
         raw["ext"] = ext
 
     try:

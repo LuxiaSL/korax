@@ -116,6 +116,12 @@ class Store:
         self.conn.commit()
         return identity_id, token
 
+    def identity_display(self, identity_id: str) -> str | None:
+        row = self.conn.execute(
+            "SELECT display FROM identities WHERE id = ?", (identity_id,)
+        ).fetchone()
+        return row[0] if row else None
+
     def identity_for_token(self, token: str) -> str | None:
         import hashlib
 

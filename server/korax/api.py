@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -17,7 +18,7 @@ from . import PROTO
 from .access import filter_log, verdict
 from .board import Board
 from .models import Act, Band, EdgeType, Envelope, Grade
-from .nsglob import in_subtree
+from .nsglob import in_subtree, ns_matches
 from .reductions import (
     descendants,
     fresh,
@@ -54,6 +55,25 @@ def create_app(board: Board) -> FastAPI:
         if exc.policy_id is not None:
             body["policy"] = exc.policy_id  # §9.1 — a 409 names its policy
         return JSONResponse(status_code=exc.code, content=body)
+
+    @app.exception_handler(HTTPException)
+    async def http_error(_, exc: HTTPException) -> JSONResponse:
+        # One error shape everywhere (§9.1): {code, message}, whatever the tier.
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"code": exc.status_code, "message": str(exc.detail)},
+            headers=getattr(exc, "headers", None),
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def request_error(_, exc: RequestValidationError) -> JSONResponse:
+        first = exc.errors()[0]
+        where = ".".join(str(p) for p in first.get("loc", ()))
+        return JSONResponse(
+            status_code=422,
+            content={"code": 422, "message": f"{where}: {first.get('msg', 'invalid')}",
+                     "errors": exc.errors()},
+        )
 
     def dump(env: Envelope) -> dict[str, Any]:
         return env.model_dump(mode="json", exclude_none=True)
@@ -92,6 +112,21 @@ def create_app(board: Board) -> FastAPI:
         new_id, token = board.store.create_identity(body.display)
         return {"id": new_id, "token": token, "note": "token is shown once"}
 
+    @app.get("/whoami")
+    def whoami(who: str = Depends(requester)) -> dict[str, Any]:
+        """Token -> identity, display, and effective grants. Exists so a
+        client never has to carry the identity as separate configuration."""
+        grants = [
+            {"ns": pattern, "band": band.value}
+            for grantee, pattern, band in board.timeline.grants_at(board.head)
+            if grantee in (who, "band:*")
+        ]
+        return {
+            "identity": who,
+            "display": board.store.identity_display(who),
+            "grants": sorted(grants, key=lambda g: (g["ns"], g["band"])),
+        }
+
     # -- read -------------------------------------------------------------
 
     @app.get("/read")
@@ -105,12 +140,13 @@ def create_app(board: Board) -> FastAPI:
         grade: str | None = None,
         limit: int = Query(default=500, le=5000),
     ) -> dict[str, Any]:
-        log, sealed = visible_log(who)
+        log, sealed_envs = visible_log(who)
         out = [
             dump(e) for e in log.envelopes
             if matches(e, ns, type, author, grade, since, until)
         ][:limit]
         cursor = out[-1]["id"] if out else since
+        sealed = sum(1 for e in sealed_envs if matches(e, ns, type, author, grade, since, until))
         return {"envelopes": out, "cursor": cursor, "sealed_excluded": sealed}
 
     @app.get("/envelope/{env_id}")
@@ -138,16 +174,17 @@ def create_app(board: Board) -> FastAPI:
         timeout: float = Query(default=60.0, le=600.0),
     ) -> dict[str, Any]:
         def pending() -> bool:
-            log, _ = visible_log(who)
+            log, _sealed = visible_log(who)
             return any(
                 matches(e, ns, type, author, grade, since, None) for e in log.envelopes
             )
 
         if not pending():
             await board.wait_for(pending, timeout)
-        log, sealed = visible_log(who)
+        log, sealed_envs = visible_log(who)
         out = [dump(e) for e in log.envelopes if matches(e, ns, type, author, grade, since, None)]
         cursor = out[-1]["id"] if out else since
+        sealed = sum(1 for e in sealed_envs if matches(e, ns, type, author, grade, since, None))
         return {"envelopes": out, "cursor": cursor, "sealed_excluded": sealed}
 
     @app.get("/subscribe")
@@ -188,8 +225,15 @@ def create_app(board: Board) -> FastAPI:
         horizon: str = "P7D",
         at: int | None = None,
     ) -> dict[str, Any]:
-        log, sealed = visible_log(who)
+        log, sealed_envs = visible_log(who)
         offset = at if at is not None else (log.envelopes[-1].id if len(log) else 0)
+        if ns is not None:
+            sealed = sum(1 for e in sealed_envs if in_subtree(ns, e.ns))
+        elif ns_set is not None:
+            globs = ns_set.split(",")
+            sealed = sum(1 for e in sealed_envs if any(ns_matches(g, e.ns) for g in globs))
+        else:
+            sealed = len(sealed_envs)
         tl = board.timeline
         try:
             if name == "state":

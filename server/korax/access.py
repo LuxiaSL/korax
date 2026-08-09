@@ -101,15 +101,17 @@ def verdict(
 
 def filter_log(
     log: Log, timeline: PolicyTimeline, requester: str, head: int
-) -> tuple[Log, int]:
-    """The requester's view of the log: readable envelopes, plus the count
-    of sealed exclusions (reported, never silent — §8.7.5)."""
+) -> tuple[Log, list[Envelope]]:
+    """The requester's view of the log: readable envelopes, plus the sealed
+    exclusions themselves — callers scope the count to the slice they are
+    serving, since §8.7.5 wants a count per namespace, not a board-wide
+    number that names no nest."""
     visible: list[Envelope] = []
-    sealed = 0
+    sealed: list[Envelope] = []
     for env in log.upto(head):
         v = verdict(log, timeline, env, requester, head)
         if v == "ok":
             visible.append(env)
         elif v == "sealed":
-            sealed += 1
+            sealed.append(env)
     return Log(visible), sealed

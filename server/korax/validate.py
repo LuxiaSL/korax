@@ -29,6 +29,7 @@ from .models import (
     PAYLOAD_MAX_BYTES,
     Pointer,
     Ref,
+    RESERVED_EXT_KEYS,
 )
 from .policy import NestPolicy, PolicyTimeline
 
@@ -106,6 +107,16 @@ def validate_post(log: Log, timeline: PolicyTimeline, raw: dict[str, Any]) -> Su
         sub = Submission.model_validate(raw)
     except ValidationError as exc:
         raise PostError(400, f"malformed envelope: {exc.errors()[0]['msg']}") from exc
+
+    # -- 400: ext keys are reserved or project-namespaced (§2.4)
+    for key, value in sub.ext.items():
+        if key not in RESERVED_EXT_KEYS and not isinstance(value, dict):
+            raise PostError(
+                400,
+                f"ext.{key}: top-level ext keys must be reserved "
+                f"({', '.join(sorted(RESERVED_EXT_KEYS))}) or namespaced as "
+                f"ext.<project>.<field> (§2.4)",
+            )
 
     # -- 404 then 400 per ref: existence before endpoint types (§1.1.7, §5)
     targets: dict[int, Envelope] = {}

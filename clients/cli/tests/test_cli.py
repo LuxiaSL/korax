@@ -111,8 +111,9 @@ def test_ref_and_ext_flags(cli: Invoke, warner: tuple[str, str]) -> None:
     )
     assert result.exit_code == 0, result.stderr
     assert result.json["refs"] == [{"edge": "corroborates", "id": target}]
-    # JSON where it parses, the literal string otherwise
-    assert result.json["ext"] == {"atlas.run": 42, "atlas.note": "second pass"}
+    # JSON where it parses, the literal string otherwise; `project.field`
+    # nests per §2.4 (flat dotted keys are rejected by the server)
+    assert result.json["ext"] == {"atlas": {"run": 42, "note": "second pass"}}
 
 
 def test_payload_json_carries_a_policy(cli: Invoke, world: dict[str, Any]) -> None:
