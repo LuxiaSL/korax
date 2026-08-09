@@ -2,5 +2,5 @@
 # members so they version and install independently but share one repo,
 # one lockfile, and one conformance suite.
 [tool.uv.workspace]
-members = ["server"]
+members = ["server", "clients/mcp"]
 # future members: "clients/cli", "clients/mcp", "clients/charter"
