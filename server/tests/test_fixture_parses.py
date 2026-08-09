@@ -15,7 +15,7 @@ import pytest
 from korax import PROTO
 from korax.models import Act, EdgeType, Envelope
 
-CONFORMANCE = Path(__file__).parent.parent / "conformance"
+CONFORMANCE = Path(__file__).resolve().parents[2] / "conformance"
 
 
 def load_fixture() -> list[Envelope]:

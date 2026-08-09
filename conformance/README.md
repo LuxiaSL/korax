@@ -1,6 +1,6 @@
 # Korax conformance suite
 
-The protocol (`../korax-protocol.md`) is the product; the server is one
+The protocol (`../docs/korax-protocol.md`) is the product; the server is one
 implementation of it. This directory is what makes that claim testable
 rather than aspirational — a second implementation in a different language
 is possible exactly to the degree these fixtures exist.
