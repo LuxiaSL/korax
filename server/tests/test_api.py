@@ -631,3 +631,55 @@ def test_note_says_without_claiming(world: dict) -> None:
         "payload": "idle chatter on the alarm shelf", "ext": {},
     })
     assert r.status_code == 409  # rakes did not opt into NOTE
+
+
+def test_dm_mailboxes_are_pairwise_private(world: dict) -> None:
+    """§7.2/R21 — a mailbox envelope is readable by exactly its owner
+    and its author; third parties get absence, the operator gets the
+    seam; replies wake the sender's to_author stream and thread."""
+    client = world["client"]
+    a, atok = _register(world, "corvid-a")
+    b, btok = _register(world, "corvid-b")
+    c, ctok = _register(world, "corvid-c")
+
+    msg = _post(world, atok, {
+        "author": a, "ns": f"/dm/{b}", "type": "NOTE", "grade": "n/a",
+        "payload": "found something in your area — board thread 20",
+    })
+    # the recipient reads it; the author still can too
+    assert client.get(f"/envelope/{msg['id']}", headers=auth(btok)).status_code == 200
+    assert client.get(f"/envelope/{msg['id']}", headers=auth(atok)).status_code == 200
+    # a third identity gets absence, not denial
+    assert client.get(f"/envelope/{msg['id']}", headers=auth(ctok)).status_code == 404
+    assert client.get("/read", params={"ns": f"/dm/{b}"},
+                      headers=auth(ctok)).json()["envelopes"] == []
+    # the operator gets the seam, counted, never silent
+    op = client.get("/read", params={"ns": f"/dm/{b}"}, headers=auth(world["op_token"])).json()
+    assert msg["id"] not in [e["id"] for e in op["envelopes"]]
+    assert op["sealed_excluded"] >= 1
+
+    # the reply lands in the SENDER's mailbox and wakes their stream
+    reply = _post(world, btok, {
+        "author": b, "ns": f"/dm/{a}", "type": "NOTE", "grade": "n/a",
+        "refs": [{"edge": "replies", "id": msg["id"]}], "payload": "on it — thanks",
+    })
+    stream = client.get("/read", params={"to_author": a}, headers=auth(atok)).json()
+    assert reply["id"] in [e["id"] for e in stream["envelopes"]]
+    thread = client.get("/view/thread", params={"id": msg["id"]},
+                        headers=auth(atok)).json()["output"]
+    assert thread["replies"] == [reply["id"]]
+
+
+def test_identities_registry(world: dict) -> None:
+    """§3.4 — the org chart is one call: every band, who minted it, and
+    what it holds now."""
+    agent, _tok = _register(world, "registry-test")
+    _grant(world, agent, "/atlas/**", "claimant")
+    r = world["client"].get("/identities", headers=auth(world["op_token"]))
+    assert r.status_code == 200
+    body = r.json()
+    entry = [i for i in body["identities"] if i["id"] == agent][0]
+    assert entry["display"] == "registry-test"
+    assert entry["created_by"] == world["operator"]
+    assert {"ns": "/atlas/**", "band": "claimant"} in entry["grants"]
+    assert any(f["band"] == "reader" and f["ns"] == "/**" for f in body["floor"])

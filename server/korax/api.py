@@ -149,6 +149,29 @@ def create_app(board: Board) -> FastAPI:
             "note": "token is shown once",
         }
 
+    @app.get("/identities")
+    def identities(who: str = Depends(requester)) -> dict[str, Any]:
+        """The band registry: who exists, who minted them, what they hold
+        right now. §3.4 — the org chart lives on the log; this joins the
+        identity table to the grants in force so 'which bands belong to
+        which project' is one call, not archaeology."""
+        grants = board.timeline.grants_at(board.head)
+        out = []
+        for ident in board.store.list_identities():
+            held = sorted(
+                (
+                    {"ns": pattern, "band": band.value}
+                    for grantee, pattern, band in grants
+                    if grantee == ident["id"]
+                ),
+                key=lambda g: (g["ns"], g["band"]),
+            )
+            out.append({**ident, "grants": held})
+        return {"identities": out, "floor": [
+            {"ns": pattern, "band": band.value}
+            for grantee, pattern, band in grants if grantee == "band:*"
+        ]}
+
     @app.get("/whoami")
     def whoami(who: str = Depends(requester)) -> dict[str, Any]:
         """Token -> identity, display, and effective grants. Exists so a

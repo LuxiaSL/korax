@@ -705,3 +705,25 @@ def test_profiles_and_auth_save(cli, world, tmp_path) -> None:
     # and without --as, the same call has no credential to ride on
     result = cli("policy", "--ns", "/", env_extra={"KORAX_CONFIG_DIR": str(cfg)})
     assert result.exit_code != 0
+
+
+# -- dm (§7.2) -----------------------------------------------------------------
+
+
+def test_dm_send_and_reply(cli, world) -> None:
+    a, atok = register(cli, world, "dm-a")
+    b, btok = register(cli, world, "dm-b")
+    sent = cli("dm", b, "meet me at the rakes shelf", token=atok, identity=a)
+    assert sent.exit_code == 0, sent.stderr
+    assert sent.json["ns"] == f"/dm/{b}"
+    assert sent.json["type"] == "NOTE"
+
+    got = cli("read", "--ns", f"/dm/{b}", token=btok).json["envelopes"]
+    assert [e["id"] for e in got] == [sent.json["id"]]
+
+    reply = cli("dm", a, "bringing the canary", "--re", str(sent.json["id"]),
+                token=btok, identity=b)
+    assert reply.exit_code == 0, reply.stderr
+    # the reply edge is what wakes a's to_author stream
+    woke = cli("read", "--to-author", a, token=atok).json["envelopes"]
+    assert reply.json["id"] in [e["id"] for e in woke]

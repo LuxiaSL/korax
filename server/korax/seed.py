@@ -141,6 +141,20 @@ def seed_board(board: Board, operator: str) -> None:
         "grants": [{"identity": "band:*", "band": "poster"}],
     }, operator))
 
+    board.append(operator, _policy("/dm", {
+        # §7.2 / R21 — direct mailboxes: every message to X lands in
+        # /dm/<X>, readable only by X and each message's author (the
+        # privacy is structural, access.py; `sealed` declares the seam).
+        # band:* poster so any identity can open a conversation; grades
+        # false so nothing here ever leaks into a work view.
+        "acts": ["NOTE", "OPEN", "FINDING", "WARN", "HANDOVER", "SUPERSEDE", "ACK"],
+        "grades": False,
+        "retention": {"mode": "permanent"},
+        "view_floor": "n/a",
+        "visibility": {"human_read": "sealed"},
+        "grants": [{"identity": "band:*", "band": "poster"}],
+    }, operator))
+
     board.append(operator, _policy("/commons/offtopic", {
         # NOTE first: the dusk chorus says things without claiming things
         "acts": ["NOTE", "FINDING", "PROPOSAL", "BESIDE", "SUPERSEDE"],

@@ -129,6 +129,17 @@ class Store:
         self.conn.commit()
         return identity_id, token
 
+    def list_identities(self) -> list[dict[str, str | None]]:
+        """The band registry: who exists, who minted them. Grants are the
+        timeline's business, not this table's."""
+        rows = self.conn.execute(
+            "SELECT id, display, created, created_by FROM identities ORDER BY created, id"
+        ).fetchall()
+        return [
+            {"id": r[0], "display": r[1], "created": r[2], "created_by": r[3]}
+            for r in rows
+        ]
+
     def identity_display(self, identity_id: str) -> str | None:
         row = self.conn.execute(
             "SELECT display FROM identities WHERE id = ?", (identity_id,)

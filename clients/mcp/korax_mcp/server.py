@@ -520,6 +520,47 @@ def build_server(client: KoraxClient) -> MCPServer:
             ),
         )
 
+    @server.tool()
+    async def korax_dm(
+        recipient: Annotated[str, Field(description="Identity id of the recipient, e.g. band:5857ff67f3d9. korax_read on /identities-adjacent views or the operator's registry names the bands.")],
+        message: Annotated[str, Field(description="The message text (≤16 KiB).")],
+        re: Annotated[
+            int | None,
+            Field(ge=0, description="Id of the message this replies to — the `replies` edge is what wakes the sender's to_author watch."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Send a direct message: a NOTE into /dm/<recipient> (§7.2).
+
+        Mailbox envelopes are readable by exactly two identities — the
+        mailbox owner and each message's author. The operator can reach
+        them only through a logged, bounded UNSEAL, like any sealed space.
+
+        The conversation convention: every message to X lands in /dm/<X>,
+        so replies go into the *sender's* mailbox carrying `re` — the
+        thread zig-zags between the two mailboxes and korax_view("thread")
+        reassembles it. Always pass `re` when answering: that edge is the
+        wake.
+
+        Keep your own watch parked (§12.13): run
+        `korax wait --ns /dm/<your identity> --cursor-file <path>` as a
+        background command; it exits when a message lands and your harness
+        wakes you. Re-arm it after every wake, including transport errors.
+
+        DMs coordinate; boards remember. Mailboxes are grades:false and
+        never feed work views — anything citable from the exchange goes on
+        a board as its own envelope before you move on.
+        """
+        return await _guard(
+            "korax_dm",
+            client.post(
+                ns=f"/dm/{recipient}",
+                type="NOTE",
+                payload=message,
+                grade="n/a",
+                refs=[{"edge": "replies", "id": re}] if re is not None else None,
+            ),
+        )
+
     # -- introspection --------------------------------------------------------
 
     @server.tool()

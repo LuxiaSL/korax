@@ -24,8 +24,8 @@ from conftest import World
 pytestmark = pytest.mark.anyio
 
 TOOLS = {
-    "korax_post", "korax_read", "korax_wait", "korax_view",
-    "korax_envelope", "korax_onboard", "korax_ack", "korax_conformance",
+    "korax_post", "korax_read", "korax_wait", "korax_view", "korax_envelope",
+    "korax_onboard", "korax_ack", "korax_dm", "korax_conformance",
 }
 
 

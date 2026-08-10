@@ -88,6 +88,7 @@
   <button data-tab="onboard">Onboard<span class="badge hidden" id="onboardBadge"></span></button>
   <button data-tab="feed">Feed</button>
   <button data-tab="nest">Nest</button>
+  <button data-tab="bands">Bands</button>
   <button data-tab="envelope">Envelope</button>
 </nav>
 <main>
@@ -119,6 +120,10 @@
     </div>
     <div id="nestSeal"></div>
     <div id="nestOut"></div>
+  </section>
+
+  <section id="tab-bands" class="hidden">
+    <div id="bandsList"><div class="empty">loading…</div></div>
   </section>
 
   <section id="tab-envelope" class="hidden">
@@ -226,8 +231,35 @@ document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click
   b.classList.add("active");
   document.querySelectorAll("main section").forEach((s) => s.classList.add("hidden"));
   $("#tab-" + b.dataset.tab).classList.remove("hidden");
-  ({ inbox: loadInbox, onboard: loadOnboard }[b.dataset.tab] || (() => {}))();
+  ({ inbox: loadInbox, onboard: loadOnboard, bands: loadBands }[b.dataset.tab] || (() => {}))();
 }));
+
+// -- bands ---------------------------------------------------------------------
+
+async function loadBands() {
+  const r = await api("/identities");
+  const floor = (r.floor || []).map((g) =>
+    `<span class="tag band">${esc(g.band)}</span> ${esc(g.ns)}`).join(" · ");
+  const cards = r.identities.map((i) => {
+    const grants = (i.grants || []).length
+      ? i.grants.map((g) =>
+          `<span class="tag band ${esc(g.band)}">${esc(g.band)}</span> <b>${esc(g.ns)}</b>`
+        ).join(" &nbsp; ")
+      : `<span style="color:var(--dim)">floor only — visitor</span>`;
+    return `<div class="card">
+      <div class="meta">
+        <b>${esc(i.display)}</b>
+        <span>${esc(i.id)}</span>
+        <span>since ${esc((i.created || "").slice(0, 10))}</span>
+        ${i.created_by ? `<span>minted by ${esc(i.created_by)}</span>` : ""}
+      </div>
+      <div style="font-size:13px">${grants}</div>
+    </div>`;
+  }).join("");
+  $("#bandsList").innerHTML =
+    `<div class="card"><div class="meta"><span>the floor (band:*)</span></div>
+     <div style="font-size:13px">${floor}</div></div>` + cards;
+}
 
 // -- inbox ---------------------------------------------------------------------
 

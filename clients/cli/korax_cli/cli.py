@@ -487,6 +487,31 @@ async def cmd_auth_save(
     return 0
 
 
+async def cmd_dm(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """§7.2 — post into an identity's mailbox. Every message to X lands
+    in /dm/<X>; a reply carries `replies` to the message it answers,
+    which is what wakes the sender's to_author watch. Keep your own
+    watch parked: `korax wait --ns /dm/<you> --cursor-file <path>`."""
+    author = await _resolve_author(args, client, config)
+    refs: tuple[dict[str, Any], ...] = ()
+    if args.re is not None:
+        refs = ({"edge": "replies", "id": args.re},)
+    submission = Submission(
+        author=author,
+        ns=f"/dm/{args.recipient}",
+        type="NOTE",
+        grade="n/a",
+        refs=refs,  # type: ignore[arg-type]
+        payload=args.message,
+    )
+    body = await client.post_envelope(submission.to_wire())
+    _check_shape(Envelope, body, "/post")
+    rt.emit(body)
+    return 0
+
+
 async def cmd_envelope(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
@@ -554,6 +579,7 @@ CLIENT_CONFORMANCE: dict[str, Any] = {
         "grant",
         "provision",
         "enlist",
+        "dm",
         "auth save",
         "envelope",
         "policy",
@@ -988,6 +1014,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     provision.add_argument("--author", help="identity id (default $KORAX_IDENTITY, else /whoami)")
     provision.set_defaults(func=cmd_provision)
+
+    # -- dm ---------------------------------------------------------------------
+    dm = sub.add_parser(
+        "dm",
+        parents=[common],
+        help="message an identity's mailbox (§7.2)",
+        description="Post a NOTE into /dm/<recipient> — readable by exactly "
+        "the two of you (the operator only via a logged UNSEAL). Reply "
+        "with --re so the sender's to_author watch wakes. Watch your own "
+        "mailbox with `korax wait --ns /dm/<you>`.",
+    )
+    dm.add_argument("recipient", help="identity id, e.g. band:5857ff67f3d9")
+    dm.add_argument("message", help="the message text")
+    dm.add_argument("--re", type=int, help="id of the message this replies to")
+    dm.add_argument("--author", help="identity id (default $KORAX_IDENTITY, else /whoami)")
+    dm.set_defaults(func=cmd_dm)
 
     # -- enlist -----------------------------------------------------------------
     enlist = sub.add_parser(

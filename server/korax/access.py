@@ -84,6 +84,18 @@ def verdict(
         if not _unseal_covers(log, timeline, env, head):
             return "sealed"
 
+    # §7.2 — a DM mailbox is readable by its owner and by each message's
+    # own author; structurally private with the same seam shape as
+    # scratch: a human non-participant needs a logged, covering UNSEAL
+    if env.ns.startswith("/dm/"):
+        segs = env.ns.split("/")
+        owner = segs[2] if len(segs) > 2 else ""
+        if requester != owner and env.author != requester:
+            if band != Band.HUMAN:
+                return "denied"
+            if not _unseal_covers(log, timeline, env, head):
+                return "sealed"
+
     if _blinded(log, timeline, env, requester, band, head):
         return "denied"
 
