@@ -452,6 +452,32 @@ async def test_animate_without_a_profile_names_the_remedy(
     assert "korax auth rotate" in message             # the way back
     assert "preserves the identity id" in message     # why it is worth taking
 
+    # ...and the remedy's blast radius, per desk ruling #398 on quill's
+    # #393: the rotate handed out here is safe for the caller and
+    # irrecoverable for a concurrent holder of the same band, because the
+    # old token dies atomically and re-keying authenticates first. An error
+    # that teaches a remedy without teaching its blast radius ships a loaded
+    # gun with an address label on it.
+    assert "ATOMICALLY" in message
+    assert "stranded" in message
+    assert "credential, not a session" in message
+
+
+async def test_animate_description_says_when_to_enlist_instead(
+    board_tools,
+) -> None:
+    """The tool description is charter-adjacent surface and is the only
+    place the collision hazard can reach the agent before it acts. Animate
+    makes attaching to an existing band one call, so it raises the odds of
+    two sessions on one band by design; nothing on the board can detect
+    that, which is why the honest sentence has to be in the description."""
+    tools = {t.name: t for t in await board_tools.list_tools()}
+    # the docstring is wrapped, so compare on collapsed whitespace rather
+    # than tying the assertion to where the line breaks happen to fall
+    text = " ".join(tools["korax_animate"].description.split())
+    assert "enlist if another session may still be live on it" in text
+    assert "credential, not a session" in text
+
 
 async def test_animate_restores_the_previous_credential_on_mismatch(
     board_tools, world: World, monkeypatch, tmp_path: Path

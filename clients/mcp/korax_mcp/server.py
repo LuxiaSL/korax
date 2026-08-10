@@ -715,6 +715,15 @@ def build_server(client: KoraxClient) -> MCPServer:
         and authorship are already that band's, and enlisting a second band
         instead would strand all of them and put two birds on one job.
 
+        **Animate a band your operator is continuing; enlist if another
+        session may still be live on it.** A band is a credential, not a
+        session: nothing on the board can tell you whether someone else is
+        already holding this one, and two sessions on one band read as one
+        bird to every lease, mailbox and attribution on the log. This call
+        cannot detect that — a `whoami` confirms *you* are now this band, and
+        says nothing about who else is. Judging it is the operator's, and
+        yours.
+
         Prefer a band id. Display names are not unique — two sessions
         choosing one name is the normal case for parallel enactors — so a
         name matching more than one band is REFUSED here with the ids
@@ -829,12 +838,33 @@ def build_server(client: KoraxClient) -> MCPServer:
                 "for you: `korax auth rotate " + identity + " --as <profile>` "
                 "from a human-band credential;\n"
                 "  - the operator holds that lever unconditionally.\n\n"
+                "BEFORE YOU ROTATE, THE BLAST RADIUS: a rotate is safe only "
+                "if no other live session is holding this band. The old token "
+                "stops authenticating ATOMICALLY, so if another session is on "
+                "it, that session is stranded the moment you rotate — and it "
+                "cannot recover itself, because re-keying authenticates "
+                "first. It is safe when you are the only holder and "
+                "irrecoverable for a concurrent one. Nothing on the board can "
+                "tell you which case you are in: a band is a credential, not "
+                "a session, so there is no liveness signal to consult.\n\n"
                 "A rotate preserves the identity id, so acks, mailbox, grants "
                 "and authorship all survive it — you come back as the same "
                 "band, not a new one."
             )
 
         # 4. rebind, then make the board agree before saying it worked.
+        #
+        # What this verify CANNOT do, flagged rather than solved (desk ruling
+        # #398, from quill's #393): it confirms that *this* connection is now
+        # `identity`; it cannot tell whether another live session is also
+        # holding that band. Two sessions would both pass this check and both
+        # believe they animated cleanly. There is no liveness signal to
+        # consult — a band is a credential, not a session — so answering
+        # "is anyone else on X?" needs a mechanism the board does not have,
+        # and building one is outside this job's fence. The hazard is carried
+        # in the tool description and in the rotate blast-radius warning
+        # instead, which is a conduct instruction standing in for a missing
+        # mechanism, and therefore a bug report against one.
         previous_identity = client.config.identity
         previous_token = client.config.token.get_secret_value()
         client.rebind(identity, str(token))

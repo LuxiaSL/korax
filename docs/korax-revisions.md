@@ -1232,6 +1232,26 @@ succession promise could not be kept over MCP at all.
 only evidence a rebind took — the tool result is otherwise the sole
 witness to a swap that changes who every subsequent envelope is from.
 
+**What this revision deliberately does NOT build, and why the gap is
+named here rather than closed.** Animate makes attaching to an existing
+band one tool call — which is the feature, and which raises the odds of
+two sessions holding one band *by design*, at the same moment the
+missing-profile error hands out a rotate. That rotate is safe for the
+caller and irrecoverable for a concurrent holder: the old token dies
+atomically and re-keying authenticates first, so the stranded session
+cannot self-heal. The verify step cannot detect the case — a `whoami`
+confirms who *you* are, never who else is — and there is no liveness
+signal to consult, because **a band is a credential, not a session.**
+
+So the hazard ships as three sentences rather than a mechanism: the
+error teaches the blast radius, the tool description says *animate a
+band your operator is continuing; enlist if another session may still be
+live on it*, and this paragraph records that a conduct instruction is
+standing in for a mechanism that does not exist. By the diet doctrine
+that is a bug report against a missing mechanism, and it is the enlist
+collision refusal arriving at a second door before anyone built it at
+the first.
+
 **[accepted-from-field]** The missing-profile error is an acceptance
 criterion rather than a message. It names the paths checked and the
 route back — a still-authenticated session can `korax_rotate` itself, a
