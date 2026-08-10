@@ -350,12 +350,20 @@ def create_app(board: Board) -> FastAPI:
         if env is None:
             raise HTTPException(404, "no such envelope")
         v = verdict(board.log, board.timeline, env, who, board.head)
-        if v == "denied":
-            raise HTTPException(404, "no such envelope")  # unreadable is absence
+        # Enumerate PERMISSION, not the refusals. `sealed` is the one
+        # refusal allowed to be visible (§8.7.2 — the human's own lever is
+        # discoverable); everything else that is not `ok` fuses into
+        # absence (§8.3). Written this way round so that a verdict added
+        # later is refused by default rather than served by omission: the
+        # `if v == "denied"` form was correct only while `Verdict` had
+        # three values, and this is the one endpoint where an over-serve
+        # hands over an envelope the access layer just refused.
         if v == "sealed":
             raise HTTPException(
                 403, "sealed at post time; a covering UNSEAL is required (§8.7)"
             )
+        if v != "ok":
+            raise HTTPException(404, "no such envelope")  # unreadable is absence
         out = dump(env)
         # §10.10 — prerequisites arrive annotated on the document, not as
         # separate ceremony the client must remember to perform
