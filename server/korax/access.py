@@ -2,12 +2,41 @@
 the visibility seam (§8.7).
 
 Verdicts:
-  "ok"     — serve it
-  "denied" — no read grant (or blinded); excluded silently, per §8.3
-  "sealed" — hidden from a human-band requester without a covering
-             UNSEAL OF THEIR OWN (§8.7.2, R27 — each person's look is
-             their own); MUST be counted, never silently filtered
-             (§8.7.5)
+  "ok"            — serve it
+  "denied"        — no read grant, or blinded by an open round (§8.3);
+                    excluded silently, and silently ON PURPOSE
+  "participation" — withheld from a non-participant in a structurally
+                    private room (a mailbox, someone else's scratch);
+                    MUST be counted as `participation_excluded`
+  "sealed"        — hidden from a human-band requester without a
+                    covering UNSEAL OF THEIR OWN (§8.7.2, R27 — each
+                    person's look is their own); MUST be counted as
+                    `sealed_excluded`, never silently filtered (§8.7.5)
+
+`participation` used to be folded into `denied`, which is why a
+board-wide drain by a non-human band reported `sealed_excluded: 0`
+while withholding every mailbox on the board — a positive false claim
+of completeness on the most basic call there is (#199). Splitting the
+two is the whole of JOB #204.
+
+WHY THE OTHER TWO DENIALS STAY UNCOUNTED, since the asymmetry looks
+like an oversight and is not (ruled at #268 D2/D3):
+
+  * No read grant — a namespace outside your ACL was never part of
+    your slice, so it is not a hole in your page; and counting it
+    turns any board-wide read into a map of how much exists where you
+    hold no grant.
+  * Blinded (§8.3) — the count of what a blind round withholds from
+    you IS the number of peers who have already answered. Publishing
+    it hands back exactly the herding signal the round exists to
+    suppress, at the moment of generation. The mechanism would cancel
+    itself with a number.
+
+Both are also *self-announcing*: you can read your own grants, and you
+can see the OPEN of a round you have not yet posted into. That is the
+test that decides which exclusions are owed a counter — a counter is
+owed wherever a reader cannot otherwise learn that something was
+withheld (§9.4).
 """
 
 from __future__ import annotations
@@ -18,7 +47,7 @@ from .log import Log
 from .models import Act, Band, BAND_RANK, EdgeType, Envelope, SEAM_EXEMPT_ACTS
 from .policy import PolicyTimeline
 
-Verdict = Literal["ok", "denied", "sealed"]
+Verdict = Literal["ok", "denied", "participation", "sealed"]
 
 
 def _unseal_covers(
@@ -115,7 +144,7 @@ def verdict(
     # scratch to its owner alone, sealed to human)
     if env.ns.startswith("/scratch/") and not env.ns.startswith(f"/scratch/{requester}/"):
         if band != Band.HUMAN:
-            return "denied"
+            return "participation"
         if not _unseal_covers(log, timeline, env, requester, head):
             return "sealed"
 
@@ -127,7 +156,7 @@ def verdict(
         owner = segs[2] if len(segs) > 2 else ""
         if requester != owner and env.author != requester:
             if band != Band.HUMAN:
-                return "denied"
+                return "participation"
             if not _unseal_covers(log, timeline, env, requester, head):
                 return "sealed"
 
@@ -161,13 +190,19 @@ def verdict(
 
 def filter_log(
     log: Log, timeline: PolicyTimeline, requester: str, head: int
-) -> tuple[Log, list[Envelope]]:
-    """The requester's view of the log: readable envelopes, plus the sealed
-    exclusions themselves — callers scope the count to the slice they are
-    serving, since §8.7.5 wants a count per namespace, not a board-wide
-    number that names no nest."""
+) -> tuple[Log, list[Envelope], list[Envelope]]:
+    """The requester's view of the log: readable envelopes, plus the two
+    kinds of exclusion that are owed a count — sealed, and withheld by
+    participation. Returned as the envelopes themselves rather than as
+    numbers because callers scope each count to the slice they are
+    serving: §8.7.5 wants a count per namespace, not a board-wide number
+    that names no nest.
+
+    The uncounted denials are not returned at all, so no caller can
+    accidentally start reporting them (§9.4, ruled at #268 D2)."""
     visible: list[Envelope] = []
     sealed: list[Envelope] = []
+    private: list[Envelope] = []
     is_human = timeline.holds_human_anywhere(requester, head)  # R22, loop-invariant
     for env in log.upto(head):
         v = verdict(log, timeline, env, requester, head, is_human)
@@ -175,4 +210,6 @@ def filter_log(
             visible.append(env)
         elif v == "sealed":
             sealed.append(env)
-    return Log(visible), sealed
+        elif v == "participation":
+            private.append(env)
+    return Log(visible), sealed, private
