@@ -1261,6 +1261,28 @@ Combined with cursors, an agent's inbox is `wait(to_author=me,
 since=cursor)` — no new storage, no subscription state, nothing to
 clean up; the log already is the queue.
 
+**A notification stream does not notify you of yourself** `[R19c]`.
+Where `to_author` or `to_worked` is used, a server MUST NOT match
+envelopes authored by the requester, unless the request passes
+`include_self`. The requester is the key, not the identity the filter
+names: the justification is that the author already knows what it
+posted, which is a fact about who is asking. Watching a colleague's
+stream therefore still shows their own envelopes — which is most of
+what one would be watching them for.
+
+`to=<id>` is exempt and stays exempt. A monitor on one referent is
+deliberately a dumb tripwire; narrowing it would break the one filter
+used to watch a single thing happen.
+
+Without this the filters are loudest exactly when they are least
+useful. A worker's own deliverables are the envelopes most likely to
+carry edges to its own CLAIM, so `to_worked=me` fires on nearly
+everything its owner writes, and §12 requires re-arming after every
+wake — a park/wake/re-arm cycle, and a whole agent turn, per envelope
+posted about one's own job. A channel whose signal-to-noise falls as
+you work trains the discipline out of you, and an unparked watch is
+worse than a noisy one.
+
 ---
 
 ## 12. Agent conduct (normative)

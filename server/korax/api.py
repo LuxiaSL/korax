@@ -113,11 +113,32 @@ def create_app(board: Board) -> FastAPI:
             f"`horizon={PIERCE}` only (§8.2)",
         )
 
+    def self_drop(who: str, to_author: str | None, to_worked: str | None,
+                  include_self: bool) -> str | None:
+        """Whose envelopes to suppress, or None to suppress nothing.
+
+        Only the identity-shaped filters carry the exclusion: `to=<id>` is
+        deliberately a dumb tripwire on one referent (§11.1) and must keep
+        firing on the requester's own envelopes.
+        """
+        if include_self or (to_author is None and to_worked is None):
+            return None
+        return who
+
     def matches(env: Envelope, ns: str | None, type_: str | None, author: str | None,
                 grade: str | None, since: int, until: int | None,
                 to_env: int | None = None, to_targets: set[int] | None = None,
-                worked_targets: set[int] | None = None) -> bool:
+                worked_targets: set[int] | None = None,
+                drop_self: str | None = None) -> bool:
         if env.id <= since or (until is not None and env.id > until):
+            return False
+        # §11.1 R19c — a notification stream does not notify you of
+        # yourself. Keyed on the REQUESTER, not on the identity the filter
+        # names: the justification is "the author is already aware", which
+        # is a fact about who is asking. Watching a colleague's stream
+        # therefore still shows you their own posts, which is most of what
+        # you would be watching them for.
+        if drop_self is not None and env.author == drop_self:
             return False
         if ns and not in_subtree(ns, env.ns):
             return False
@@ -244,15 +265,18 @@ def create_app(board: Board) -> FastAPI:
         to_author: str | None = None,
         to_worked: str | None = None,
         horizon: str | None = None,
+        include_self: bool = False,
         limit: int = Query(default=500, le=5000),
     ) -> dict[str, Any]:
         pierce = pierced(horizon)
         log, sealed_envs = visible_log(who)
         targets = authored_by(log, to_author) if to_author else None
         worked = worked_by(log, to_worked) if to_worked else None
+        mine = self_drop(who, to_author, to_worked, include_self)
         hits = [
             e for e in log.envelopes
-            if matches(e, ns, type, author, grade, since, until, to, targets, worked)
+            if matches(e, ns, type, author, grade, since, until, to, targets, worked,
+                       mine)
         ]
         rotated: list[Envelope] = []
         if not pierce:
@@ -261,7 +285,8 @@ def create_app(board: Board) -> FastAPI:
         cursor = out[-1]["id"] if out else since
         sealed = sum(
             1 for e in sealed_envs
-            if matches(e, ns, type, author, grade, since, until, to, targets, worked)
+            if matches(e, ns, type, author, grade, since, until, to, targets, worked,
+                       mine)
         )
         return {
             "envelopes": out,
@@ -306,9 +331,11 @@ def create_app(board: Board) -> FastAPI:
         to_author: str | None = None,
         to_worked: str | None = None,
         horizon: str | None = None,
+        include_self: bool = False,
         timeout: float = Query(default=60.0, le=600.0),
     ) -> dict[str, Any]:
         pierce = pierced(horizon)
+        mine = self_drop(who, to_author, to_worked, include_self)
 
         def hits_now() -> list[Envelope]:
             log, _sealed = visible_log(who)
@@ -316,7 +343,8 @@ def create_app(board: Board) -> FastAPI:
             worked = worked_by(log, to_worked) if to_worked else None
             found = [
                 e for e in log.envelopes
-                if matches(e, ns, type, author, grade, since, None, to, targets, worked)
+                if matches(e, ns, type, author, grade, since, None, to, targets, worked,
+                           mine)
             ]
             if pierce:
                 return found
@@ -332,7 +360,8 @@ def create_app(board: Board) -> FastAPI:
         worked = worked_by(log, to_worked) if to_worked else None
         found = [
             e for e in log.envelopes
-            if matches(e, ns, type, author, grade, since, None, to, targets, worked)
+            if matches(e, ns, type, author, grade, since, None, to, targets, worked,
+                       mine)
         ]
         rotated: list[Envelope] = []
         if not pierce:
@@ -341,7 +370,8 @@ def create_app(board: Board) -> FastAPI:
         cursor = out[-1]["id"] if out else since
         sealed = sum(
             1 for e in sealed_envs
-            if matches(e, ns, type, author, grade, since, None, to, targets, worked)
+            if matches(e, ns, type, author, grade, since, None, to, targets, worked,
+                       mine)
         )
         return {
             "envelopes": out,
@@ -360,8 +390,10 @@ def create_app(board: Board) -> FastAPI:
         to_author: str | None = None,
         to_worked: str | None = None,
         horizon: str | None = None,
+        include_self: bool = False,
     ) -> StreamingResponse:
         pierce = pierced(horizon)
+        mine = self_drop(who, to_author, to_worked, include_self)
 
         async def stream():
             cursor = since
@@ -371,7 +403,8 @@ def create_app(board: Board) -> FastAPI:
                 worked = worked_by(log, to_worked) if to_worked else None
                 fresh_envs = [
                     e for e in log.envelopes
-                    if matches(e, ns, type, None, None, cursor, None, to, targets, worked)
+                    if matches(e, ns, type, None, None, cursor, None, to, targets,
+                               worked, mine)
                 ]
                 if not pierce:
                     fresh_envs, _rot = rotate_split(
