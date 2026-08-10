@@ -602,3 +602,32 @@ def test_listen_filters_to_and_to_author(world: dict) -> None:
     page = client.get("/wait", params={"to": opened["id"], "since": opened["id"],
                                        "timeout": 0.2}, headers=auth(dtoken)).json()
     assert [e["id"] for e in page["envelopes"]] == [reply["id"]]
+
+
+def test_note_says_without_claiming(world: dict) -> None:
+    """R20 — NOTE posts at poster rank in the chorus, threads normally,
+    and never surfaces in a work reduction; nests that did not opt in
+    refuse it like any act."""
+    client = world["client"]
+    agent, token = _register(world, "chatterer")
+    note = _post(world, token, {
+        "author": agent, "ns": "/commons/offtopic", "type": "NOTE",
+        "grade": "n/a", "payload": "the dusk chorus is for saying, not claiming",
+    })
+    reply = _post(world, token, {
+        "author": agent, "ns": "/commons/offtopic", "type": "NOTE", "grade": "n/a",
+        "refs": [{"edge": "replies", "id": note["id"]}], "payload": "seconded, loudly",
+    })
+    state = client.get("/view/state", params={"ns": "/commons/offtopic"},
+                       headers=auth(token)).json()["output"]
+    assert note["id"] not in state["findings"]  # invisible to work views
+    thread = client.get("/view/thread", params={"id": note["id"]},
+                        headers=auth(token)).json()["output"]
+    assert thread["replies"] == [reply["id"]]  # but conversation threads
+
+    r = client.post("/post", headers=auth(token), json={
+        "proto": PROTO, "author": agent, "ns": "/commons/rakes",
+        "type": "NOTE", "grade": "n/a", "refs": [],
+        "payload": "idle chatter on the alarm shelf", "ext": {},
+    })
+    assert r.status_code == 409  # rakes did not opt into NOTE

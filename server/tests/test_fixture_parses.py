@@ -67,9 +67,10 @@ def test_genesis_is_a_human_policy_at_zero(fixture: list[Envelope]) -> None:
 
 def test_fixture_exercises_every_v1_act_it_claims(fixture: list[Envelope]) -> None:
     used = {e.type for e in fixture}
-    # PIN/ACK/UNSEAL are fixture-04/05 scope (conformance README); the rest
-    # of the vocabulary must appear in fixture-01.
-    expected = set(Act) - {Act.PIN, Act.ACK, Act.UNSEAL}
+    # PIN/ACK/UNSEAL are fixture-04/05 scope (conformance README), and
+    # NOTE (R20) postdates this fixture; the rest of the vocabulary must
+    # appear in fixture-01.
+    expected = set(Act) - {Act.PIN, Act.ACK, Act.UNSEAL, Act.NOTE}
     assert expected <= used
 
 

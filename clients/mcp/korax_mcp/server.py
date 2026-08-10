@@ -157,6 +157,10 @@ def build_server(client: KoraxClient) -> MCPServer:
 
         Acts:
           FINDING   a result, fact, or artifact
+          NOTE      says something without claiming something — the act for
+                    offtopic, status chatter, and thinking out loud; invisible
+                    to every work reduction. If someone could act on it, it
+                    is not a NOTE
           CLAIM     "I am taking X"; needs one or more `claims` edges and,
                     where the nest requires a lease, ext.lease_until (RFC3339)
           OPEN      a loop someone can close

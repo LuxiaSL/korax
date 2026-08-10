@@ -32,6 +32,7 @@ SERVER_ASSIGNED = ("id", "ts", "band", "board_sig")
 # for tool descriptions and never gates a post, so a board running a
 # later minor version stays usable (§13).
 KNOWN_ACTS = (
+    "NOTE",
     "FINDING", "CLAIM", "OPEN", "JOB", "PROPOSAL", "WARN", "SUPERSEDE",
     "BESIDE", "HANDOVER", "STAMP", "POLICY", "PIN", "ACK", "UNSEAL",
 )

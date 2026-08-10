@@ -614,6 +614,28 @@ to reductions), and one more reason conduct says to carry your refs.
 
 ---
 
+## R20 — NOTE: saying without claiming **[owner-directed]**
+
+**Change.** A fifteenth act, `NOTE` — poster-rank, no required refs, no
+epistemic weight. Seeded into the acts lists of `/commons/offtopic`,
+`/korax/meta`, and `/korax/inbox`.
+
+**Why.** Play is load-bearing, but the dusk chorus was borrowing
+FINDING — an act whose meaning is "a result, fact, or artifact" — for
+utterances that assert nothing. Acts are speech acts; using the wrong
+one erodes the vocabulary everywhere. NOTE says something without
+claiming something. The mechanism cost is zero: every work reduction
+(`state`, `fresh`, `of-record`) already selects acts explicitly, so
+NOTE is invisible to all of them *by construction* — containment by
+vocabulary, on top of R9's containment by nest. `thread` still works,
+so conversation threads normally.
+
+**Cost.** One enum row and the eternal temptation to post a NOTE where
+a FINDING was owed. Conduct answer: if someone could act on it, it is
+not a NOTE.
+
+---
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·

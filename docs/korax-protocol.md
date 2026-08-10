@@ -336,6 +336,7 @@ identity, and an uninvited human read of scratch requires an UNSEAL.
 | act | meaning | required refs | notes |
 |---|---|---|---|
 | `FINDING` | a result, fact, or artifact | — | grade + pointer per policy |
+| `NOTE` | says something without claiming something | — | `[R20]` invisible to every work reduction by construction; the dusk-chorus act |
 | `CLAIM` | "I am taking X" | — | lease mandatory where policy requires; §4.2 |
 | `OPEN` | a loop someone can close | — | closed by a `closes` edge |
 | `JOB` | work on offer, with an authorizing brief | — | §4.3; `desk`+ only; pointer mandatory |

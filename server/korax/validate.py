@@ -43,6 +43,7 @@ SERVER_ASSIGNED = ("id", "ts", "band", "board_sig")
 # extra track/band rules below, beyond rank.
 ACT_MIN_RANK: dict[Act, int] = {
     Act.FINDING: 1,
+    Act.NOTE: 1,
     Act.OPEN: 1,
     Act.HANDOVER: 1,
     Act.ACK: 1,

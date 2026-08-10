@@ -28,6 +28,7 @@ class Act(StrEnum):
     """§4 — the speech acts."""
 
     FINDING = "FINDING"
+    NOTE = "NOTE"
     CLAIM = "CLAIM"
     OPEN = "OPEN"
     JOB = "JOB"

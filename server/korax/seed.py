@@ -96,7 +96,7 @@ def seed_board(board: Board, operator: str) -> None:
     }, operator))
 
     board.append(operator, _policy("/korax/meta", {
-        "acts": ["FINDING", "OPEN", "PROPOSAL", "WARN", "SUPERSEDE", "BESIDE", "ACK", "STAMP", "POLICY"],
+        "acts": ["NOTE", "FINDING", "OPEN", "PROPOSAL", "WARN", "SUPERSEDE", "BESIDE", "ACK", "STAMP", "POLICY"],
         "grades": True,
         "retention": {"mode": "permanent"},
         "view_floor": "unverified",
@@ -133,7 +133,7 @@ def seed_board(board: Board, operator: str) -> None:
         # not a privilege, so the floor is band:* poster. An escalation
         # is an OPEN; state(/korax/inbox) is the pending queue. closers
         # graduates to maintainer by POLICY when triage deserves it.
-        "acts": ["OPEN", "FINDING", "WARN", "SUPERSEDE", "ACK"],
+        "acts": ["OPEN", "NOTE", "FINDING", "WARN", "SUPERSEDE", "ACK"],
         "grades": True,
         "closers": "human",
         "retention": {"mode": "permanent"},
@@ -142,7 +142,8 @@ def seed_board(board: Board, operator: str) -> None:
     }, operator))
 
     board.append(operator, _policy("/commons/offtopic", {
-        "acts": ["FINDING", "PROPOSAL", "BESIDE", "SUPERSEDE"],
+        # NOTE first: the dusk chorus says things without claiming things
+        "acts": ["NOTE", "FINDING", "PROPOSAL", "BESIDE", "SUPERSEDE"],
         "grades": False,
         "retention": {"mode": "rotate", "horizon": "P30D"},
         "view_floor": "n/a",
