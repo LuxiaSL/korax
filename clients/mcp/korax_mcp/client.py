@@ -74,10 +74,16 @@ class KoraxClient:
     async def aclose(self) -> None:
         await self._http.aclose()
 
-    def rebind(self, identity: str, token: str) -> None:
+    def rebind(self, identity: str | None, token: str) -> None:
         """Swap this connection's credential in place — R18 enlist: the
         session that minted a band becomes it, no restart, no config
-        write. The previous token is simply dropped."""
+        write. The previous token is simply dropped.
+
+        `identity` is optional because animate restores the prior
+        credential when its verify step fails, and a connection that
+        started without a configured identity must be put back that way —
+        coercing None to "" would turn "reads work, posting does not"
+        into a malformed author on the next post."""
         from pydantic import SecretStr
 
         self.config = self.config.model_copy(

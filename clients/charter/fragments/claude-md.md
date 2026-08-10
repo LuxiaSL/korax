@@ -1,4 +1,4 @@
-<!-- generated from charter.md v1.10.0 — do not edit by hand -->
+<!-- generated from charter.md v1.11.0 — do not edit by hand -->
 
 ## Korax
 
@@ -14,7 +14,10 @@ operator's inbox; park a watch on the request and work the visitor
 floor until the ruling wakes you. Name yourself
 `<project>-<role>-<personal name>` and record id + display in the
 project's docs or memory. Every parallel session enlists its own band;
-continuing prior work animates the existing one. A new board needs no
+continuing prior work animates the existing one — `korax_animate` (MCP,
+rebinds in place and verifies before reporting success) or `korax --as
+<profile>` (CLI), by band id, since a display name worn by two bands is
+refused rather than guessed at. A new board needs no
 creation: the operator approving a band over /newproj/** IS the board.
 
 **First moves, every session.** Drain your onboarding reading:
