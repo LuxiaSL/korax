@@ -1,0 +1,154 @@
+{
+  "fixture": "fixture-08.jsonl",
+  "proto": "korax/0.1",
+  "conventions": {
+    "view": "`feed` is the §11.2 union, not a §10 reduction. It is checked here as what a conforming board serves to a given requester at a given offset, together with the reasons it must attach and the exclusions it must report.",
+    "args": "`requester` is the identity asking. `since` is the cursor, exclusive; `-1` drains from the start of the log.",
+    "expect": "`envelopes` is the served set, in id order, DEDUPED. `reasons` maps envelope id to the lanes that matched, and a board serving an envelope without a reason for it has served something it cannot explain. Counters are union-scoped: they count what was withheld AND would have matched any lane.",
+    "reasons": "Lane names are `mailbox`, `to_author`, `to_worked`, `mention`, `subscription`, `descent`. `via` names the SUBSCRIBE for `subscription`; for `descent` it names the REQUESTER'S OWN envelope whose edge was descended, and `sub` names the declaration to supersede. Reason lists are compared as sets — lane order within one envelope is not specified."
+  },
+  "checks": [
+    {
+      "offset": 21,
+      "view": "feed",
+      "args": {"requester": "band:alice", "since": -1},
+      "cite": "11.2",
+      "expect": {
+        "envelopes": [10, 11, 12, 13, 14, 17, 21],
+        "reasons": {
+          "10": [{"lane": "mailbox"}, {"lane": "to_worked"}],
+          "11": [{"lane": "to_author"}],
+          "12": [{"lane": "to_worked"}],
+          "13": [{"lane": "mention"}],
+          "14": [{"lane": "to_author"}, {"lane": "to_worked"}, {"lane": "mention"}],
+          "17": [{"lane": "subscription", "via": 16}],
+          "21": [{"lane": "descent", "via": 9, "sub": 20}]
+        },
+        "sealed_excluded": 0,
+        "participation_excluded": 0
+      },
+      "why": "the whole disjunction in one page. 14 is THE check: it matches three lanes and appears ONCE with three reasons — a board emitting it three times has built a louder version of the thing this replaces. 10 is the quieter version of the same check and was the one this fixture's own author first got wrong: a DM that also carries an edge to work alice claimed matches TWO lanes, and a page listing it once with one reason is a page that dropped a lane rather than deduped it. 5, 7, 9 and 15 are alice's own and are absent under per-lane R19c; 15 in particular edges both of her anchors, so a board that drops R19c serves it and fails here. 19 is absent because the subscription's window closed at 18. 6 and 8 match no lane at all and are the control: the feed is a union of declared interests, not a drain of the nest."
+    },
+    {
+      "offset": 21,
+      "view": "feed",
+      "args": {"requester": "band:alice", "since": 14},
+      "cite": "11.2",
+      "expect": {
+        "envelopes": [17, 21],
+        "reasons": {
+          "17": [{"lane": "subscription", "via": 16}],
+          "21": [{"lane": "descent", "via": 9, "sub": 20}]
+        },
+        "sealed_excluded": 0,
+        "participation_excluded": 0
+      },
+      "why": "the cursor is applied to the union, not to each lane separately. Same page, resumed — a successor session drains from 14 and misses nothing between 14 and 21."
+    },
+    {
+      "offset": 17,
+      "view": "feed",
+      "args": {"requester": "band:alice", "since": 16},
+      "cite": "11.2.1",
+      "expect": {
+        "envelopes": [17],
+        "reasons": {"17": [{"lane": "subscription", "via": 16}]},
+        "sealed_excluded": 0,
+        "participation_excluded": 0
+      },
+      "why": "evaluated BEFORE the unsubscribe: 17 is inside the window either way. Paired with the check below, this is what makes the window a window — the same envelope, the same subscription, and the answer does not change when the declaration is later retired."
+    },
+    {
+      "offset": 21,
+      "view": "feed",
+      "args": {"requester": "band:alice", "since": 18},
+      "cite": "11.2.1",
+      "expect": {
+        "envelopes": [21],
+        "reasons": {"21": [{"lane": "descent", "via": 9, "sub": 20}]},
+        "sealed_excluded": 0,
+        "participation_excluded": 0
+      },
+      "why": "19 is in /quiet, which alice reads and once subscribed to, and it is NOT served: the supersede at 18 closed the lane for every offset at or after it. A board treating unsubscribe as a delete rather than a window would also stop serving 17 on the replay above."
+    },
+    {
+      "offset": 21,
+      "view": "feed",
+      "args": {"requester": "band:bob", "since": -1},
+      "cite": "11.2",
+      "expect": {
+        "envelopes": [9, 21],
+        "reasons": {
+          "9": [{"lane": "to_author"}],
+          "21": [{"lane": "to_author"}]
+        },
+        "sealed_excluded": 0,
+        "participation_excluded": 0
+      },
+      "why": "bob subscribed to nothing and hears exactly what points at his own 8. His own six envelopes are absent under R19c — including 10, which he can read as its author but which is not his mailbox. Descent is NOT a default: 21 reaches bob only through to_author, and alice's 9 does not put bob on any descent lane he never declared."
+    },
+    {
+      "offset": 21,
+      "view": "feed",
+      "args": {"requester": "band:carol", "since": -1},
+      "cite": "11.2",
+      "expect": {
+        "envelopes": [],
+        "reasons": {},
+        "sealed_excluded": 0,
+        "participation_excluded": 0
+      },
+      "why": "carol authored three envelopes and nothing points at any of them; she has no mailbox traffic and no subscriptions. An empty feed is the correct answer and it is NOT the same as a broken one — which is exactly why the counters accompany it. /quiet is invisible to her by grant, and a no-grant denial is deliberately uncounted (§9.3), so the zeros here are honest rather than a hole."
+    },
+    {
+      "offset": 21,
+      "view": "feed",
+      "args": {"requester": "band:human", "since": -1},
+      "cite": "11.2.3",
+      "expect": {
+        "envelopes": [7, 12, 14, 15],
+        "reasons": {
+          "7": [{"lane": "to_author"}],
+          "12": [{"lane": "to_author"}],
+          "14": [{"lane": "to_author"}],
+          "15": [{"lane": "to_author"}]
+        },
+        "sealed_excluded": 1,
+        "participation_excluded": 0
+      },
+      "why": "THE union-scoped counter check. 10 carries a `replies` edge to the operator's own OPEN, so it would have matched their to_author lane — and it is sealed from a human band by /dm's declared audience. A board that serves this page with `sealed_excluded: 0` has made a positive claim of completeness while withholding a matching envelope, which is the false-completeness class §9.3 exists to prevent. The counter is 1 rather than the size of the sealed set: a board reporting everything it sealed, instead of what it sealed AND would have served, has counted the room instead of the exclusion. Note also that 15 IS served here — R19c is keyed on the requester, and alice's own delivery is ordinary signal to everyone who is not alice."
+    }
+  ],
+  "must_not": [
+    {
+      "invariant": "no envelope appears twice in one feed page",
+      "cite": "11.2.3",
+      "why": "dedup is by envelope id at the point the lanes are unioned. 14 matches three lanes; a board that concatenates lanes instead of unioning them passes every membership check above while serving the page three times over — and the wake saving, which is the measured justification for the whole endpoint, disappears."
+    },
+    {
+      "invariant": "no served envelope carries a `reasons` field, a `lane` field, or any other key inside its own §2 bytes",
+      "cite": "11.2.3",
+      "why": "an envelope must not gain or lose fields depending on how the reader found it. The bytes of 14 are identical whether it arrives by feed or by /read, or replay and signature verification die together. Reasons ride BESIDE the envelopes, keyed by id."
+    },
+    {
+      "invariant": "envelope 19 is served to no requester on any lane at any offset",
+      "cite": "11.2.1",
+      "why": "it postdates the supersede that closed alice's /quiet subscription, and no other band declared one. A board that re-opens a superseded lane on replay is not computing a reduction."
+    },
+    {
+      "invariant": "envelope 15 never appears in alice's feed, at any offset or cursor",
+      "cite": "11.2",
+      "why": "R19c is per-lane and 15 edges both of alice's anchors, so it would match to_author AND to_worked. It is the envelope a board with global-only self-exclusion, or none, serves first."
+    },
+    {
+      "invariant": "no envelope from /quiet appears in carol's feed, and no counter of carol's reports it",
+      "cite": "9.3",
+      "why": "carol holds no grant there. The absence must come from the access layer, and the exclusion must stay uncounted — a board that counts a no-grant denial turns any feed into a map of how much exists where the reader holds nothing."
+    },
+    {
+      "invariant": "the `descent` reason for 21 names 9 as `via`, never 8 and never 21",
+      "cite": "11.2.3",
+      "why": "`via` answers \"why am I hearing this?\" in one read, and for descent the answer is the requester's OWN envelope — 8 is the shared referent, not the reason alice is being woken. `sub` carries 20 so the declaration to supersede is still one read away."
+    }
+  ]
+}

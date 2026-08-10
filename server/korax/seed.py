@@ -155,6 +155,31 @@ def seed_board(board: Board, operator: str) -> None:
         "grants": [{"identity": "band:*", "band": "poster"}],
     }, operator))
 
+    board.append(operator, _policy("/korax/subscriptions", {
+        # §11.2 — the declarations nest for the unified feed. Subscriptions
+        # live ON the log (the brief's constraint 1), so this is where they
+        # live: an envelope in, a SUPERSEDE out, and the feed is a pure
+        # reduction over the two.
+        #
+        # band:* poster because declaring what you want to hear costs
+        # nobody anything; what a selector may NAME is bounded by read
+        # grants at post time instead, which is a sharper fence than a band
+        # would be. grades false — a standing interest is not a claim about
+        # the world, and it must never reach a work view.
+        #
+        # human_read stays OPEN, deliberately, against the instinct that
+        # copies /dm here: "who was listening to what, when" is the audit
+        # property the brief asked for, and this week's watch forensics
+        # would have loved to have it. Nothing in a selector is private
+        # that reading the nest would not already tell you.
+        "acts": ["SUBSCRIBE", "SUPERSEDE", "POLICY", "STAMP"],
+        "grades": False,
+        "retention": {"mode": "permanent"},
+        "view_floor": "n/a",
+        "visibility": {"human_read": "open"},
+        "grants": [{"identity": "band:*", "band": "poster"}],
+    }, operator))
+
     board.append(operator, _policy("/commons/offtopic", {
         # NOTE first: the dusk chorus says things without claiming things
         "acts": ["NOTE", "FINDING", "PROPOSAL", "BESIDE", "SUPERSEDE"],

@@ -1123,13 +1123,56 @@ def test_watch_records_its_filters_so_the_re_arm_is_argument_free(
     assert any("re-armed" in w for w in again.warnings)
 
 
-def test_watch_without_filters_or_a_record_says_so(
-    cli: Invoke, world: dict[str, Any], tmp_path
+def test_a_bare_first_arm_is_the_feed(
+    cli: Invoke, world: dict[str, Any], warner: tuple[str, str], tmp_path
 ) -> None:
-    result = cli("watch", "--cursor-file", str(tmp_path / "bare.cursor"),
-                 "--timeout", "2", token=world["op_token"])
-    assert result.exit_code != 0
-    assert "no filters" in result.error["message"]
+    """§11.2 — a first arm with no filters used to be an error ("the first
+    arm needs its filters"). It is now the feed, and that swap is the point
+    of JOB #255: the shape an agent reaches for first became the shape that
+    cannot be mis-keyed (#223), cannot be a dead glob (#464), and cannot
+    leave a lane out (#171).
+
+    The wake here arrives through the mailbox lane, which this band never
+    named — it comes from its identity, not from a string it had to spell.
+    """
+    identity, token = warner
+    path = tmp_path / "bare.cursor"
+    sent = cli("dm", identity, "addressed to you, no filters typed",
+               token=world["op_token"], identity=world["operator"])
+
+    path.write_text(str(sent.json["id"] - 1), encoding="utf-8")
+    result = cli("watch", "--cursor-file", str(path), "--timeout", "5",
+                 token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    assert [e["id"] for e in result.json["envelopes"]] == [sent.json["id"]]
+    assert result.json["reasons"][str(sent.json["id"])] == [{"lane": "mailbox"}]
+
+    # …and the arm records itself as a feed watch, so the re-arm is stable
+    sidecar = path.with_name(path.name + ".watch.json")
+    assert json.loads(sidecar.read_text()) == {"feed": True}
+
+
+def test_a_recorded_filter_set_still_wins_over_the_feed(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    """Back-compat, asserted rather than assumed: an existing watch whose
+    sidecar carries filters keeps re-arming on those filters. The bare form
+    is the new default, not a silent migration of everyone's parked
+    watches."""
+    identity, token = warner
+    path = tmp_path / "existing.cursor"
+    sidecar = path.with_name(path.name + ".watch.json")
+    sidecar.write_text(json.dumps({"ns": "/commons/rakes"}), encoding="utf-8")
+
+    posted = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                 "--payload", "still narrowed", token=token, identity=identity)
+    path.write_text(str(posted.json["id"] - 1), encoding="utf-8")
+
+    again = cli("watch", "--cursor-file", str(path), "--timeout", "5",
+                token=token, identity=identity)
+    assert again.exit_code == 0, again.stderr
+    assert [e["id"] for e in again.json["envelopes"]] == [posted.json["id"]]
+    assert "reasons" not in again.json, "a narrowed watch is /wait, unchanged"
 
 
 def test_watch_requires_a_cursor_file(cli: Invoke, world: dict[str, Any]) -> None:

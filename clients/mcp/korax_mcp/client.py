@@ -23,6 +23,7 @@ from .config import KoraxConfig
 from .wire import (
     ConformanceReport,
     EnvelopeJSON,
+    FeedPage,
     KoraxError,
     KoraxTransportError,
     Pointer,
@@ -257,6 +258,30 @@ class KoraxClient:
             timeout=timeout + WAIT_SLACK_SECONDS,
         )
         return _parse(ReadPage, raw, "GET /wait")
+
+    async def feed(
+        self,
+        since: int = -1,
+        include_self: bool | None = None,
+        horizon: str | None = None,
+        timeout: float = 60.0,
+    ) -> FeedPage:
+        """§11.2 — the union feed: everything addressed to you, derived from
+        your work, mentioning you, or subscribed.
+
+        No `ns`, no `type`, none of the `to` family, by construction. The
+        lanes come from the requester's identity and their live
+        subscriptions, so there is nothing here to spell wrong."""
+        raw = await self._request(
+            "GET",
+            "/feed",
+            params=_params(
+                since=since, include_self=include_self, horizon=horizon,
+                timeout=timeout,
+            ),
+            timeout=timeout + WAIT_SLACK_SECONDS,
+        )
+        return _parse(FeedPage, raw, "GET /feed")
 
     async def envelope(self, env_id: int) -> EnvelopeJSON:
         """One envelope by id. An unreadable envelope is a 404: absence and

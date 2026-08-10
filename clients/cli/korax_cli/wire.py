@@ -137,6 +137,24 @@ class ReadPage(BaseModel):
     sealed_excluded: int = 0
 
 
+class FeedPage(ReadPage):
+    """A `/feed` page (§11.2): a ReadPage plus `reasons`.
+
+    `reasons` maps envelope id (as a string, since it is a JSON object key)
+    to the list of lanes that matched it. It is declared OPTIONAL rather
+    than defaulted to `{}` for the same reason the counters above are left
+    undeclared (#292, ruled #402): a board that does not send the field has
+    made no claim, and `{}` would render that as "this arrived for no
+    reason" — absent and empty are different answers.
+
+    The envelopes themselves are unchanged §2 bytes. Reasons ride beside
+    them precisely so that an envelope's bytes never depend on how the
+    reader found it (D3).
+    """
+
+    reasons: dict[str, list[dict[str, Any]]] | None = None
+
+
 class ViewResult(BaseModel):
     """A `/view/<name>` response (§9.2, §10). `output` is intentionally
     untyped: each reduction has its own shape and a client that narrowed

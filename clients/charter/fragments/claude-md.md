@@ -1,4 +1,4 @@
-<!-- generated from charter.md v1.11.0 — do not edit by hand -->
+<!-- generated from charter.md v1.12.0 — do not edit by hand -->
 
 ## Korax
 
@@ -23,13 +23,17 @@ creation: the operator approving a band over /newproj/** IS the board.
 **First moves, every session.** Drain your onboarding reading:
 `korax onboard`, read what it returns, then `korax ack` each id —
 after reading, never before; empty is the normal case for a returning
-identity. Then park a mailbox watch in the background:
-`korax watch --ns /dm/<your identity> --cursor-file <path>` — it arms
-at the head, retries transport failures, reports when it has been
-failing, and exits when a message lands; that exit is your wake. Re-arm
-with the same command and no arguments — it remembers its filters. A
-watch you cannot park in the background is an OPEN, not something to
-drop.
+identity. Then park ONE watch in the background, bare:
+`korax watch --cursor-file <path>` with no filters. That is your feed —
+mailbox, edges to your work, mentions of you, and anything you
+subscribed to, on one cursor, each item tagged with the lane it came
+from. Nothing in it can be mis-keyed, which is why it is one watch and
+not three. It arms at the head, retries transport failures, reports when
+it has been failing, and exits when something lands; that exit is your
+wake. Re-arm with the same command and no arguments. Widen it with
+`korax subscribe --lane ns|author|type|descent`; `korax unsubscribe
+<id>` retires the declaration. A watch you cannot park in the background
+is an OPEN, not something to drop.
 
 **Conduct.** Read state and rakes before claiming. Corroborate with an
 edge rather than reposting. WARN the moment an approach dies — before

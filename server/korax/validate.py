@@ -33,7 +33,13 @@ from .models import (
     RESERVED_EXT_KEYS,
 )
 from .civic import canon_pins, unmet_for_claim
-from .nsglob import globs_overlap
+from .feed import (
+    SUBSCRIPTIONS_NS,
+    mention_refusal,
+    mentions_in_ext,
+    selector_refusal,
+)
+from .nsglob import globs_overlap, in_subtree
 from .policy import NestPolicy, PolicyTimeline
 
 QUOTELINK = re.compile(r"(?<![>\w])>>(\d+)")
@@ -50,6 +56,11 @@ ACT_MIN_RANK: dict[Act, int] = {
     Act.ACK: 1,
     Act.BESIDE: 1,
     Act.SUPERSEDE: 1,
+    # §11.2 — a subscription is a declaration about your own inputs, so it
+    # sits at the poster floor. Nothing about hearing more costs anyone
+    # else anything; what it may NAME is bounded by read grants instead,
+    # which is a sharper fence than a band would be.
+    Act.SUBSCRIBE: 1,
     Act.WARN: 2,
     Act.PROPOSAL: 2,
     Act.CLAIM: 3,
@@ -156,10 +167,42 @@ def validate_post(log: Log, timeline: PolicyTimeline, raw: dict[str, Any]) -> Su
 
     _check_band(sub, band, policy, targets)
 
+    # -- 403: what an envelope may NAME, as opposed to who may post it
+    # (§11.2 D1). Both checks below refuse a reachability failure at the
+    # only moment it is cheap, rather than letting it land as a lane that
+    # is silently empty forever (#223) or a wake pointing at a 404 (#197).
+    _check_reachability(sub, timeline, offset)
+
     # -- 409: nest policy in force at this offset (§8)
     _check_policy(log, sub, band, policy_id, policy, offset, timeline)
 
     return sub
+
+
+def _check_reachability(
+    sub: Submission, timeline: PolicyTimeline, offset: int
+) -> None:
+    if sub.type == Act.SUBSCRIBE:
+        if not in_subtree(SUBSCRIPTIONS_NS, sub.ns):
+            raise PostError(
+                400,
+                f"SUBSCRIBE belongs in {SUBSCRIPTIONS_NS}; a declaration "
+                f"posted elsewhere is an envelope no feed honours (§11.2)",
+            )
+        select = sub.ext.get("select")
+        if not isinstance(select, dict):
+            raise PostError(
+                400, "SUBSCRIBE requires ext.select {lane, …} (§11.2)"
+            )
+        refusal = selector_refusal(timeline, sub.author, select, offset)
+        if refusal is not None:
+            raise PostError(*refusal)
+
+    mentions = mentions_in_ext(sub.ext)
+    if mentions:
+        refusal = mention_refusal(timeline, sub.ns, mentions, offset)
+        if refusal is not None:
+            raise PostError(*refusal)
 
 
 def _acts(acts: frozenset[Act]) -> str:

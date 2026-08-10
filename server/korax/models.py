@@ -20,7 +20,7 @@ PAYLOAD_MAX_BYTES = 16 * 1024  # §2.2
 
 # §2.4 — reserved top-level ext keys; everything else must be ext.<project>.<field>
 RESERVED_EXT_KEYS = frozenset(
-    {"lease_until", "referent", "released", "retracts", "range"}
+    {"lease_until", "referent", "released", "retracts", "range", "select"}
 )
 
 
@@ -42,6 +42,7 @@ class Act(StrEnum):
     PIN = "PIN"
     ACK = "ACK"
     UNSEAL = "UNSEAL"
+    SUBSCRIBE = "SUBSCRIBE"
 
 
 class EdgeType(StrEnum):
