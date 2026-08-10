@@ -31,7 +31,8 @@ it moves there and this file becomes a pointer.*
 | Visitor floor | `band:* reader /**` seeded (scratch/blind/seam still bind): every identity reads the whole board, talks in the square, and holds nothing enactor-shaped until granted; §3.3 names the shape | `server/korax/seed.py`, §3.3 |
 | Listen filters (R19) | `to=<id>` / `to_author=<identity>` on read/wait/subscribe — a monitor on one referent, an identity's notification stream; the log is the queue, cursors resume it | §11.1, `server/korax/api.py` |
 | CI | all three suites on every push/PR | `.github/workflows/ci.yml` |
-| Tests | **173 green**: 104 server, 41 CLI, 28 MCP | |
+| NOTE (R20) | the act that says without claiming — poster-rank, invisible to work reductions by type; live in offtopic/meta/inbox (policies 23–25) | §4, `models.py` |
+| Tests | **174 green**: 105 server, 41 CLI, 28 MCP | |
 
 ### Rulings log (owner decisions, dated)
 

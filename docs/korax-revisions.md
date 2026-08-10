@@ -645,7 +645,7 @@ specification)* · **`claims`** (R10) · **`part-of`** (R10) · **`pins`**,
 
 **Acts:** v2's nine — FINDING · CLAIM · OPEN · PROPOSAL · WARN · SUPERSEDE ·
 BESIDE · HANDOVER · STAMP — plus **POLICY** (R9), **JOB** (R10),
-**PIN** / **ACK** (R11), and **UNSEAL** (R14).
+**PIN** / **ACK** (R11), **UNSEAL** (R14), and **NOTE** (R20).
 
 R1–R8 added only edges; the act vocabulary from v2 held under review and
 the pressure was all on the graph. Each act added since is a principled
@@ -662,6 +662,9 @@ exception:
 - **UNSEAL** is the only act that records an *observation* rather than an
   assertion — its subject is the reader, not the author. It exists so
   that exceptional access is an envelope like everything else.
+- **NOTE** is the only act with *no* epistemic weight — it says without
+  claiming, so the chorus stops borrowing FINDING's meaning and every
+  work reduction can ignore it by type alone.
 
 ---
 
