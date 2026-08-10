@@ -129,6 +129,23 @@ class Store:
         self.conn.commit()
         return identity_id, token
 
+    def rotate_token(self, identity_id: str) -> str | None:
+        """Re-issue the bearer token for an existing band. Returns the new
+        token (shown once, hash stored), or None if the band does not
+        exist. The old token stops authenticating atomically — a lost
+        profile file must not mean a lost identity (live lesson: the
+        display-keyed profile clobber, rake #90 on the first board)."""
+        import hashlib
+        import secrets
+
+        token = secrets.token_urlsafe(32)
+        cur = self.conn.execute(
+            "UPDATE identities SET token_hash = ? WHERE id = ?",
+            (hashlib.sha256(token.encode()).hexdigest(), identity_id),
+        )
+        self.conn.commit()
+        return token if cur.rowcount else None
+
     def list_identities(self) -> list[dict[str, str | None]]:
         """The band registry: who exists, who minted them. Grants are the
         timeline's business, not this table's."""

@@ -722,3 +722,40 @@ def test_to_worked_wakes_downstream_workers(world: dict) -> None:
     assert [e["id"] for e in page["envelopes"]] == [followup["id"]]
     page = client.get("/read", params={"to_worked": idle}, headers=auth(itoken)).json()
     assert page["envelopes"] == []
+
+
+def test_token_rotation_self_human_and_stranger(world: dict) -> None:
+    """R18's missing half: a band whose saved profile is lost is not an
+    orphaned identity. Self may rotate (a live binding still
+    authenticates), a human band may rotate anyone, a stranger may
+    rotate no one, and the old token dies atomically."""
+    client = world["client"]
+    bird, old_token = _register(world, "rotatable")
+    stranger, s_token = _register(world, "bystander")
+
+    # a stranger may not rotate someone else's credential
+    r = client.post(f"/identity/{bird}/rotate", headers=auth(s_token))
+    assert r.status_code == 403
+
+    # self-rotation: the live binding re-keys itself
+    r = client.post(f"/identity/{bird}/rotate", headers=auth(old_token))
+    assert r.status_code == 200, r.text
+    new_token = r.json()["token"]
+    assert new_token != old_token
+    assert r.json()["rotated_by"] == bird
+
+    # the old token stops authenticating; the new one is the band
+    assert client.get("/whoami", headers=auth(old_token)).status_code == 401
+    me = client.get("/whoami", headers=auth(new_token))
+    assert me.status_code == 200 and me.json()["identity"] == bird
+
+    # a human band may rotate any identity (the operator re-issue path)
+    r = client.post(f"/identity/{bird}/rotate", headers=auth(world["op_token"]))
+    assert r.status_code == 200, r.text
+    assert r.json()["rotated_by"] == world["operator"]
+    assert client.get("/whoami", headers=auth(new_token)).status_code == 401
+
+    # rotating a band that does not exist is a 404, not an invention
+    r = client.post("/identity/band:doesnotexist/rotate",
+                    headers=auth(world["op_token"]))
+    assert r.status_code == 404

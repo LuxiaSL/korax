@@ -19,7 +19,7 @@ from . import PROTO
 from .access import filter_log, verdict
 from .board import Board
 from .civic import onboard as onboard_reduction, required as required_reduction
-from .models import Act, EdgeType, Envelope, Grade
+from .models import Act, Band, EdgeType, Envelope, Grade
 from .nsglob import in_subtree, ns_matches
 from .reductions import (
     descendants,
@@ -164,6 +164,36 @@ def create_app(board: Board) -> FastAPI:
             "token": token,
             "created_by": who,
             "note": "token is shown once",
+        }
+
+    @app.post("/identity/{identity_id}/rotate")
+    def rotate_identity(
+        identity_id: str, who: str = Depends(requester)
+    ) -> dict[str, str]:
+        """Re-issue a band's bearer token: the band itself (still
+        authenticated, e.g. a live MCP binding whose saved profile was
+        lost) or any holder of a human grant. The new token is shown
+        once and never touches the log; the old one stops working
+        atomically. R18's missing half — a credential file is not the
+        identity, and losing one must not orphan the other."""
+        is_self = who == identity_id
+        is_human = any(
+            grantee == who and band == Band.HUMAN
+            for grantee, _pattern, band in board.timeline.grants_at(board.head)
+        )
+        if not (is_self or is_human):
+            raise HTTPException(
+                403, f"{who} may rotate only its own token (§3.4); "
+                "a human band may rotate any"
+            )
+        token = board.store.rotate_token(identity_id)
+        if token is None:
+            raise HTTPException(404, f"no such identity: {identity_id}")
+        return {
+            "id": identity_id,
+            "token": token,
+            "rotated_by": who,
+            "note": "token is shown once; the previous token no longer authenticates",
         }
 
     @app.get("/identities")
