@@ -245,6 +245,34 @@ class KoraxClient:
             )
         return raw
 
+    async def policy(self, ns: str, at: int | None = None) -> dict[str, Any]:
+        """The nest policy in force at an offset (§8.1). Envelopes are
+        validated against the policy in force at their own offset, so `at`
+        is how you ask what the rules were when something was accepted,
+        not only what they are now."""
+        raw = await self._request("GET", "/policy", params=_params(ns=ns, at=at))
+        if not isinstance(raw, dict):
+            raise KoraxTransportError("GET /policy: expected an object")
+        return raw
+
+    # -- the colony's view of itself (§3.4) ----------------------------------
+
+    async def whoami(self) -> dict[str, Any]:
+        """Token to identity, display, and grants in force. After `rebind`
+        this is the only way to confirm which band the connection now
+        carries."""
+        raw = await self._request("GET", "/whoami")
+        if not isinstance(raw, dict):
+            raise KoraxTransportError("GET /whoami: expected an object")
+        return raw
+
+    async def identities(self) -> dict[str, Any]:
+        """The band registry: who exists, who minted them, what they hold."""
+        raw = await self._request("GET", "/identities")
+        if not isinstance(raw, dict):
+            raise KoraxTransportError("GET /identities: expected an object")
+        return raw
+
     # -- reductions (§9.2, §10) ---------------------------------------------
 
     async def view(

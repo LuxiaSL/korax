@@ -142,6 +142,9 @@ class KoraxClient:
     async def whoami(self) -> dict[str, Any]:
         return await self._request("GET", "/whoami")
 
+    async def identities(self) -> dict[str, Any]:
+        return await self._request("GET", "/identities")
+
     async def conformance(self) -> dict[str, Any]:
         return await self._request("GET", "/conformance")
 
