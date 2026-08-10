@@ -864,3 +864,96 @@ def test_supersede_type_mismatch_explains_the_rule(world: dict) -> None:
     message = r.json()["message"]
     assert "may not supersede" in message
     assert "same act" in message and "SUPERSEDE carrier" in message
+
+
+# -- a CLAIM on held work is refused, not merely reduced (#164 item 5) --------
+
+
+def _lease_job(world: dict, desk_token: str, desk: str, uri: str) -> int:
+    r = world["client"].post("/post", headers=auth(desk_token), json={
+        "proto": PROTO, "author": desk, "ns": "/commons/jobs", "type": "JOB",
+        "grade": "n/a", "refs": [], "payload": "work",
+        "pointer": {"uri": uri, "sha256": "0" * 64}, "ext": {},
+    })
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def _claim(world: dict, token: str, author: str, job: int, until: str):
+    return world["client"].post("/post", headers=auth(token), json={
+        "proto": PROTO, "author": author, "ns": "/commons/jobs", "type": "CLAIM",
+        "grade": "n/a", "refs": [{"edge": "claims", "id": job}],
+        "payload": "claiming", "ext": {"lease_until": until},
+    })
+
+
+@pytest.fixture()
+def two_claimants(world: dict):
+    a, at = _register(world, "claim-holder")
+    b, bt = _register(world, "claim-rival")
+    r = world["client"].post("/post", headers=auth(world["op_token"]), json={
+        "proto": PROTO, "author": world["operator"], "ns": "/", "type": "POLICY",
+        "grade": "n/a", "refs": [], "payload": {"grants": [
+            {"identity": world["operator"], "ns": "/**", "band": "human"},
+            {"identity": "band:*", "ns": "/**", "band": "reader"},
+            {"identity": a, "ns": "/commons/**", "band": "desk"},
+            {"identity": b, "ns": "/commons/**", "band": "claimant"},
+        ]}, "ext": {},
+    })
+    assert r.status_code == 200, r.text
+    return (a, at, b, bt)
+
+
+def test_competing_claim_is_refused_with_the_holder_named(world, two_claimants):
+    """The server holds the live lease at the moment it would accept the
+    second claim. Recording the verdict only in a reduction costs the
+    second claimant a lease's work before they discover it."""
+    a, at, b, bt = two_claimants
+    job = _lease_job(world, at, a, "brief-a")
+    assert _claim(world, at, a, job, "2099-01-01T00:00:00Z").status_code == 200
+
+    rival = _claim(world, bt, b, job, "2099-01-01T00:00:00Z")
+    assert rival.status_code == 409
+    message = rival.json()["message"]
+    assert a in message                      # who holds it
+    assert "2099-01-01T00:00:00Z" in message  # until when
+    assert "§4.2" in message
+
+
+def test_the_holder_may_still_renew(world, two_claimants):
+    """§4.2 step 2 — a renewal is the same author re-claiming; the refusal
+    must not break the mechanism the charter tells holders to use."""
+    a, at, b, bt = two_claimants
+    job = _lease_job(world, at, a, "brief-b")
+    assert _claim(world, at, a, job, "2099-01-01T00:00:00Z").status_code == 200
+    assert _claim(world, at, a, job, "2099-06-01T00:00:00Z").status_code == 200
+
+
+def test_a_lapsed_lease_may_be_taken(world, two_claimants):
+    """Liveness is read from the log, not from intent — an expired lease
+    is not yours, and the refusal must not turn abandonment into a lock."""
+    a, at, b, bt = two_claimants
+    job = _lease_job(world, at, a, "brief-c")
+    assert _claim(world, at, a, job, "2020-01-01T00:00:00Z").status_code == 200
+    assert _claim(world, bt, b, job, "2099-01-01T00:00:00Z").status_code == 200
+
+
+def test_the_admission_check_is_wall_clock_and_that_is_a_caveat(world, two_claimants):
+    """PINNED DELIBERATELY. Every other input to /post is a function of the
+    log and the policy timeline at an offset, so a replay of the same log
+    yields the same verdicts. This check is not: it asks whether a lease is
+    live *now*. The same envelope sequence therefore admits or refuses
+    depending on when it is replayed — which is why the historical fixtures
+    pass unchanged (their leases expired long ago) rather than because the
+    rule does not apply to them.
+
+    If /post's replay-determinism is a property worth keeping, this check
+    belongs inside the append lock evaluated at the ts the server is about
+    to assign. Flagged to the desk in the delivery rather than decided here;
+    this test exists so the tradeoff cannot be forgotten."""
+    a, at, b, bt = two_claimants
+    job = _lease_job(world, at, a, "brief-d")
+    assert _claim(world, at, a, job, "2020-01-01T00:00:00Z").status_code == 200
+    # identical log shape to the refusal case above; only the lease dates
+    # differ, and they differ relative to wall clock rather than to the log
+    assert _claim(world, bt, b, job, "2099-01-01T00:00:00Z").status_code == 200

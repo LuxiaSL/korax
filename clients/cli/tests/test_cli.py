@@ -1014,3 +1014,95 @@ def test_view_horizon_is_a_duration_not_the_pierce(
     pierce = cli("view", "fresh", "--ns-set", "/commons/**", "--horizon", "none",
                  token=world["op_token"])
     assert pierce.exit_code != 0  # a reduction must not silently accept it
+
+
+# -- korax watch: the loop the client owns now (#164 item 1) ------------------
+
+
+def test_watch_wakes_on_a_match_and_persists_its_cursor(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    identity, token = warner
+    posted = cli(
+        "post", "--ns", "/commons/rakes", "--type", "WARN",
+        "--payload", "a watch that owns its own loop",
+        token=token, identity=identity,
+    )
+    path = tmp_path / "watch.cursor"
+    path.write_text(str(posted.json["id"] - 1), encoding="utf-8")
+
+    result = cli("watch", "--ns", "/commons/rakes", "--cursor-file", str(path),
+                 "--timeout", "5", token=token)
+    assert result.exit_code == 0, result.stderr
+    assert [e["id"] for e in result.json["envelopes"]] == [posted.json["id"]]
+    assert path.read_text().strip() == str(posted.json["id"])
+
+
+def test_watch_records_its_filters_so_the_re_arm_is_argument_free(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    """The re-arm is what agents get wrong, because it means retyping the
+    filter set and there is no check that you retyped it the same."""
+    identity, token = warner
+    path = tmp_path / "rearm.cursor"
+    first = cli(
+        "post", "--ns", "/commons/rakes", "--type", "WARN",
+        "--payload", "first", token=token, identity=identity,
+    )
+    path.write_text(str(first.json["id"] - 1), encoding="utf-8")
+    cli("watch", "--ns", "/commons/rakes", "--cursor-file", str(path),
+        "--timeout", "5", token=token)
+
+    sidecar = path.with_name(path.name + ".watch.json")
+    assert sidecar.exists()
+    assert json.loads(sidecar.read_text())["ns"] == "/commons/rakes"
+
+    second = cli(
+        "post", "--ns", "/commons/rakes", "--type", "WARN",
+        "--payload", "second", token=token, identity=identity,
+    )
+    # no filters given: the recorded set is reused
+    again = cli("watch", "--cursor-file", str(path), "--timeout", "5", token=token)
+    assert again.exit_code == 0, again.stderr
+    assert [e["id"] for e in again.json["envelopes"]] == [second.json["id"]]
+    assert any("re-armed" in w for w in again.warnings)
+
+
+def test_watch_without_filters_or_a_record_says_so(
+    cli: Invoke, world: dict[str, Any], tmp_path
+) -> None:
+    result = cli("watch", "--cursor-file", str(tmp_path / "bare.cursor"),
+                 "--timeout", "2", token=world["op_token"])
+    assert result.exit_code != 0
+    assert "no filters" in result.error["message"]
+
+
+def test_watch_requires_a_cursor_file(cli: Invoke, world: dict[str, Any]) -> None:
+    """Without one there is no resume, and a watch that cannot resume is a
+    watch that replays or misses."""
+    result = cli("watch", "--ns", "/commons/rakes", "--timeout", "2",
+                 token=world["op_token"])
+    assert result.exit_code != 0
+    assert "cursor-file" in result.error["message"]
+
+
+def test_watch_degrades_loudly_instead_of_going_quiet(
+    cli: Invoke, world: dict[str, Any], tmp_path
+) -> None:
+    """Rake #171/#183 — a watch that is not answering and a board with
+    nothing to say produce the same observation. This is the line that
+    breaks the tie."""
+    unreachable = httpx.MockTransport(
+        lambda request: (_ for _ in ()).throw(httpx.ConnectError("no route"))
+    )
+    result = cli(
+        "watch", "--ns", "/commons/rakes",
+        "--cursor-file", str(tmp_path / "degrade.cursor"),
+        "--since", "0", "--timeout", "1",
+        "--degrade-after", "1", "--exit-on-degrade",
+        "--backoff", "0",
+        token=world["op_token"], transport=unreachable,
+    )
+    assert result.exit_code == 1
+    assert result.json["degraded"] is True
+    assert result.json["consecutive_failures"] >= 1

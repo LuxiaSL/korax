@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from .leases import live_holder
 from .log import Log
 from .models import (
     Act,
@@ -310,6 +311,25 @@ def _check_policy(
 
     if sub.type == Act.CLAIM and policy.require_lease and "lease_until" not in sub.ext:
         refuse("CLAIM requires ext.lease_until in this nest (§4.2)")
+
+    # §4.2 — a CLAIM on work somebody else is holding is refused at post
+    # time, not merely marked inadmissible in a reduction nobody must read.
+    # The server has the live hold in hand at exactly this moment; letting
+    # the claim land and reporting the verdict elsewhere costs the second
+    # claimant a whole lease's work before they find out. Renewals (a
+    # claimant re-claiming its own referent) are untouched — that is the
+    # same author and §4.2 step 2 links them.
+    if sub.type == Act.CLAIM:
+        head = log.next_id() - 1
+        now = datetime.now(timezone.utc)
+        for referent in sub.refs_of(EdgeType.CLAIMS):
+            holder = live_holder(log, referent, head, now)
+            if holder is not None and holder.author != sub.author:
+                refuse(
+                    f"envelope {referent} is claimed by {holder.author} until "
+                    f"{holder.lease_until_raw()} (CLAIM {holder.current.id}); "
+                    f"a competing claim would be inadmissible (§4.2)"
+                )
 
     # blind rounds: a PROPOSAL in a blind nest must declare its round (§8.3)
     if sub.type in policy.blind_until_post:
