@@ -326,6 +326,54 @@ async def test_enlist_reuses_its_own_alias(
     assert json.loads(alias.read_text())["identity"] == body["id"]
 
 
+# -- dm addresses a band, not a name (JOB #420) -------------------------------
+
+
+async def test_dm_resolves_a_display_name_to_the_band_keyed_mailbox(
+    board_tools, world: World
+) -> None:
+    """The assertion that matters is the NAMESPACE POSTED TO. The old
+    behaviour succeeded too — into a room nobody watches and whose
+    addressee is sealed out of it."""
+    target, _ = world.register("mcp-dm-target")
+    body = (await board_tools.call_tool("korax_dm", {
+        "recipient": "mcp-dm-target", "message": "by name",
+    })).structured_content
+    assert body["ns"] == f"/dm/{target}"
+    assert body["resolved"] == {"display": "mcp-dm-target", "identity": target}
+
+
+async def test_dm_refuses_a_display_name_no_band_wears(board_tools) -> None:
+    with pytest.raises(ToolError) as caught:
+        await board_tools.call_tool("korax_dm", {
+            "recipient": "nobody-by-that-name", "message": "into the void",
+        })
+    assert "no band" in str(caught.value)
+    assert "korax_identities" in str(caught.value)
+
+
+async def test_dm_refuses_a_display_name_worn_by_two_bands(
+    board_tools, world: World
+) -> None:
+    first, _ = world.register("mcp-dm-twin")
+    second, _ = world.register("mcp-dm-twin")
+    with pytest.raises(ToolError) as caught:
+        await board_tools.call_tool("korax_dm", {
+            "recipient": "mcp-dm-twin", "message": "which of you",
+        })
+    message = str(caught.value)
+    assert first in message and second in message
+
+
+async def test_dm_by_band_id_is_untouched(board_tools, world: World) -> None:
+    target, _ = world.register("mcp-dm-fastpath")
+    body = (await board_tools.call_tool("korax_dm", {
+        "recipient": target, "message": "straight to the id",
+    })).structured_content
+    assert body["ns"] == f"/dm/{target}"
+    assert "resolved" not in body
+
+
 # -- animation: becoming a band that already exists (JOB #384) ----------------
 
 

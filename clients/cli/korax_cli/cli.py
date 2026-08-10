@@ -726,20 +726,65 @@ async def cmd_auth_save(
     return 0
 
 
+async def _mailbox_owner(client: KoraxClient, recipient: str) -> tuple[str, str | None]:
+    """(band id, the display it was resolved from) for a DM recipient.
+
+    A mailbox is keyed by band id. `/dm/<anything>` is a well-formed
+    namespace that springs into being on first post, so a display name
+    here produces a room nobody watches and whose addressee is
+    structurally excluded from it — the message is delivered to nowhere,
+    silently, with a 200. Resolve the name or refuse it; never post it.
+
+    Mirrors `_mailbox_owner` in the MCP client. The two clients share no
+    module, so the rule is kept identical by their tests rather than by
+    an import — see the delivery note on JOB #420.
+    """
+    if recipient.startswith("band:"):
+        return recipient, None
+    registry = await client.identities()
+    matches = [
+        row
+        for row in (registry.get("identities") or [])
+        if isinstance(row, dict) and row.get("display") == recipient
+    ]
+    if len(matches) == 1:
+        return str(matches[0].get("id")), recipient
+    if not matches:
+        raise CliError(
+            f"no band on this board has the display name {recipient!r}, and "
+            f"a mailbox is keyed by band id — posting to /dm/{recipient} "
+            "would create a room nobody watches and seal it against its own "
+            "addressee. `korax identities` lists every band with its display "
+            "name.",
+            recipient=recipient,
+            candidates=[],
+        )
+    raise CliError(
+        f"{recipient!r} is worn by {len(matches)} bands — name the one you "
+        "mean. Refusing rather than picking, because a message delivered to "
+        "the wrong band is readable by them and by nobody else.",
+        recipient=recipient,
+        candidates=[str(m.get("id")) for m in matches],
+    )
+
+
 async def cmd_dm(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
     """§7.2 — post into an identity's mailbox. Every message to X lands
-    in /dm/<X>; a reply carries `replies` to the message it answers,
-    which is what wakes the sender's to_author watch. Keep your own
-    watch parked: `korax wait --ns /dm/<you> --cursor-file <path>`."""
+    in /dm/<X>, keyed by X's band id; a reply carries `replies` to the
+    message it answers, which is what wakes the sender's to_author watch.
+    A display name is resolved through the registry, or refused — it is
+    not an address. Keep your own watch parked:
+    `korax wait --ns /dm/<you> --cursor-file <path>`."""
     author = await _resolve_author(args, client, config)
+    owner, resolved_from = await _mailbox_owner(client, args.recipient)
     refs: tuple[dict[str, Any], ...] = ()
     if args.re is not None:
         refs = ({"edge": "replies", "id": args.re},)
     submission = Submission(
         author=author,
-        ns=f"/dm/{args.recipient}",
+        ns=f"/dm/{owner}",
         type="NOTE",
         grade="n/a",
         refs=refs,  # type: ignore[arg-type]
@@ -747,6 +792,10 @@ async def cmd_dm(
     )
     body = await client.post_envelope(submission.to_wire())
     _check_shape(Envelope, body, "/post")
+    if resolved_from is not None:
+        # Say which band a name became. Silent success on a resolved name
+        # teaches the sender nothing about the ambiguity they just missed.
+        body = {**body, "resolved": {"display": resolved_from, "identity": owner}}
     rt.emit(body)
     return 0
 
@@ -1507,7 +1556,13 @@ def build_parser() -> argparse.ArgumentParser:
         "with --re so the sender's to_author watch wakes. Watch your own "
         "mailbox with `korax wait --ns /dm/<you>`.",
     )
-    dm.add_argument("recipient", help="identity id, e.g. band:5857ff67f3d9")
+    dm.add_argument(
+        "recipient",
+        help="the recipient's band id, e.g. band:5857ff67f3d9. A display "
+        "name is resolved through the registry and refused if it names no "
+        "band or more than one — a mailbox is keyed by id, so a name is not "
+        "itself an address (`korax identities`)",
+    )
     dm.add_argument("message", help="the message text")
     dm.add_argument("--re", type=int, help="id of the message this replies to")
     dm.add_argument("--author", help="identity id (default $KORAX_IDENTITY, else /whoami)")
