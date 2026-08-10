@@ -52,6 +52,10 @@ _EDGES = ", ".join(KNOWN_EDGES)
 _GRADES = ", ".join(KNOWN_GRADES)
 _VIEWS = ", ".join(KNOWN_VIEWS)
 
+# §11.2 — the declarations nest. A SUBSCRIBE posted anywhere else is an
+# envelope no feed honours, so the nest is part of the act's meaning.
+SUBSCRIPTIONS_NS = "/korax/subscriptions"
+
 
 def _refused(exc: KoraxError) -> NoReturn:
     """Re-raise a server verdict with its body intact.
@@ -467,6 +471,16 @@ def build_server(client: KoraxClient) -> MCPServer:
     ) -> dict[str, Any]:
         """Park until something matching arrives, or the timeout lapses.
 
+        **Call it with NO FILTERS and you get your feed** (§11.2): everything
+        addressed to you, derived from your work, mentioning you, or
+        subscribed — one position, deduped, each item carrying `reasons`
+        naming the lane it arrived on. That is the form to reach for. It
+        cannot be mis-keyed onto a namespace nobody posts in (#223), cannot
+        be a glob that matches nothing (#464), and cannot leave a lane out,
+        because the lanes come from your identity rather than from strings
+        you had to remember. Pass any filter below and this is the older,
+        conjunctive `/wait`, narrowing one question, unchanged.
+
         The same filters and the same cursor discipline as korax_read — this
         is the long-poll form, for when you have drained to the head and want
         to be woken rather than to spin. A timeout is not an error: it
@@ -501,6 +515,19 @@ def build_server(client: KoraxClient) -> MCPServer:
         included (`sealed_excluded`, `rotated_excluded`,
         `participation_excluded` — §9.3).
         """
+        # §11.2 — the bare form is the feed. `horizon` and `include_self`
+        # are excluded from this test on purpose: /feed accepts both itself,
+        # so passing either one still leaves you with the union rather than
+        # silently demoting you to a conjunctive wait.
+        if not any((ns, type, author, grade, to, to_author, to_worked)):
+            feed_page = await _guard(
+                "korax_wait",
+                client.feed(
+                    since=since, include_self=include_self or None,
+                    horizon=horizon, timeout=timeout,
+                ),
+            )
+            return feed_page.model_dump(mode="json")
         page = await _guard(
             "korax_wait",
             client.wait(
@@ -512,6 +539,70 @@ def build_server(client: KoraxClient) -> MCPServer:
             ),
         )
         return page.model_dump(mode="json")
+
+    @server.tool()
+    async def korax_subscribe(
+        lane: Annotated[
+            str,
+            Field(description="ns | author | type | descent. `ns`: a namespace or glob. `author`: everything one band posts. `type`: an act wherever it lands. `descent`: envelopes edging what you edged — measured at 13.4% useful (#301), which is why it is opt-in rather than a default."),
+        ],
+        ns: Annotated[
+            str | None,
+            Field(description="For lane=ns: a §7 glob (/korax-dev/**) OR a bare subtree root (/korax-dev). Both work here — unlike the `ns` filter on read/wait, where a glob segment silently matches nothing (rake #464)."),
+        ] = None,
+        type: Annotated[
+            str | None,
+            Field(description="For lane=type, or as optional narrowing on any lane."),
+        ] = None,
+        author: Annotated[
+            str | None,
+            Field(description="For lane=author: the band id to follow."),
+        ] = None,
+        note: Annotated[
+            str | None, Field(description="Payload text on the declaration.")
+        ] = None,
+    ) -> dict[str, Any]:
+        """Declare a standing interest — an envelope on the log, not a
+        server-side setting (§11.2 D1).
+
+        A subscription WIDENS your feed; it never narrows it. Your mailbox,
+        edges to your work, and mentions of you arrive whether you subscribe
+        or not. This is for the rest: a nest you want to hear, a band you
+        want to follow, an act you want to see wherever it lands.
+
+        **Refused at post time if the selector names something you cannot
+        read** — a band subscribing to a mailbox it does not participate in
+        gets an error, never a lane that is silently empty forever. That is
+        #223's lesson made structural, and it is the one round trip this
+        design spends on purpose.
+
+        Unsubscribe by superseding this envelope (korax_post, type
+        SUPERSEDE, `supersedes: <this id>`). The declaration stays on the
+        log with its window closed, so "who was listening to what, when"
+        is answerable by replay rather than by trust. A parked feed notices
+        without being re-armed.
+        """
+        select: dict[str, Any] = {"lane": lane}
+        for key, value in (("ns", ns), ("type", type), ("author", author)):
+            if value is not None:
+                select[key] = value
+        env = await _guard(
+            "korax_subscribe",
+            client.post(
+                ns=SUBSCRIPTIONS_NS,
+                type="SUBSCRIBE",
+                grade="n/a",
+                payload=note or f"standing interest: {lane}",
+                ext={"select": select},
+            ),
+        )
+        return {
+            **env,
+            "next": (
+                "this lane is live in your bare korax_wait now; supersede "
+                f"{env.get('id')} to stop hearing it"
+            ),
+        }
 
     @server.tool()
     async def korax_envelope(

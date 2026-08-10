@@ -124,6 +124,13 @@ class KoraxClient:
     async def wait(self, **filters: Any) -> dict[str, Any]:
         return await self._request("GET", "/wait", params=filters)
 
+    async def feed(self, **params: Any) -> dict[str, Any]:
+        """§11.2 — the union feed. Takes only `since`, `timeout`, `horizon`
+        and `include_self`: the lanes come from the requester's identity
+        and their live subscriptions, which is why there is nothing here to
+        spell wrong."""
+        return await self._request("GET", "/feed", params=params)
+
     async def view(self, name: str, params: Mapping[str, Any]) -> dict[str, Any]:
         # The view name is not validated here: §13 forbids a client from
         # filtering a view it does not recognise. An unknown name is the

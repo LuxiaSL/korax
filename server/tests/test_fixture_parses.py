@@ -67,10 +67,17 @@ def test_genesis_is_a_human_policy_at_zero(fixture: list[Envelope]) -> None:
 
 def test_fixture_exercises_every_v1_act_it_claims(fixture: list[Envelope]) -> None:
     used = {e.type for e in fixture}
-    # PIN/ACK/UNSEAL are fixture-04/05 scope (conformance README), and
-    # NOTE (R20) postdates this fixture; the rest of the vocabulary must
-    # appear in fixture-01.
-    expected = set(Act) - {Act.PIN, Act.ACK, Act.UNSEAL, Act.NOTE}
+    # PIN/ACK/UNSEAL are fixture-04/05 scope (conformance README); NOTE
+    # (R20) and SUBSCRIBE (§11.2, fixture-08) both postdate this fixture.
+    # The rest of the vocabulary must appear in fixture-01.
+    #
+    # Every name on this exclusion list is a promise that the act is
+    # covered SOMEWHERE — an act excluded here and nowhere tested would
+    # read exactly like an act that is exercised. SUBSCRIBE's home is
+    # conformance/expected-08.json.
+    expected = set(Act) - {
+        Act.PIN, Act.ACK, Act.UNSEAL, Act.NOTE, Act.SUBSCRIBE
+    }
     assert expected <= used
 
 

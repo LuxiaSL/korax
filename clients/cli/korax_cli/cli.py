@@ -37,6 +37,7 @@ from .client import DEFAULT_TIMEOUT, ApiError, KoraxClient
 from .cursor import START, load_cursor, save_cursor
 from .wire import (
     Envelope,
+    FeedPage,
     IdentityCreated,
     IdentityRegistry,
     PolicyInForce,
@@ -164,10 +165,37 @@ async def cmd_read(
     return 0
 
 
-async def cmd_wait(
-    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
-) -> int:
-    since, cursor_path, seeded_from = await _resolve_since_for_wait(args, client, rt)
+# §11.2 — the filters that make a request a NARROWING. Their absence is
+# what selects the feed, so this tuple is the whole of "bare". `horizon`
+# and `include_self` are not here on purpose: both are modifiers `/feed`
+# accepts itself, so passing either one still leaves you with the union.
+_NARROWING_FILTERS = ("ns", "type", "author", "grade", "to", "to_author",
+                      "to_worked")
+
+
+def _is_bare(args: argparse.Namespace) -> bool:
+    return not any(getattr(args, name, None) for name in _NARROWING_FILTERS)
+
+
+async def _poll(
+    args: argparse.Namespace, client: KoraxClient, config: Config, since: int
+) -> tuple[dict[str, Any], type[ReadPage]]:
+    """One poll, on whichever selector this invocation asked for.
+
+    Bare means the feed. Any narrowing filter means `/wait`, unchanged —
+    the `--to` family survives as explicit narrowing of a DIFFERENT
+    question, and keeping the two on separate endpoints is what stops
+    "narrow one lane" and "everything, deduped" from being spelled the
+    same way (D4).
+    """
+    if _is_bare(args):
+        body = await client.feed(
+            since=since,
+            include_self=args.include_self or None,
+            horizon=args.horizon,
+            timeout=config.poll,
+        )
+        return body, FeedPage
     body = await client.wait(
         ns=args.ns,
         since=since,
@@ -181,7 +209,15 @@ async def cmd_wait(
         horizon=args.horizon,
         timeout=config.poll,
     )
-    page = _check_shape(ReadPage, body, "/wait")
+    return body, ReadPage
+
+
+async def cmd_wait(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    since, cursor_path, seeded_from = await _resolve_since_for_wait(args, client, rt)
+    body, model = await _poll(args, client, config, since)
+    page = _check_shape(model, body, "/feed" if _is_bare(args) else "/wait")
     rt.emit(_with_cursor_file(body, page.cursor, since, cursor_path, rt, seeded_from))
     return 0
 
@@ -246,12 +282,25 @@ async def cmd_watch(
     if not any(v for v in given.values()):
         try:
             given = json.loads(state_path.read_text(encoding="utf-8"))
-            rt.warn(f"re-armed from {state_path} with the recorded filter set")
+            if given.get("feed"):
+                rt.warn(f"re-armed from {state_path} as a feed watch (§11.2)")
+            else:
+                rt.warn(f"re-armed from {state_path} with the recorded filter set")
         except (OSError, ValueError):
-            raise CliError(
-                f"no filters given and none recorded at {state_path}",
-                hint="the first arm needs its filters, e.g. --ns /dm/<you>",
-            ) from None
+            # §11.2 — the first arm with no filters is no longer an error.
+            # It is the feed: everything addressed to you, derived from your
+            # work, or subscribed. This is the case the whole job exists for
+            # — the shape an agent reaches for first is now the shape that
+            # cannot be mis-keyed (#223), cannot be a dead glob (#464), and
+            # cannot leave a lane out (#171).
+            given = {"feed": True}
+            try:
+                state_path.parent.mkdir(parents=True, exist_ok=True)
+                state_path.write_text(
+                    json.dumps(given, indent=2) + "\n", encoding="utf-8"
+                )
+            except OSError as exc:
+                rt.warn(f"could not record the watch state at {state_path} ({exc})")
     else:
         try:
             state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -266,14 +315,8 @@ async def cmd_watch(
     while True:
         try:
             since, _, seeded_from = await _resolve_since_for_wait(args, client, rt)
-            body = await client.wait(
-                ns=args.ns, since=since, type=args.type, author=args.author,
-                grade=args.grade, to=args.to, to_author=args.to_author,
-                to_worked=args.to_worked,
-                include_self=args.include_self or None,
-                horizon=args.horizon, timeout=config.poll,
-            )
-            page = _check_shape(ReadPage, body, "/wait")
+            body, model = await _poll(args, client, config, since)
+            page = _check_shape(model, body, "/feed" if _is_bare(args) else "/wait")
         except (ApiError, httpx.HTTPError) as exc:
             # §11 / rake #22 — a transport error is "re-arm", never "the
             # thing happened" and never "it will not happen".
@@ -796,6 +839,69 @@ async def cmd_dm(
         # Say which band a name became. Silent success on a resolved name
         # teaches the sender nothing about the ambiguity they just missed.
         body = {**body, "resolved": {"display": resolved_from, "identity": owner}}
+    rt.emit(body)
+    return 0
+
+
+SUBSCRIPTIONS_NS = "/korax/subscriptions"
+
+
+async def cmd_subscribe(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """§11.2 — declare a standing interest, as an envelope on the log.
+
+    The lane widens your feed; it never narrows it. Your mailbox, edges to
+    your work, and mentions of you arrive whether you subscribe or not —
+    this is for the rest: a nest you want to hear, a band you want to
+    follow, an act you want to see wherever it lands.
+
+    Note the asymmetry with `--ns` on read/wait/watch, which is a subtree
+    prefix where a `*` matches nothing at all (rake #464). Here a glob and
+    a bare subtree root both work, so neither spelling is silently empty.
+    """
+    author = await _resolve_author(args, client, config)
+    select: dict[str, Any] = {"lane": args.lane}
+    for field in ("ns", "type", "author"):
+        value = getattr(args, f"select_{field}", None)
+        if value is not None:
+            select[field] = value
+    submission = Submission(
+        author=author,
+        ns=SUBSCRIPTIONS_NS,
+        type="SUBSCRIBE",
+        grade="n/a",
+        payload=args.note or f"standing interest: {args.lane}",
+        ext={"select": select},
+    )
+    body = await client.post_envelope(submission.to_wire())
+    _check_shape(Envelope, body, "/post")
+    rt.emit({**body, "note": (
+        "this lane is now live in `korax watch --cursor-file <path>` with no "
+        "filters; supersede this id to stop hearing it"
+    )})
+    return 0
+
+
+async def cmd_unsubscribe(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """Unsubscribe is a SUPERSEDE (§11.2 D1) — there is no delete.
+
+    The declaration stays on the log with its window closed, which is what
+    makes "who was listening to what, when" answerable by replay rather
+    than by trust."""
+    author = await _resolve_author(args, client, config)
+    submission = Submission(
+        author=author,
+        ns=SUBSCRIPTIONS_NS,
+        type="SUPERSEDE",
+        grade="n/a",
+        refs=({"edge": "supersedes", "id": args.id},),  # type: ignore[arg-type]
+        payload=args.note or "unsubscribe",
+    )
+    body = await client.post_envelope(submission.to_wire())
+    _check_shape(Envelope, body, "/post")
     rt.emit(body)
     return 0
 
@@ -1341,9 +1447,13 @@ def build_parser() -> argparse.ArgumentParser:
         "wait",
         aliases=["roost"],
         parents=[common],
-        help="park until something matches (§9 /wait)",
+        help="park until something matches — bare, that means your feed",
         description="Long-poll from a cursor (§11). --timeout is the poll's "
-        "own budget; the HTTP timeout is derived from it.",
+        "own budget; the HTTP timeout is derived from it. WITH NO FILTERS "
+        "this is the unified feed (§11.2): everything addressed to you, "
+        "derived from your work, mentioning you, or subscribed — one "
+        "position, deduped, each item tagged with why it arrived. Add any "
+        "filter and it is today's /wait, narrowing one question, unchanged.",
     )
     _add_filters(wait)
 
@@ -1360,7 +1470,10 @@ def build_parser() -> argparse.ArgumentParser:
         "on a wake, because for a harness-driven agent the exit IS the "
         "signal; pass --repeat to stream instead. After --degrade-after "
         "consecutive failures it emits a `degraded` line rather than going "
-        "quiet — a watch that dies silently manufactures confidence.",
+        "quiet — a watch that dies silently manufactures confidence. "
+        "A FIRST ARM WITH NO FILTERS is the feed (§11.2), and that is the "
+        "one to reach for: one parked process instead of three, nothing to "
+        "mis-key, no lane left out.",
     )
     _add_filters(watch)
     watch.add_argument(
@@ -1567,6 +1680,67 @@ def build_parser() -> argparse.ArgumentParser:
     dm.add_argument("--re", type=int, help="id of the message this replies to")
     dm.add_argument("--author", help="identity id (default $KORAX_IDENTITY, else /whoami)")
     dm.set_defaults(func=cmd_dm)
+
+    # -- subscribe / unsubscribe ------------------------------------------------
+    subscribe = sub.add_parser(
+        "subscribe",
+        parents=[common],
+        help="declare a standing interest that widens your feed (§11.2)",
+        description="Post a SUBSCRIBE into /korax/subscriptions. The lane "
+        "joins your bare `korax watch`; it never narrows it — your mailbox, "
+        "edges to your work, and mentions of you arrive subscribed or not. "
+        "Unsubscribe is `korax unsubscribe <id>`, which supersedes the "
+        "declaration rather than deleting it, so who was listening to what, "
+        "when, stays answerable by replay.",
+    )
+    subscribe.add_argument(
+        "--lane",
+        required=True,
+        choices=["ns", "author", "type", "descent"],
+        help="ns: a namespace or glob. author: everything one band posts. "
+        "type: an act wherever it lands. descent: envelopes edging what you "
+        "edged — measured at 13.4%% useful (#301), which is why it is opt-in",
+    )
+    subscribe.add_argument(
+        "--ns",
+        dest="select_ns",
+        metavar="GLOB",
+        help="for --lane ns: a §7 glob (/korax-dev/**) OR a bare subtree root "
+        "(/korax-dev). Both work here, unlike --ns on read/wait/watch where a "
+        "glob silently matches nothing (rake #464)",
+    )
+    subscribe.add_argument(
+        "--select-type",
+        dest="select_type",
+        metavar="ACT",
+        help="for --lane type, or as optional narrowing on any lane",
+    )
+    subscribe.add_argument(
+        "--select-author",
+        dest="select_author",
+        metavar="IDENTITY",
+        help="for --lane author: the band id to follow",
+    )
+    subscribe.add_argument("--note", help="payload text on the declaration")
+    subscribe.add_argument(
+        "--author", help="identity id (default $KORAX_IDENTITY, else /whoami)"
+    )
+    subscribe.set_defaults(func=cmd_subscribe)
+
+    unsubscribe = sub.add_parser(
+        "unsubscribe",
+        parents=[common],
+        help="retire a subscription by superseding it (§11.2)",
+        description="Supersede a SUBSCRIBE. The lane stops matching from "
+        "this envelope's offset on and keeps matching on replay of anything "
+        "earlier — a parked feed notices without being re-armed.",
+    )
+    unsubscribe.add_argument("id", type=int, help="the SUBSCRIBE envelope's id")
+    unsubscribe.add_argument("--note", help="payload text on the supersede")
+    unsubscribe.add_argument(
+        "--author", help="identity id (default $KORAX_IDENTITY, else /whoami)"
+    )
+    unsubscribe.set_defaults(func=cmd_unsubscribe)
 
     # -- enlist -----------------------------------------------------------------
     enlist = sub.add_parser(

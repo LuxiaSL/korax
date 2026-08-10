@@ -19,6 +19,13 @@ from . import PROTO
 from .access import filter_log, verdict
 from .board import Board
 from .civic import onboard as onboard_reduction, required as required_reduction
+from .feed import (
+    SUBSCRIPTIONS_NS,
+    descended_targets,
+    in_feed,
+    live_subscriptions,
+    reasons_for,
+)
 from .models import (
     EDGE_SOURCE_ACTS,
     EDGE_TARGET_ACTS,
@@ -437,6 +444,98 @@ def create_app(board: Board) -> FastAPI:
 
         return {
             "envelopes": out,
+            "cursor": cursor,
+            "sealed_excluded": scoped(sealed_envs),
+            "rotated_excluded": len(rotated),
+            "participation_excluded": scoped(private_envs),
+        }
+
+    @app.get("/feed")
+    async def feed(
+        who: str = Depends(requester),
+        since: int = Query(default=-1),
+        horizon: str | None = None,
+        include_self: bool = False,
+        timeout: float = Query(default=60.0, le=600.0),
+    ) -> dict[str, Any]:
+        """§11.2 — everything addressed to you, derived from your work, or
+        subscribed. The union of your lanes, deduped, each item tagged with
+        why it arrived.
+
+        Deliberately takes no `ns`, no `type`, and none of the `to` family.
+        `/wait`'s parameters are an AND-conjunction every existing caller
+        depends on, and a `union=1` flag there would change what every
+        other parameter MEANS in combination. The lanes here come from the
+        requester's identity and their live subscriptions instead — which
+        is the entire point of the endpoint existing: **the bare form is
+        the thing you cannot park wrong.**
+
+        Cursor semantics, the long-poll budget and the arm-at-head rule are
+        inherited from `/wait` verbatim; this is a different selector over
+        the same machinery, on JOB #221's merged poll behaviour.
+        """
+        pierce = pierced(horizon)
+        drop_self = not include_self  # R19c, per-lane; see feed.reasons_for
+
+        def lanes(log):
+            # Recomputed each pass, never cached: a SUBSCRIBE posted while
+            # this call is parked must take effect without a re-arm, and a
+            # SUPERSEDE must stop the lane the same way. That is what makes
+            # the feed a reduction rather than a session.
+            return (
+                authored_by(log, who),
+                worked_by(log, who),
+                descended_targets(log, who, board.head),
+                live_subscriptions(log, who, board.head),
+            )
+
+        def hits_now() -> list[Envelope]:
+            log, _sealed, _private = visible_log(who)
+            found = [
+                e for e in log.envelopes
+                if in_feed(e, who, since, *lanes(log), drop_self)
+            ]
+            if pierce:
+                return found
+            kept, _ = rotate_split(board.log, board.timeline, found, board.head)
+            return kept
+
+        if not hits_now():
+            await board.wait_for(lambda: bool(hits_now()), timeout)
+        log, sealed_envs, private_envs = visible_log(who)
+        authored, worked, descended, subs = lanes(log)
+        found = [
+            e for e in log.envelopes
+            if in_feed(e, who, since, authored, worked, descended, subs, drop_self)
+        ]
+        rotated: list[Envelope] = []
+        if not pierce:
+            found, rotated = rotate_split(board.log, board.timeline, found, board.head)
+        out = [dump(e) for e in found]
+        cursor = out[-1]["id"] if out else since
+
+        def scoped(envs: list[Envelope]) -> int:
+            # §9.3, D3 — UNION-scoped. `scoped()` on /read and /wait
+            # re-applies the same conjunctive filter; under a disjunction it
+            # must mean "withheld, and would have matched ANY lane". Getting
+            # this wrong reports 0 withheld while withholding, which is the
+            # false-completeness class R28 removed one layer down.
+            return sum(
+                1 for e in envs
+                if in_feed(e, who, since, authored, worked, descended, subs,
+                           drop_self)
+            )
+
+        return {
+            "envelopes": out,
+            # D3 — reasons ride BESIDE the envelopes, never inside them. An
+            # envelope must not gain fields depending on how it was found,
+            # or replay and signature verification die together.
+            "reasons": {
+                str(e.id): reasons_for(e, who, authored, worked, descended, subs,
+                                       drop_self)
+                for e in found
+            },
             "cursor": cursor,
             "sealed_excluded": scoped(sealed_envs),
             "rotated_excluded": len(rotated),

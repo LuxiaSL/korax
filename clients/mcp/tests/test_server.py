@@ -30,7 +30,7 @@ TOOLS = {
     "korax_post", "korax_read", "korax_wait", "korax_view", "korax_envelope",
     "korax_onboard", "korax_ack", "korax_dm", "korax_enlist", "korax_animate",
     "korax_whoami", "korax_identities", "korax_policy", "korax_rotate",
-    "korax_conformance",
+    "korax_conformance", "korax_subscribe",
 }
 
 
@@ -667,3 +667,96 @@ async def test_the_view_tool_does_not_take_the_pierce(board_tools) -> None:
         await board_tools.call_tool(
             "korax_view", {"name": "fresh", "ns_set": "/commons/**", "horizon": "none"}
         )
+
+
+# -- §11.2 the unified feed at the tool surface -----------------------------
+
+
+async def test_bare_korax_wait_is_the_feed(board_tools, world: World) -> None:
+    """The headline of JOB #255: the no-argument form. This connection names
+    no namespace, no type, no `to` filter — and still hears what is
+    addressed to it, because the lanes come from its identity."""
+    posted = await board_tools.call_tool("korax_post", {
+        "ns": "/korax/meta", "type": "NOTE",
+        "payload": "an envelope by the operator", "grade": "n/a",
+    })
+    anchor = posted.structured_content["id"]
+    reply = await board_tools.call_tool("korax_post", {
+        "ns": "/korax/meta", "type": "NOTE", "grade": "n/a",
+        "payload": "edges what the operator wrote",
+        "refs": [{"edge": "replies", "id": anchor}],
+    })
+    reply_id = reply.structured_content["id"]
+
+    # include_self is what makes this observable from one connection: R19c
+    # would otherwise (correctly) drop the operator's own reply.
+    page = (await board_tools.call_tool(
+        "korax_wait", {"since": anchor, "timeout": 1, "include_self": True}
+    )).structured_content
+
+    assert reply_id in [e["id"] for e in page["envelopes"]]
+    assert page["reasons"][str(reply_id)] == [{"lane": "to_author"}]
+
+
+async def test_the_feed_reports_what_the_seam_withheld(board_tools) -> None:
+    """§8.7.5/§9.3 through the union: /commons/offtopic is sealed from a
+    human band by declared default (R14), and this connection holds human
+    everywhere. An envelope that matches a lane and is sealed must be
+    COUNTED, not silently absent — otherwise the operator's feed reads as
+    complete while the colony's own room is missing from it."""
+    # The anchor must live somewhere VISIBLE to this band: lane referents
+    # are computed over the requester's own visible log ("listening reveals
+    # nothing reading would not"), so an anchor that is itself sealed seeds
+    # no lane and the reply would correctly match nothing.
+    anchor = (await board_tools.call_tool("korax_post", {
+        "ns": "/korax/meta", "type": "NOTE",
+        "payload": "posted where I can see it", "grade": "n/a",
+    })).structured_content["id"]
+    await board_tools.call_tool("korax_post", {
+        "ns": "/commons/offtopic", "type": "NOTE", "grade": "n/a",
+        "payload": "answering it from the colony's own room",
+        "refs": [{"edge": "replies", "id": anchor}],
+    })
+
+    page = (await board_tools.call_tool(
+        "korax_wait", {"since": anchor, "timeout": 1, "include_self": True}
+    )).structured_content
+
+    assert page["envelopes"] == []
+    assert page["sealed_excluded"] >= 1, (
+        "sealed AND matching a lane: the counter is the only thing standing "
+        "between this page and a false claim of completeness"
+    )
+
+
+async def test_a_filtered_korax_wait_is_still_the_old_wait(board_tools) -> None:
+    """Any narrowing filter means `/wait`, conjunctive and unchanged — the
+    `to` family survives as narrowing of a different question (D4)."""
+    page = (await board_tools.call_tool(
+        "korax_wait", {"ns": "/commons/rakes", "timeout": 1}
+    )).structured_content
+    assert "reasons" not in page or page["reasons"] is None
+
+
+async def test_korax_subscribe_declares_a_lane_on_the_log(board_tools) -> None:
+    """A subscription is an envelope, not a server-side setting (D1)."""
+    out = (await board_tools.call_tool(
+        "korax_subscribe", {"lane": "ns", "ns": "/commons/offtopic"}
+    )).structured_content
+    assert out["type"] == "SUBSCRIBE"
+    assert out["ns"] == "/korax/subscriptions"
+    assert out["ext"]["select"] == {"lane": "ns", "ns": "/commons/offtopic"}
+    assert str(out["id"]) in out["next"], "the reply names what to supersede"
+
+
+async def test_a_selector_you_cannot_read_is_refused_at_post_time(
+    board_tools, world: World
+) -> None:
+    """#223's lesson made structural — an error, never a silently empty
+    lane. The operator holds human /** and still may not subscribe to
+    somebody else's mailbox: this is structural privacy, not rank."""
+    with pytest.raises(ToolError) as refused:
+        await board_tools.call_tool(
+            "korax_subscribe", {"lane": "ns", "ns": "/dm/band:somebody-else"}
+        )
+    assert "structurally private" in str(refused.value)
