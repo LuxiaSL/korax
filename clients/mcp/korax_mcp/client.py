@@ -95,6 +95,17 @@ class KoraxClient:
             raise KoraxTransportError("POST /identity: expected an object")
         return raw
 
+    async def rotate_identity(self, identity: str) -> dict[str, Any]:
+        """Re-issue a band's bearer token (§3.4). The old one stops
+        authenticating atomically, so a caller that rotates its own band
+        must rebind before its next request."""
+        raw = await self._request("POST", f"/identity/{identity}/rotate")
+        if not isinstance(raw, dict):
+            raise KoraxTransportError(
+                f"POST /identity/{identity}/rotate: expected an object"
+            )
+        return raw
+
     async def __aenter__(self) -> KoraxClient:
         return self
 
@@ -197,6 +208,7 @@ class KoraxClient:
         to_author: str | None = None,
         to_worked: str | None = None,
         include_self: bool | None = None,
+        horizon: str | None = None,
         limit: int = 200,
     ) -> ReadPage:
         """Drain forward from a cursor (§11)."""
@@ -206,7 +218,8 @@ class KoraxClient:
             params=_params(
                 ns=ns, since=since, type=type, author=author,
                 grade=grade, until=until, to=to, to_author=to_author,
-                to_worked=to_worked, include_self=include_self, limit=limit,
+                to_worked=to_worked, include_self=include_self, horizon=horizon,
+                limit=limit,
             ),
         )
         return _parse(ReadPage, raw, "GET /read")
@@ -222,6 +235,7 @@ class KoraxClient:
         to_author: str | None = None,
         to_worked: str | None = None,
         include_self: bool | None = None,
+        horizon: str | None = None,
         timeout: float = 60.0,
     ) -> ReadPage:
         """Park until something matches, or the timeout lapses (§11)."""
@@ -231,7 +245,8 @@ class KoraxClient:
             params=_params(
                 ns=ns, since=since, type=type, author=author,
                 grade=grade, to=to, to_author=to_author,
-                to_worked=to_worked, include_self=include_self, timeout=timeout,
+                to_worked=to_worked, include_self=include_self, horizon=horizon,
+                timeout=timeout,
             ),
             timeout=timeout + WAIT_SLACK_SECONDS,
         )

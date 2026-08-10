@@ -161,16 +161,32 @@ def validate_post(log: Log, timeline: PolicyTimeline, raw: dict[str, Any]) -> Su
     return sub
 
 
+def _acts(acts: frozenset[Act]) -> str:
+    """A stable, readable act list for a refusal message — sorted so the
+    same rule always reads the same way, and so tests can name it."""
+    return ", ".join(sorted(a.value for a in acts))
+
+
 def _check_edge_types(sub: Submission, targets: dict[int, Envelope]) -> None:
     for ref in sub.refs:
         target = targets[ref.id]
+        # A refusal that names only what is forbidden leaves the poster
+        # holding the wrong half of the answer: the question at that moment
+        # is "then what may I write?". Echoing the legal set costs nothing
+        # and ends the guess-and-retry loop these rules otherwise teach by.
         allowed_sources = EDGE_SOURCE_ACTS.get(ref.edge)
         if allowed_sources is not None and sub.type not in allowed_sources:
-            raise PostError(400, f"edge `{ref.edge}` may not originate from {sub.type} (§5)")
+            raise PostError(
+                400,
+                f"edge `{ref.edge}` may not originate from {sub.type}; "
+                f"legal sources: {_acts(allowed_sources)} (§5)",
+            )
         allowed_targets = EDGE_TARGET_ACTS.get(ref.edge)
         if allowed_targets is not None and target.type not in allowed_targets:
             raise PostError(
-                400, f"edge `{ref.edge}` may not target a {target.type} (§5)"
+                400,
+                f"edge `{ref.edge}` may not target a {target.type}; "
+                f"legal targets: {_acts(allowed_targets)} (§5)",
             )
         # supersedes: any → same type, except the generic SUPERSEDE carrier (§5)
         if (
@@ -178,7 +194,12 @@ def _check_edge_types(sub: Submission, targets: dict[int, Envelope]) -> None:
             and sub.type != Act.SUPERSEDE
             and target.type != sub.type
         ):
-            raise PostError(400, f"{sub.type} may not supersede a {target.type} (§5)")
+            raise PostError(
+                400,
+                f"{sub.type} may not supersede a {target.type}; a supersedes "
+                f"edge runs between envelopes of the same act, or from a "
+                f"SUPERSEDE carrier to any act (§5)",
+            )
 
     # required refs per act (§4)
     counts = {edge: len(sub.refs_of(edge)) for edge in EdgeType}

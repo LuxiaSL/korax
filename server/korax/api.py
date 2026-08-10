@@ -19,7 +19,15 @@ from . import PROTO
 from .access import filter_log, verdict
 from .board import Board
 from .civic import onboard as onboard_reduction, required as required_reduction
-from .models import Act, Band, EdgeType, Envelope, Grade
+from .models import (
+    EDGE_SOURCE_ACTS,
+    EDGE_TARGET_ACTS,
+    Act,
+    Band,
+    EdgeType,
+    Envelope,
+    Grade,
+)
 from .nsglob import in_subtree, ns_matches
 from .reductions import (
     descendants,
@@ -541,10 +549,27 @@ def create_app(board: Board) -> FastAPI:
 
     @app.get("/conformance")
     def conformance() -> dict[str, Any]:
+        # edge_rules is generated from the live constants, never restated:
+        # a client that hand-copies this table becomes a second source of
+        # truth and drifts from the validator silently. An edge absent from
+        # `sources`/`targets` accepts any act there — the absence is the
+        # rule, so it is reported as absence rather than as every act.
+        edge_rules: dict[str, dict[str, list[str]]] = {}
+        for edge in EdgeType:
+            rule: dict[str, list[str]] = {}
+            sources = EDGE_SOURCE_ACTS.get(edge)
+            if sources is not None:
+                rule["sources"] = sorted(a.value for a in sources)
+            targets = EDGE_TARGET_ACTS.get(edge)
+            if targets is not None:
+                rule["targets"] = sorted(a.value for a in targets)
+            edge_rules[edge.value] = rule
+
         return {
             "proto": [PROTO],
             "acts": [a.value for a in Act],
             "edges": [e.value for e in EdgeType],
+            "edge_rules": edge_rules,
             "grades": [g.value for g in Grade],
             "views": VIEWS,
             "levels": ["server"],

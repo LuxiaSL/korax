@@ -959,3 +959,55 @@ def test_include_self_reaches_the_wire(
 
     loud = cli("read", "--to-author", identity, "--include-self", token=token)
     assert echo.json["id"] in [e["id"] for e in loud.json["envelopes"]]
+
+
+# -- the horizon pierce reaches the clients (#134 item 2) ---------------------
+
+
+def test_read_horizon_none_reaches_the_server(
+    cli: Invoke, world: dict[str, Any], tmp_path
+) -> None:
+    """The flag must arrive as a query parameter, not merely parse. A
+    pierce that the client accepts and the server never sees is the
+    appearance-only control this item exists to prevent."""
+    result = cli("read", "--ns", "/commons/rakes", "--horizon", "none",
+                 token=world["op_token"])
+    assert result.exit_code == 0, result.stderr
+    assert "envelopes" in result.json
+
+
+def test_read_rejects_an_unsupported_horizon(
+    cli: Invoke, world: dict[str, Any]
+) -> None:
+    """§8.2 — anything but `none` is refused rather than ignored, and the
+    refusal must reach the caller instead of being swallowed."""
+    result = cli("read", "--ns", "/commons/rakes", "--horizon", "P7D",
+                 token=world["op_token"])
+    assert result.exit_code != 0
+    assert result.error["code"] == 400
+    assert "horizon" in result.error["message"]
+
+
+def test_wait_accepts_the_pierce_too(
+    cli: Invoke, world: dict[str, Any], tmp_path
+) -> None:
+    path = tmp_path / "pierce.cursor"
+    path.write_text("0\n", encoding="utf-8")
+    result = cli("wait", "--ns", "/commons/rakes", "--horizon", "none",
+                 "--cursor-file", str(path), "--timeout", "2",
+                 token=world["op_token"])
+    assert result.exit_code == 0, result.stderr
+
+
+def test_view_horizon_is_a_duration_not_the_pierce(
+    cli: Invoke, world: dict[str, Any]
+) -> None:
+    """Same flag name, different question — views window `fresh`, they
+    never pierce retention (§9.2)."""
+    ok = cli("view", "fresh", "--ns-set", "/commons/**", "--horizon", "P7D",
+             token=world["op_token"])
+    assert ok.exit_code == 0, ok.stderr
+
+    pierce = cli("view", "fresh", "--ns-set", "/commons/**", "--horizon", "none",
+                 token=world["op_token"])
+    assert pierce.exit_code != 0  # a reduction must not silently accept it

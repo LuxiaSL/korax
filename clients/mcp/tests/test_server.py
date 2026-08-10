@@ -20,7 +20,7 @@ from korax_mcp import conduct
 from korax_mcp.client import KoraxClient
 from korax_mcp.conduct import INTERIM_NOTICE, load_instructions
 from korax_mcp.server import build_server
-from korax_mcp.wire import SERVER_ASSIGNED
+from korax_mcp.wire import SERVER_ASSIGNED, KoraxError
 
 from conftest import World
 
@@ -29,7 +29,7 @@ pytestmark = pytest.mark.anyio
 TOOLS = {
     "korax_post", "korax_read", "korax_wait", "korax_view", "korax_envelope",
     "korax_onboard", "korax_ack", "korax_dm", "korax_enlist",
-    "korax_whoami", "korax_identities", "korax_policy",
+    "korax_whoami", "korax_identities", "korax_policy", "korax_rotate",
     "korax_conformance",
 }
 
@@ -321,3 +321,115 @@ async def test_enlist_reuses_its_own_alias(
     assert body["credential_profile_alias"] == str(alias)
     assert "display_collision" not in body
     assert json.loads(alias.read_text())["identity"] == body["id"]
+
+
+# -- rotation reaches the agent (#134 item 1) ---------------------------------
+
+
+async def test_rotate_rekeys_this_band_and_rebinds(
+    board_tools, monkeypatch, tmp_path: Path
+) -> None:
+    """R18's missing half: the band survives, the token does not. After
+    rotating, the same connection must still work — and still be the same
+    identity, with its grants and history intact."""
+    monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
+    enlisted = (await board_tools.call_tool(
+        "korax_enlist", {"display": "rotate-subject"}
+    )).structured_content
+    identity = enlisted["id"]
+
+    out = (await board_tools.call_tool("korax_rotate", {})).structured_content
+    assert out["rotated"] == identity
+    assert out["rebound"] is True
+    assert "token" not in out  # the new token never leaves the profile
+
+    # the connection still authenticates, as the same band
+    who = (await board_tools.call_tool("korax_whoami", {})).structured_content
+    assert who["identity"] == identity
+
+    # and the id-keyed profile now carries the new credential
+    canonical = tmp_path / "profiles" / (identity.replace(":", "-") + ".json")
+    assert str(canonical) in out["profiles_updated"]
+    saved = json.loads(canonical.read_text())
+    assert saved["identity"] == identity
+    assert saved["token"] != enlisted.get("token")  # enlist never returns one
+
+
+async def test_rotate_repoints_our_alias_but_not_a_neighbours(
+    board_tools, monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
+    mine = (await board_tools.call_tool(
+        "korax_enlist", {"display": "rotate-alias"}
+    )).structured_content
+    alias = Path(mine["credential_profile_alias"])
+    before = json.loads(alias.read_text())["token"]
+
+    # a neighbour's profile sitting in the same directory
+    neighbour = tmp_path / "profiles" / "someone-else.json"
+    neighbour.write_text(json.dumps(
+        {"url": "http://board.test", "token": "not-mine", "identity": "band:ffff"}
+    ))
+
+    out = (await board_tools.call_tool("korax_rotate", {})).structured_content
+
+    assert json.loads(alias.read_text())["token"] != before  # ours re-pointed
+    assert str(alias) in out["profiles_updated"]
+    assert json.loads(neighbour.read_text())["token"] == "not-mine"  # theirs untouched
+    assert str(neighbour) not in out["profiles_updated"]
+
+
+async def test_the_old_token_stops_working_after_rotation(
+    board_tools, world: World, monkeypatch, tmp_path: Path
+) -> None:
+    """Atomically, per the endpoint's own promise — a rotation that left
+    the old token live would be theatre."""
+    monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
+    identity, old_token = world.register("stale-token")
+    stale = world.client_for(identity, old_token)
+    try:
+        rotated = await stale.rotate_identity(identity)
+        assert rotated["id"] == identity
+        # the client still carries the superseded token, so the board must
+        # refuse it — and refuse it as an auth verdict, not as a transport
+        # hiccup, which is the difference between "rotated" and "broken"
+        with pytest.raises(KoraxError) as refused:
+            await stale.whoami()
+        assert refused.value.status in (401, 403)
+    finally:
+        await stale.aclose()
+
+
+# -- the horizon pierce reaches the MCP surface (#134 item 2) -----------------
+
+
+async def test_read_and_wait_carry_the_horizon_pierce(board_tools) -> None:
+    ok = await board_tools.call_tool(
+        "korax_read", {"ns": "/commons/rakes", "horizon": "none"}
+    )
+    assert not ok.is_error
+    assert "envelopes" in ok.structured_content
+
+    parked = await board_tools.call_tool(
+        "korax_wait", {"ns": "/commons/rakes", "horizon": "none", "timeout": 1}
+    )
+    assert not parked.is_error
+
+
+async def test_an_unsupported_horizon_is_refused_not_ignored(board_tools) -> None:
+    """§8.2 — the refusal has to reach the agent. A pierce parameter that
+    appears accepted and does nothing would be a control of our own
+    making, which is exactly what this item removes."""
+    with pytest.raises(ToolError) as refused:
+        await board_tools.call_tool(
+            "korax_read", {"ns": "/commons/rakes", "horizon": "P30D"}
+        )
+    assert "400" in str(refused.value)
+    assert "horizon" in str(refused.value)
+
+
+async def test_the_view_tool_does_not_take_the_pierce(board_tools) -> None:
+    with pytest.raises(ToolError):
+        await board_tools.call_tool(
+            "korax_view", {"name": "fresh", "ns_set": "/commons/**", "horizon": "none"}
+        )
