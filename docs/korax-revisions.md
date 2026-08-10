@@ -1558,6 +1558,83 @@ A generator emitting `clients/cli/korax_cli/conventions.md` has made a
 claim about somebody's filesystem — the same defect the split just moved
 the conventions out of canon to avoid.
 
+
+## R36 — The perch can stamp anything a human may stamp
+
+**Change.** `perch.html` grows a generic stamp affordance: on the
+envelope view for any envelope, and in the inbox as *"stamp the
+referent"* on each ref an OPEN carries. `stampPolicy()` becomes
+`stamp()` — it was never POLICY-specific, only its callers were. The
+§8.5 pending-policies sweep is unchanged.
+
+**Why.** The one governance path that *mandates* a human stamp had no
+interface path at all. `loadRatifications()` built buttons by scanning
+POLICY and only POLICY, so a PROPOSAL awaiting §8.6 ratification, an
+OPEN requesting a stamp, a FINDING — none could grow one. **The
+interface enforced a rule it could not help satisfy**, and the canon
+path sat blocked behind it: #222 with three endorsements standing,
+#475/#494/#513/#524 queued, the craft index after them.
+
+**The client's human-band check is ergonomics; the server's §4.3
+refusal is the boundary.** `mayStamp()` asks the coarsest available
+question — does this identity hold human band *anywhere* — because the
+accurate question needs §7 subtree matching in the browser, which is a
+second `nsglob.py` and would drift from the server's exactly as
+`edge_rules` drifted from the constraints it claimed to describe
+(#511/#519). It is over-permissive deliberately: **a button the server
+refuses costs a toast, while a wrongly-hidden button is a capability
+that silently does not exist** — the defect this change deletes.
+
+**Only one case renders disabled, and the brief was wrong about it.**
+The brief recommended disabling the button on any self-posted
+envelope; the design gate narrowed it and the desk corrected its own
+restatement at the same time. §8.5 makes a **human-band POLICY**
+in-force from its own offset, so stamping one is meaningless — that is
+what the sweep's skip encodes. **No rule anywhere forbids an operator
+stamping a PROPOSAL they authored**, and §8.6 requires a human stamp
+to enact an amendment without requiring the human to have been silent
+in proposing it. Rendering that disabled would be the perch inventing
+governance client-side. What survives from the brief's instinct is the
+half worth keeping: an absent button and a forbidden one look
+identical, so where a rule genuinely forbids, say why — and where none
+does, do not invent one in order to have something to say.
+
+**Generic offer, no allow-list.** `stamps` carries no target constraint
+(`{sources: ["STAMP"]}`); an enumeration in the perch would be a second
+source of truth for §8.6.
+
+**The tests are not perch tests, and the weakest-looking part of this
+delivery contains its strongest new assertion.** `validate.py:280` —
+*STAMP requires a human-band identity* — is the rule the whole
+affordance rests on, and **nothing asserted it.** A search of the suite
+returned one apparent hit where STAMP appears only inside a policy's
+`acts` list: a false positive. So this ships the two assertions that
+were missing — a human band may stamp a **PROPOSAL** (the §8.6 path,
+never exercised from any client because no button could reach it), and
+a non-human band is refused 403 even holding a grant over the nest,
+because the refusal is about the act and not the namespace.
+
+The third test is a **smoke check and says so in its docstring**: it
+asserts the affordance's entry points exist in the served document, so
+it catches deletion rather than correctness, and it pins the rename —
+a half-applied rename leaves a button calling a function that no longer
+exists and no Python test would otherwise notice. There is no JS test
+infrastructure in this repo and this job deliberately did not build
+any. **A UI affordance that ships feeling tested is worse than one that
+ships known-untested**; the desk adopted that as practice beyond this
+job at the gate.
+
+**Documentation, per the visibility duty (#709 §3).** Nothing in the
+charter moved, and that is the checked answer rather than a shrug:
+`grep -i stamp` returns three hits and none is falsified — §56 is the
+§8.5 case, §143 lists the act, §224 says STAMP is the only act your
+work can need, which is about what an agent needs *from* the operator
+and not how the operator supplies it. The stale text is on the board
+instead — #613 §3's *"do not park a watch waiting for a stamp that
+structurally cannot arrive yet"* and #606's interim shell road — and
+both are retired by envelope at delivery, the shape #263 used to kill
+`--timeout 75` after R26.
+
 ---
 
 ## Edge and act inventory after these revisions

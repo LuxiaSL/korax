@@ -485,6 +485,83 @@ def test_amend_quorum_gates_content_not_governance(world: dict) -> None:
     assert "PROPOSAL" in r.json()["message"]
 
 
+# -- the stamp contract the perch's affordance rests on (§4.3, JOB #706) -----
+#
+# `perch.html` grew a generic stamp button because the one governance path
+# that MANDATES a human stamp — §8.6 amendment ratification — had no interface
+# path at all (#606). The button's entire safety is `validate.py:280`: STAMP
+# requires a human-band identity. Nothing asserted it. A search of this suite
+# turned up one apparent hit, `test_amend_quorum_gates_content_not_governance`,
+# where STAMP appears only inside a policy's `acts` list — a false positive.
+#
+# So these are not perch tests. They are the assertions the perch depends on,
+# and they were missing before the perch needed them.
+
+
+def test_a_human_band_may_stamp_a_proposal(world: dict) -> None:
+    """The exact request the affordance sends: a STAMP carrying
+    `stamps:<id>` into the TARGET's namespace, on a non-POLICY target.
+
+    Before #706 the perch could only build buttons for POLICY, so this
+    path — the one §8.6 ratification actually needs — had never been
+    exercised from any client."""
+    proposal = _post(world, world["op_token"], {
+        "author": world["operator"], "ns": "/korax/meta", "type": "PROPOSAL",
+        "grade": "unverified", "payload": "a document awaiting ratification",
+    })
+    stamped = _post(world, world["op_token"], {
+        "author": world["operator"], "ns": "/korax/meta", "type": "STAMP",
+        "grade": "n/a", "refs": [{"edge": "stamps", "id": proposal["id"]}],
+        "payload": "in force",
+    })
+    assert stamped["type"] == "STAMP"
+    assert stamped["band"] == "human"
+    assert {"edge": "stamps", "id": proposal["id"]} in stamped["refs"]
+
+
+def test_a_non_human_band_is_refused_a_stamp(world: dict) -> None:
+    """§4.3 / validate.py:280 — the rule the button's safety rests on, and
+    the reason the perch's own human-band check is ergonomics rather than
+    enforcement. A claimant band with a grant over the nest still cannot
+    stamp: the refusal is about the ACT, not about the namespace."""
+    agent, token = _register(world, "would-be-stamper")
+    _grant(world, agent, "/korax/meta", "warner")
+    proposal = _post(world, world["op_token"], {
+        "author": world["operator"], "ns": "/korax/meta", "type": "PROPOSAL",
+        "grade": "unverified", "payload": "not theirs to enact",
+    })
+    r = world["client"].post("/post", headers=auth(token), json={
+        "proto": PROTO, "author": agent, "ns": "/korax/meta", "type": "STAMP",
+        "grade": "n/a", "refs": [{"edge": "stamps", "id": proposal["id"]}],
+        "payload": "in force", "ext": {},
+    })
+    assert r.status_code == 403, r.text
+    assert "human" in r.json()["message"]
+
+
+def test_the_perch_offers_a_stamp_beyond_policies(world: dict) -> None:
+    """A SMOKE CHECK, and worth naming as one: this asserts the affordance's
+    entry points are present in the served document. It catches DELETION,
+    not correctness — it cannot tell you the button posts the right thing,
+    only that something by that name still exists.
+
+    That is #111's shape — prose describing a mechanism is indistinguishable
+    from the mechanism — and it is the honest ceiling here: there is no JS
+    test infrastructure in this repo and this job deliberately did not build
+    any. The assertions above are the ones with teeth. A UI affordance that
+    ships *feeling* tested is worse than one that ships known-untested.
+
+    It also pins the rename, because a half-applied rename leaves a button
+    calling a function that no longer exists and no Python test would notice.
+    """
+    body = world["client"].get("/").text
+    assert "async function stamp(" in body
+    assert "async function stampBlock(" in body
+    assert "async function referentStamps(" in body
+    assert "function mayStamp(" in body
+    assert "stampPolicy" not in body, "half-applied rename: the old writer name survives"
+
+
 def test_perch_is_served_at_root(world: dict) -> None:
     """The operator's view ships with the board: one page, no auth for
     the shell (its data calls carry the bearer token like any client)."""

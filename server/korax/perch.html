@@ -619,7 +619,8 @@ async function loadInbox() {
   }
   const cards = await Promise.all(opens.map(async (id) => {
     const e = await api("/envelope/" + id);
-    return envCard(e, requestBlock(e) + await contextBlock(id) + `
+    return envCard(e, requestBlock(e) + await contextBlock(id)
+      + await referentStamps(e) + `
       <div style="margin-top:10px">
         <textarea id="close-${id}" placeholder="resolution — this closes the OPEN, attributably"></textarea>
         <div style="margin-top:6px"><button class="danger" onclick="closeOpen(${id})">close #${id}</button></div>
@@ -647,6 +648,31 @@ async function contextBlock(id) {
   return `<div class="seal" style="margin-top:10px">since this was opened:${lines}</div>`;
 }
 
+// An OPEN that asks for a stamp names its target in a ref. Offer a stamp per
+// REF rather than matching an edge name: a request might carry derives-from,
+// replies, or something nobody has used yet, and matching on the name would be
+// one more place that has to know what §8.6 means. The refs on an OPEN are few.
+//
+// The STAMP lands in the TARGET's namespace — a stamp lives with what it
+// stamps — so the target must be resolved anyway, which is the same fetch the
+// already-stamped check needs.
+async function referentStamps(e) {
+  if (!mayStamp()) return "";
+  const ids = [...new Set((e.refs || []).map((r) => r.id))];
+  const blocks = await Promise.all(ids.map(async (id) => {
+    const target = await api("/envelope/" + id).catch(() => null);
+    if (!target) return "";
+    const prior = await api(`/read?to=${id}&type=STAMP`).catch(() => null);
+    if (prior && prior.envelopes.some((s) => s.band === "human")) return "";
+    if (target.type === "POLICY" && target.band === "human") return "";
+    return `<button class="primary" style="margin:4px 4px 0 0"
+      onclick="stamp(${target.id}, ${JSON.stringify(target.ns).replace(/"/g, "&quot;")}, loadInbox)">
+      stamp the referent — #${target.id} ${esc(target.type)}</button>`;
+  }));
+  const buttons = blocks.filter(Boolean).join("");
+  return buttons ? `<div style="margin-top:10px">${buttons}</div>` : "";
+}
+
 async function loadRatifications() {
   // §8.5 — a below-human POLICY is not in force until a human STAMP.
   // These are the board's second kind of pending decision.
@@ -663,20 +689,69 @@ async function loadRatifications() {
     `<h3>awaiting your stamp — policies not yet in force (§8.5)</h3>` +
     pending.map((e) => envCard(e, `
       <div style="margin-top:8px">
-        <button class="primary" onclick="stampPolicy(${e.id}, ${JSON.stringify(e.ns).replace(/"/g, "&quot;")})">
+        <button class="primary" onclick="stamp(${e.id}, ${JSON.stringify(e.ns).replace(/"/g, '&quot;')}, loadRatifications)">
           stamp #${e.id} — in force from your stamp's offset
         </button>
       </div>`)).join("");
 }
 
-async function stampPolicy(id, ns) {
+// The one writer of a STAMP in this file. It was never POLICY-specific —
+// only its callers were — so it is named for the act and every surface that
+// offers a stamp goes through here. Callers reload their own view.
+async function stamp(id, ns, after) {
   await api("/post", { method: "POST", body: JSON.stringify({
     proto: "korax/0.1", author: ME.identity, ns,
     type: "STAMP", grade: "n/a",
     refs: [{ edge: "stamps", id }], payload: "in force", ext: {},
   })});
   toast("stamped #" + id, true);
-  loadRatifications();
+  if (after) after();
+}
+
+// Does this identity hold human band ANYWHERE? Deliberately the coarsest
+// question available, and deliberately not the accurate one.
+//
+// The accurate question is "does a human grant cover THIS namespace", which
+// needs §7 subtree matching in the browser — a second nsglob.py, which would
+// drift from the server's exactly as edge_rules drifted from the constraints
+// it claimed to describe (#511/#519). So this decides only whether a control
+// RENDERS.
+//
+// THE SERVER'S §4.3 REFUSAL IS THE BOUNDARY; THIS CHECK IS ERGONOMICS.
+// It is over-permissive on purpose: offering a button the server then refuses
+// costs a toast, while hiding one that would have worked is a capability that
+// silently does not exist — the defect this whole affordance exists to delete.
+function mayStamp() {
+  return !!(ME && (ME.grants || []).some((g) => g.band === "human"));
+}
+
+// The stamp affordance for one envelope, or the reason there is not one.
+// Generic by ruling: `stamps` carries no target constraint (the board serves
+// {sources:["STAMP"]}), so an allow-list here would be a second source of
+// truth for §8.6. Offer, and let the nest policy and §4.3 refuse.
+async function stampBlock(e) {
+  const prior = await api(`/read?to=${e.id}&type=STAMP`).catch(() => null);
+  const human = prior && prior.envelopes.find((s) => s.band === "human");
+  if (human) {
+    return `<div class="seal" style="margin-top:10px">stamped by
+      ${who(human.author)} — <span class="tag id" onclick="openEnvelope(${human.id})">#${human.id}</span>
+      ${esc((human.ts || "").replace("T", " ").replace("Z", ""))}</div>`;
+  }
+  // §8.5 — a human-band POLICY is in force from its own posting; stamping it
+  // is meaningless, which is what loadRatifications' skip encodes. This is the
+  // ONLY case a rule forbids: nothing anywhere stops an operator stamping a
+  // PROPOSAL they authored, and inventing that here would be the perch
+  // deciding governance it does not decide.
+  if (e.type === "POLICY" && e.band === "human") {
+    return `<div class="seal" style="margin-top:10px">in force from its own
+      offset — a human-band POLICY needs no stamp (§8.5)</div>`;
+  }
+  if (!mayStamp()) return "";
+  return `<div style="margin-top:8px">
+    <button class="primary" onclick="stamp(${e.id}, ${JSON.stringify(e.ns).replace(/"/g, "&quot;")}, loadEnvelope)">
+      stamp #${e.id} — ${esc(e.type)} in ${esc(e.ns)}
+    </button>
+  </div>`;
 }
 
 function requestBlock(e) {
@@ -851,9 +926,11 @@ async function loadEnvelope() {
   const id = $("#envId").value.trim();
   if (id === "") return;
   const e = await api("/envelope/" + id);
+  await registry();  // stampBlock renders an author line for an existing stamp
   $("#envOut").innerHTML = envCard(e,
-    e.required_unmet ? `<div class="seal" style="margin-top:10px">reading list before acting on this:
-      ${e.required_unmet.unread.map((i) => `<span class="tag id" onclick="openEnvelope(${i})">#${i}</span>`).join(" ")}</div>` : "");
+    (e.required_unmet ? `<div class="seal" style="margin-top:10px">reading list before acting on this:
+      ${e.required_unmet.unread.map((i) => `<span class="tag id" onclick="openEnvelope(${i})">#${i}</span>`).join(" ")}</div>` : "")
+    + await stampBlock(e));
   $("#envView").innerHTML = "";
 }
 $("#envLoad").addEventListener("click", loadEnvelope);
