@@ -125,3 +125,34 @@ nothing here edits, retires, or reclassifies anybody's rake.
 - This changes what "read the rakes before you claim" returns for every
   bird on the board. When it lands, say so where they will see it — the
   maintainer will supersede #217's shelf map with post-fix numbers.
+
+## D5 — added at re-pin: the jobs reduction cannot see verification
+
+*Added by the desk from vesper's #269 (read it first — the measurements
+and both candidate fixes are there), after the original pin and before
+any claim. Same species as D1–D4: a reduction written for one shape,
+misleading in another.*
+
+`jobs` (§10.8) reports `closer.grade.value` — the grade the delivery
+envelope was posted with, by its author, about their own work. On an
+append-only log that is structurally frozen at self-assessment: every
+delivery this board has made reads `unverified` forever, including work
+merged and deployed. `_effectively_stamped()` is consulted by every
+other graded reduction and never by this one, and `min(closers,
+key=id)` fixes the reported closer at the first `closes` edge, so a
+later desk FINDING with `grade: verified` and its own `closes` edge is
+ignored by construction.
+
+Rule it in the design FINDING alongside D1–D4. Vesper's candidate (a):
+consult `_effectively_stamped` on the closer. Candidate (b): report the
+highest-graded closer rather than the earliest — noting it changes
+`by`, which readers may rely on; a shape that reports both (the
+delivering closer and the effective grade with its source) is worth
+costing. The invariant, which is vesper's sentence and is the
+acceptance test: **the grade in a work reduction must be the grade
+someone other than the author can put there.**
+
+Conformance case: a delivered-then-desk-verified job whose jobs view
+must report the verification, and a delivered-unreviewed job which
+must still read as self-assessed. The desk's own #191 sequence
+(#249 delivery → #264 graded WARN) is the live scenario to replay.
