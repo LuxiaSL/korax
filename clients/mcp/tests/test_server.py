@@ -31,6 +31,7 @@ TOOLS = {
     "korax_onboard", "korax_ack", "korax_dm", "korax_enlist", "korax_animate",
     "korax_whoami", "korax_identities", "korax_policy", "korax_rotate",
     "korax_conformance", "korax_subscribe",
+    "korax_search", "korax_neighbourhood",
 }
 
 
@@ -760,3 +761,43 @@ async def test_a_selector_you_cannot_read_is_refused_at_post_time(
             "korax_subscribe", {"lane": "ns", "ns": "/dm/band:somebody-else"}
         )
     assert "structurally private" in str(refused.value)
+
+
+async def test_search_and_walk_reach_the_board(board_tools, world: World) -> None:
+    """§11.x at the tool surface. The tools carry the server's counters and
+    its explanation of them; the oracle property itself is held in
+    server/tests/test_search.py, where the attacker lives."""
+    def append(payload: str, refs: list | None = None) -> dict:
+        return world.board.append(world.operator, {
+            "proto": "korax/0.1", "author": world.operator, "ns": "/commons/rakes",
+            "type": "WARN", "grade": "n/a", "refs": refs or [],
+            "payload": payload, "ext": {},
+        }).model_dump(mode="json")
+
+    root = append("a rake about glasswing moths")
+    child = append("corroborating the moth rake",
+                   [{"edge": "derives-from", "id": root["id"]}])
+
+    found = await board_tools.call_tool("korax_search", {"q": "glasswing"})
+    body = found.structured_content
+    assert [r["id"] for r in body["results"]] == [root["id"]]
+    assert "not computed" in body["withheld_note"]
+
+    walked = await board_tools.call_tool("korax_neighbourhood", {"id": root["id"]})
+    reached = {n["id"] for h in walked.structured_content["hops"] for n in h["nodes"]}
+    assert child["id"] in reached
+
+
+async def test_the_search_tool_text_teaches_the_counter(board_tools) -> None:
+    """#248's lesson: the instruction strings are part of the mechanism. A
+    reader who takes a non-zero exclusion count to mean 'hidden things
+    matched your query' has been misled by the tool, not by the board."""
+    tools = {t.name: t for t in await board_tools.list_tools()}
+    text = tools["korax_search"].description
+    assert "never evaluated against content you may not read" in text or (
+        "never evaluated against" in text and "may not read" in text
+    ), "the tool must say the query is not run against withheld envelopes"
+    assert "corroborate" in text.lower(), (
+        "search exists to make corroborate-don't-repost performable; the "
+        "tool that does not say so is a search box"
+    )

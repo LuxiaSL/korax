@@ -47,6 +47,11 @@ from .reductions import (
     thread,
 )
 from .retention import PIERCE, project as rotate_project, split as rotate_split
+from .search import (
+    DEFAULT_DEPTH,
+    neighbourhood as neighbourhood_reduction,
+    search as search_reduction,
+)
 from .validate import PostError
 
 # §8.2 — the reductions rotation applies to. The rest are edge-following
@@ -353,6 +358,53 @@ def create_app(board: Board) -> FastAPI:
             "rotated_excluded": len(rotated),  # §8.2 — never silent
             "participation_excluded": scoped(private_envs),  # §9.3 — likewise
         }
+
+    @app.get("/search")
+    def search_endpoint(
+        q: str,
+        who: str = Depends(requester),
+        ns: str | None = None,
+        type: str | None = None,
+        author: str | None = None,
+        grade: str | None = None,
+        since: int = Query(default=-1),
+        until: int | None = None,
+        limit: int = Query(default=50, le=500),
+    ) -> dict[str, Any]:
+        """§11.x — substring over payloads. A read surface, so §9.3 binds
+        it fully: the structural filters below scope both the results and
+        the exclusion counts, and `q` is applied only to envelopes the
+        requester may read (#636 D2, ruled #637). Search is the first read
+        surface with a content filter; the rule it establishes is that
+        metadata may be evaluated against what you cannot read and content
+        may not."""
+        log, sealed_envs, private_envs = visible_log(who)
+
+        def structural(env: Envelope) -> bool:
+            return matches(env, ns, type, author, grade, since, until)
+
+        return search_reduction(
+            log, q, structural, [sealed_envs, private_envs], dump, limit
+        )
+
+    @app.get("/neighbourhood/{env_id}")
+    def neighbourhood_endpoint(
+        env_id: int,
+        who: str = Depends(requester),
+        depth: int = Query(default=DEFAULT_DEPTH, ge=1),
+    ) -> dict[str, Any]:
+        """§11.x — the edge-connected component around one envelope. The
+        node budget, not the depth, is the load-bearing limit, and
+        truncation is reported rather than silent (§10.10)."""
+        log, sealed_envs, private_envs = visible_log(who)
+        try:
+            return neighbourhood_reduction(
+                log, env_id, depth, [sealed_envs, private_envs], dump
+            )
+        except LookupError:
+            # §8.3 at envelope granularity: absent and withheld answer
+            # identically, exactly as /envelope does
+            raise HTTPException(404, "no such envelope") from None
 
     @app.get("/envelope/{env_id}")
     def envelope(env_id: int, who: str = Depends(requester)) -> dict[str, Any]:

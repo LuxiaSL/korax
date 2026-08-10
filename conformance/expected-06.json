@@ -5,7 +5,8 @@
     "view": "`access` is not a §10 reduction — it is the read-side partition of §9.3, checked here as what a conforming board serves and what it reports having withheld, before any §10 reduction runs.",
     "args": "`requester` is the identity asking; `ns` selects the slice, meaning envelopes whose own namespace is `ns` or beneath it.",
     "expect": "`visible` is what the board serves. `sealed_excluded` and `participation_excluded` are the counts it MUST report for that same slice. Absent counters fail: §9.3 requires the field, and a board that omits it is indistinguishable from one claiming zero.",
-    "counted": "Exactly two exclusions are counted. The seam (§8.7.5) and participation (§9.3). A no-grant denial and a blind-round denial are withheld and MUST NOT appear in any counter — a board that reports them has satisfied the arithmetic by breaking §8.3."
+    "counted": "Exactly two exclusions are counted. The seam (§8.7.5) and participation (§9.3). A no-grant denial and a blind-round denial are withheld and MUST NOT appear in any counter — a board that reports them has satisfied the arithmetic by breaking §8.3.",
+    "search_R34": "`search` is the §11.3 read surface, checked here because it is the first surface with a CONTENT filter and therefore the first that could turn an exclusion count into an oracle. `args.q` is the query. The load-bearing property is that the counts DO NOT VARY with q: a conforming board evaluates the query only against envelopes the requester may read. A board that counts q-matched withheld envelopes passes every positive row here and still lets a stranger read a mailbox one character at a time."
   },
   "checks": [
     {
@@ -73,7 +74,46 @@
       "why": "the honest zero. carol reads an ordinary nest in full, and all counters are zero — which is what makes a zero meaningful anywhere else on this fixture. A board hard-coding a non-zero participation count fails here."
     }
   ],
+  "search_checks": [
+    {
+      "offset": 10,
+      "view": "search",
+      "args": {"requester": "band:carol", "ns": "/dm/band:bob", "q": "private"},
+      "cite": "9.3 / 11.3 / R34",
+      "expect": {"visible": [], "sealed_excluded": 0, "participation_excluded": 3},
+      "why": "carol is a non-participant: all three messages are withheld, and the count is the same 3 the /read partition reports for this slice. The query matching their payloads changes nothing — it was never run against them."
+    },
+    {
+      "offset": 10,
+      "view": "search",
+      "args": {"requester": "band:carol", "ns": "/dm/band:bob", "q": "zzz-no-such-string"},
+      "cite": "9.3 / 11.3 / R34",
+      "expect": {"visible": [], "sealed_excluded": 0, "participation_excluded": 3},
+      "why": "THE conformance case for the oracle. Same slice, same requester, a query that cannot match anything — and the identical count. A board whose number differs between this row and the one above is answering questions about content its own ACL forbids, and each difference is one bit of a decoder."
+    },
+    {
+      "offset": 10,
+      "view": "search",
+      "args": {"requester": "band:carol", "ns": "/commons/offtopic", "q": "public"},
+      "cite": "11.3",
+      "expect": {"visible": [4], "sealed_excluded": 0, "participation_excluded": 0},
+      "why": "the ordinary case: a readable envelope matches and is served, and a slice with nothing withheld reports zero rather than the board's total."
+    },
+    {
+      "offset": 10,
+      "view": "search",
+      "args": {"requester": "band:bob", "ns": "/round", "q": "answer"},
+      "cite": "8.3 / 11.3",
+      "expect": {"visible": [2], "sealed_excluded": 0, "participation_excluded": 0},
+      "why": "bob has not answered the open round, so alice's PROPOSAL (10) is blinded from him: neither served NOR counted, because a blinded envelope resolves to `denied` and denied envelopes are never returned for counting. The nest's own POLICY (2) DOES match and is served — its `_note` contains the word, and POLICY is seam-exempt (§8.7.4, the levers stay in the light). That contrast is the case: a readable envelope matching on content while a blinded one in the same slice leaves no trace in the results or the counters."
+    }
+  ],
   "must_not": [
+    {
+      "cite": "9.3 / 11.3 / R34",
+      "assert": "no exclusion count on a search response varies with the query",
+      "why": "the invariant the two /dm/band:bob rows sample and cannot exhaust. It must hold for every requester, every slice and every string — a board satisfying it at the sampled queries and not in general is an oracle with two known-good inputs. The check a second implementation should run: fix a requester and a slice, vary q over any set of strings, assert the counts are constant."
+    },
     {
       "cite": "8.3",
       "assert": "no counter reports a blind-round exclusion",

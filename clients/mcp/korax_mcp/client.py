@@ -293,6 +293,28 @@ class KoraxClient:
             )
         return raw
 
+    async def search(self, **params: Any) -> dict[str, Any]:
+        """§11.x — substring over readable payloads. The structural filters
+        scope the exclusion counts as well as the results; `q` is never run
+        against a withheld envelope, so the counts cannot be probed as an
+        oracle over content the requester may not read (#636 D2)."""
+        raw = await self._request("GET", "/search", params=_params(**params))
+        if not isinstance(raw, dict):
+            raise KoraxTransportError("GET /search: expected a result object")
+        return raw
+
+    async def neighbourhood(self, env_id: int, **params: Any) -> dict[str, Any]:
+        """§11.x — the edge-connected component around one envelope. A root
+        the requester may not read 404s exactly as `/envelope` does."""
+        raw = await self._request(
+            "GET", f"/neighbourhood/{env_id}", params=_params(**params)
+        )
+        if not isinstance(raw, dict):
+            raise KoraxTransportError(
+                f"GET /neighbourhood/{env_id}: expected a result object"
+            )
+        return raw
+
     async def policy(self, ns: str, at: int | None = None) -> dict[str, Any]:
         """The nest policy in force at an offset (§8.1). Envelopes are
         validated against the policy in force at their own offset, so `at`

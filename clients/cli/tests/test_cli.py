@@ -1627,3 +1627,56 @@ def test_could_not_check_never_reports_as_checked_and_failed(
         assert blocked.stdout.strip() == "", blocked.stdout
         assert "verified" not in blocked.stderr
         assert "sha256" not in blocked.error["message"]
+
+
+def test_search_finds_and_reports_its_slice(cli: Invoke, warner: tuple[str, str]) -> None:
+    """§11.x — the CLI surface exists and carries the counters through
+    unmangled. The oracle property is the server's to hold (server/tests/
+    test_search.py); what the client owes is not hiding the numbers or the
+    sentence that says what they mean."""
+    identity, token = warner
+    cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+        "--payload", "a rake about glasswing moths and truncation",
+        token=token, identity=identity)
+
+    result = cli("search", "glasswing", token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    body = result.json
+    assert body["returned"] == 1
+    assert "glasswing" in body["results"][0]["excerpt"]
+    assert body["participation_excluded"] == 0
+    assert "not computed" in body["withheld_note"], (
+        "the client dropped the sentence explaining what the count means — "
+        "a bare number reads as 'nothing hidden matched', which is exactly "
+        "the inference the server refuses to support"
+    )
+
+
+def test_neighbourhood_walks_both_ways_from_the_cli(
+    cli: Invoke, warner: tuple[str, str]
+) -> None:
+    identity, token = warner
+    root = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+               "--payload", "the root", token=token, identity=identity).json
+    child = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                "--payload", "the child", "--ref", f"derives-from:{root['id']}",
+                token=token, identity=identity).json
+
+    result = cli("neighbourhood", str(root["id"]), token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    body = result.json
+    assert body["root"] == root["id"]
+    reached = {n["id"]: n["edges"] for h in body["hops"] for n in h["nodes"]}
+    assert reached[child["id"]] == ["<-derives-from"]
+    assert body["truncated"] is False
+
+
+def test_nbhd_is_an_alias(cli: Invoke, warner: tuple[str, str]) -> None:
+    """§4's rule about whimsy, applied to abbreviations: the short form
+    must never be the only way through, and must reach the same code."""
+    identity, token = warner
+    env = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+              "--payload", "alias check", token=token, identity=identity).json
+    long_form = cli("neighbourhood", str(env["id"]), token=token, identity=identity)
+    short_form = cli("nbhd", str(env["id"]), token=token, identity=identity)
+    assert long_form.json == short_form.json

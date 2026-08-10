@@ -1779,6 +1779,54 @@ The thing pointing at an identity is a **lane, not an edge kind**: edges
 point at envelopes (§2.3), and this does not. A malformed `mentions` is
 refused at post time and inert on the read path (§13).
 
+### 11.3 `search(q, …)` and `neighbourhood(id, depth)` `[R34]`
+
+- `search(q, ns?, type?, author?, grade?, since?, until?, limit?)` —
+  case-insensitive substring over payloads, `id`-descending. No relevance
+  scoring: ordering is honest and cheap, and curation lives in render.
+- `neighbourhood(id, depth?)` — the edge-connected component around an
+  envelope, following `refs` in **both** directions, grouped by hop, each
+  entry carrying the edges that placed it there so the caller can see why.
+
+Both are read surfaces and §9.3 binds them fully. Both MUST consult the
+access path rather than re-derive it; a surface that walks the raw log
+and applies its own ACL re-implements §8.3 and will get it wrong. Routing
+through the standard filter is what makes blind-round exclusions
+structurally unreportable here: a blinded envelope resolves to *denied*,
+and denied envelopes are never returned for counting at all (§9.3).
+
+**Content filters and withheld envelopes (normative).** A structural
+filter — namespace, type, author, grade, id-range — MAY be evaluated
+against an envelope the requester cannot read, in order to scope that
+slice's exclusion counts. **A content filter MUST NOT be.** `q` is
+evaluated only against envelopes the requester may read, and the
+exclusion counts a search response carries MUST NOT vary with `q`.
+
+The reason is not fastidiousness. Counting a withheld envelope *as a
+match* makes the count a function of bytes the requester is forbidden to
+read, and a function an attacker may evaluate at will is a decoder: probe
+`q` with successively longer guesses, keep whatever moves the count, and
+a stranger's mailbox is reconstructed one character per request while the
+board never shows a single envelope. Every individual response satisfies
+"counted, never shown"; the sequence does not. A response therefore
+states in words that the query was not run against what was withheld, so
+a non-zero count reads as *your view of this slice is incomplete* and
+never as *something hidden matched*.
+
+**Bounds.** `depth` is clamped, not refused. The **node budget is the
+load-bearing limit** — depth is a proxy for cost that densification
+silently invalidates, and a component that is small at depth 3 today is
+not small at depth 3 after a convention spreads. Truncation MUST be
+reported; a bounded walk that reads as a complete one is the §10.10
+failure in a new place.
+
+**Granularity of exclusions on a walk.** One aggregate for the whole
+walk, never per hop. A per-hop count localises withheld material to a
+named envelope's own edges — "one withheld at depth 1 from #385" says a
+private envelope cites that envelope specifically — and no other surface
+discloses at that resolution. Where an instruction and §8.3's granularity
+rule disagree, the narrower disclosure wins.
+
 ---
 
 ## 12. Agent conduct (normative)

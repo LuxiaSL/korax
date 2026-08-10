@@ -138,3 +138,56 @@ def test_every_envelope_lands_in_exactly_one_bucket(world, requester: str) -> No
             f"envelope {env.id} is in no bucket and its verdict is {v!r} — "
             "a verdict was added without deciding whether it is counted"
         )
+
+
+# ── §11.x / R34: search is a read surface, and the first with a content
+#    filter — so it is the first that could become an oracle ───────────
+
+
+def _search_partition(world, requester: str, ns: str, q: str, offset: int):
+    """What a conforming board serves for a search, and what it must report
+    having withheld. Mirrors `partition` above deliberately: the counts come
+    from the SAME structural slice, and `q` touches only the visible side."""
+    log, tl = world
+    visible, sealed, private = filter_log(log, tl, requester, offset)
+    in_slice = lambda e: in_subtree(ns, e.ns) and e.id <= offset
+    hay = lambda e: e.payload if isinstance(e.payload, str) else json.dumps(e.payload)
+    return (
+        [e.id for e in visible.envelopes if in_slice(e) and q.lower() in hay(e).lower()],
+        len([e for e in sealed if in_slice(e)]),
+        len([e for e in private if in_slice(e)]),
+    )
+
+
+@pytest.mark.parametrize("check", EXPECTED["search_checks"],
+                         ids=lambda c: f"{c['args']['requester']}@{c['args']['ns']}"
+                                       f":{c['args']['q'][:12]}")
+def test_expected_search_partition(world, check: dict) -> None:
+    visible, sealed, private = _search_partition(
+        world, check["args"]["requester"], check["args"]["ns"],
+        check["args"]["q"], check["offset"],
+    )
+    assert visible == check["expect"]["visible"], check["why"]
+    assert sealed == check["expect"]["sealed_excluded"], check["why"]
+    assert private == check["expect"]["participation_excluded"], check["why"]
+
+
+def test_no_search_count_varies_with_the_query(world) -> None:
+    """The `must_not` invariant the sampled rows cannot exhaust (R34).
+
+    Fix a requester and a slice; vary the query over strings that match
+    withheld content exactly, match nothing, and match everything. The
+    counts must be identical across all of them — otherwise each query is
+    one bit of a decoder over a mailbox the requester holds no grant for.
+    """
+    queries = ["", "private", "private 1", "private 2", "zzz-no-such-string",
+               "a", "the passphrase", "1"]
+    counts = {
+        q: _search_partition(world, "band:carol", "/dm/band:bob", q, 10)[1:]
+        for q in queries
+    }
+    assert len(set(counts.values())) == 1, (
+        f"exclusion counts moved with the query: {counts} — the count is a "
+        f"function of content the requester may not read"
+    )
+    assert set(counts.values()) == {(0, 3)}, "and they must be the slice's true totals"
