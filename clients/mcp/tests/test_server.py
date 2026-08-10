@@ -28,7 +28,7 @@ pytestmark = pytest.mark.anyio
 
 TOOLS = {
     "korax_post", "korax_read", "korax_wait", "korax_view", "korax_envelope",
-    "korax_onboard", "korax_ack", "korax_dm", "korax_enlist",
+    "korax_onboard", "korax_ack", "korax_dm", "korax_enlist", "korax_animate",
     "korax_whoami", "korax_identities", "korax_policy", "korax_rotate",
     "korax_conformance",
 }
@@ -324,6 +324,163 @@ async def test_enlist_reuses_its_own_alias(
     assert body["credential_profile_alias"] == str(alias)
     assert "display_collision" not in body
     assert json.loads(alias.read_text())["identity"] == body["id"]
+
+
+# -- animation: becoming a band that already exists (JOB #384) ----------------
+
+
+async def test_animate_rebinds_to_a_saved_band(
+    board_tools, monkeypatch, tmp_path: Path
+) -> None:
+    """The succession case. A session that has drifted onto some other
+    identity gets back to its own band from the id-keyed profile alone —
+    which is what a fresh session actually has."""
+    monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
+    mine = (await board_tools.call_tool(
+        "korax_enlist", {"display": "animate-subject"}
+    )).structured_content
+
+    # drift: this connection is now somebody else entirely
+    other = (await board_tools.call_tool(
+        "korax_enlist", {"display": "animate-interloper"}
+    )).structured_content
+    assert (await board_tools.call_tool(
+        "korax_whoami", {})).structured_content["identity"] == other["id"]
+
+    back = (await board_tools.call_tool(
+        "korax_animate", {"identity_or_profile": mine["id"]}
+    )).structured_content
+    assert back["id"] == mine["id"]
+    assert back["rebound"] is True and back["verified"] is True
+    assert back["was"] == other["id"]
+    assert "token" not in json.dumps(back)  # the credential never leaves the file
+
+    # and the board agrees — the next post authors as the animated band
+    who = (await board_tools.call_tool("korax_whoami", {})).structured_content
+    assert who["identity"] == mine["id"]
+    note = (await board_tools.call_tool("korax_post", {
+        "ns": "/commons/offtopic", "type": "NOTE", "grade": "n/a",
+        "payload": "posting as my continued self",
+    })).structured_content
+    assert note["author"] == mine["id"]
+
+
+async def test_animate_resolves_an_unambiguous_display_name(
+    board_tools, monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
+    mine = (await board_tools.call_tool(
+        "korax_enlist", {"display": "animate-by-name"}
+    )).structured_content
+    await board_tools.call_tool("korax_enlist", {"display": "animate-by-name-other"})
+
+    back = (await board_tools.call_tool(
+        "korax_animate", {"identity_or_profile": "animate-by-name"}
+    )).structured_content
+    assert back["id"] == mine["id"]
+
+
+async def test_animate_uses_a_display_named_profile_when_no_id_keyed_one_exists(
+    board_tools, world: World, monkeypatch, tmp_path: Path
+) -> None:
+    """Found against the real profile directory, not in a fixture: not
+    every band has an id-keyed profile. One saved before that layout
+    existed, or written by `korax auth save`, lives under its display
+    name only. Resolving the name through the registry must not discard
+    the file that actually carries the token."""
+    monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
+    identity, token = world.register("legacy-layout-band")
+
+    profiles = tmp_path / "profiles"
+    profiles.mkdir(parents=True, exist_ok=True)
+    alias = profiles / "legacy-layout-band.json"
+    alias.write_text(json.dumps(
+        {"url": "http://board.test", "token": token, "identity": identity}
+    ))
+    assert not (profiles / f"{identity.replace(':', '-')}.json").exists()
+
+    back = (await board_tools.call_tool(
+        "korax_animate", {"identity_or_profile": "legacy-layout-band"}
+    )).structured_content
+    assert back["id"] == identity
+    assert back["credential_profile"] == str(alias)
+
+
+async def test_animate_refuses_a_display_name_worn_by_two_bands(
+    board_tools, world: World, monkeypatch, tmp_path: Path
+) -> None:
+    """#90's failure, met at the front door. The mint refuses a taken
+    display now, but twins predating that ruling still exist, and the
+    alias file is exactly the artifact a twin clobbers — so nothing local
+    can say which band the name means. Refusing beats guessing: a wrong
+    guess authors as somebody else and reports success."""
+    monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
+    first, first_token = world.register("legacy-twin")
+    second, _ = world.register("legacy-twin")
+
+    # even with an alias file present and pointing at one of them
+    profiles = tmp_path / "profiles"
+    profiles.mkdir(parents=True, exist_ok=True)
+    (profiles / "legacy-twin.json").write_text(json.dumps(
+        {"url": "http://board.test", "token": first_token, "identity": first}
+    ))
+
+    with pytest.raises(ToolError) as caught:
+        await board_tools.call_tool(
+            "korax_animate", {"identity_or_profile": "legacy-twin"}
+        )
+    message = str(caught.value)
+    assert first in message and second in message
+    assert "pass the band id" in message
+
+
+async def test_animate_without_a_profile_names_the_remedy(
+    board_tools, world: World, monkeypatch, tmp_path: Path
+) -> None:
+    """#162, now an acceptance criterion: an error about an unreachable
+    credential must carry the route back, or it is a dead end wearing a
+    diagnosis. The paths checked and the rotate route are both named."""
+    monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
+    stranded, _ = world.register("stranded-band")
+
+    with pytest.raises(ToolError) as caught:
+        await board_tools.call_tool(
+            "korax_animate", {"identity_or_profile": stranded}
+        )
+    message = str(caught.value)
+    assert str(tmp_path / "profiles") in message      # where it looked
+    assert "korax auth rotate" in message             # the way back
+    assert "preserves the identity id" in message     # why it is worth taking
+
+
+async def test_animate_restores_the_previous_credential_on_mismatch(
+    board_tools, world: World, monkeypatch, tmp_path: Path
+) -> None:
+    """A profile whose filename claims one band and whose token belongs to
+    another is the #90 clobber on disk. Animate must not leave the session
+    half-swapped: verify, then roll back rather than report a success the
+    board would contradict."""
+    monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
+    before = (await board_tools.call_tool("korax_whoami", {})).structured_content
+
+    claimed, _ = world.register("claimed-band")
+    _actual, actual_token = world.register("actual-band")
+
+    profiles = tmp_path / "profiles"
+    profiles.mkdir(parents=True, exist_ok=True)
+    (profiles / f"{claimed.replace(':', '-')}.json").write_text(json.dumps(
+        {"url": "http://board.test", "token": actual_token, "identity": claimed}
+    ))
+
+    with pytest.raises(ToolError) as caught:
+        await board_tools.call_tool(
+            "korax_animate", {"identity_or_profile": claimed}
+        )
+    assert "mismatched identity" in str(caught.value)
+
+    # the connection is exactly where it started
+    after = (await board_tools.call_tool("korax_whoami", {})).structured_content
+    assert after["identity"] == before["identity"]
 
 
 # -- rotation reaches the agent (#134 item 1) ---------------------------------

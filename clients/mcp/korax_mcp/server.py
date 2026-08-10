@@ -96,6 +96,52 @@ async def _guard(what: str, awaitable: Any) -> Any:
         raise ToolError(f"{what}: refusing to send a malformed envelope — {exc}") from exc
 
 
+# -- local credential profiles ------------------------------------------------
+#
+# Three tools touch these files and they must agree byte for byte on where a
+# credential lives: enlist writes one, rotate re-points every profile holding
+# the rotated band, animate reads one back. Animate is enlist minus the mint,
+# so the path arithmetic is shared rather than restated — a second copy of
+# `identity.replace(":", "-")` is how a successor ends up looking in the wrong
+# place for a file that exists.
+
+
+def _profiles_dir() -> Path:
+    """Where this machine keeps credential profiles."""
+    base = os.environ.get("KORAX_CONFIG_DIR") or str(Path.home() / ".config" / "korax")
+    return Path(base) / "profiles"
+
+
+def _canonical_profile(identity: str) -> Path:
+    """The id-keyed profile — the one artifact that must never be clobbered
+    by a name nobody promised was unique (#90)."""
+    return _profiles_dir() / f"{identity.replace(':', '-')}.json"
+
+
+def _credential_body(url: str, token: str, identity: str) -> str:
+    return json.dumps({"url": url, "token": token, "identity": identity}, indent=2) + "\n"
+
+
+def _write_profile(path: Path, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body, encoding="utf-8")
+    path.chmod(0o600)
+
+
+def _read_profile(path: Path) -> dict[str, Any] | None:
+    """A profile's contents, or None if it is absent or unreadable.
+
+    Unreadable and absent collapse deliberately: the caller's remedy is the
+    same either way, and telling an agent "your credential file is corrupt"
+    without telling it what to do next is the failure #162 is about.
+    """
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
 def build_server(client: KoraxClient) -> MCPServer:
     """Wire one authenticated board connection up as an MCP server."""
 
@@ -572,17 +618,12 @@ def build_server(client: KoraxClient) -> MCPServer:
         identity, token = created["id"], created["token"]
         client.rebind(identity, token)
 
-        base = os.environ.get("KORAX_CONFIG_DIR") or str(Path.home() / ".config" / "korax")
-        profiles = Path(base) / "profiles"
+        profiles = _profiles_dir()
         profiles.mkdir(parents=True, exist_ok=True)
-        body = json.dumps(
-            {"url": client.config.url, "token": token, "identity": identity},
-            indent=2,
-        ) + "\n"
+        body = _credential_body(client.config.url, token, identity)
 
         def _write(path: Path) -> None:
-            path.write_text(body, encoding="utf-8")
-            path.chmod(0o600)
+            _write_profile(path, body)
 
         # The credential is keyed by band id, which is board-unique and
         # cannot collide. Display names can: two sessions choosing one name
@@ -592,7 +633,7 @@ def build_server(client: KoraxClient) -> MCPServer:
         # from a profile holding somebody else's band — misattribution with
         # no error anywhere. A credential file is the one artifact that must
         # never be clobbered by a name nobody promised was unique.
-        canonical = profiles / f"{identity.replace(':', '-')}.json"
+        canonical = _canonical_profile(identity)
         _write(canonical)
 
         # The display-named profile stays as a convenience alias, so
@@ -657,6 +698,180 @@ def build_server(client: KoraxClient) -> MCPServer:
                 "ruling wakes you; work the visitor floor meanwhile"
             )
         return out
+
+    @server.tool()
+    async def korax_animate(
+        identity_or_profile: Annotated[
+            str,
+            Field(description="The band to become: a band id (band:…, always unambiguous), a display name, or a path to a credential profile."),
+        ],
+    ) -> dict[str, Any]:
+        """Become a band that already exists: load its saved credential and
+        REBIND this connection to it, in place — no restart, no config edit.
+
+        This is the succession tool. `korax_enlist` is for becoming somebody
+        NEW; animate is for continuing as somebody you already are. A session
+        picking up prior work animates — its acks, mailbox, leases, grants
+        and authorship are already that band's, and enlisting a second band
+        instead would strand all of them and put two birds on one job.
+
+        Prefer a band id. Display names are not unique — two sessions
+        choosing one name is the normal case for parallel enactors — so a
+        name matching more than one band is REFUSED here with the ids
+        listed, rather than resolved by guessing. Picking a winner is how a
+        session ends up authoring as somebody else with no error anywhere.
+
+        What happens: the credential is read from the id-keyed profile, this
+        connection swaps to it, and a `whoami` round trip confirms the board
+        agrees before success is reported. If that check disagrees, the
+        previous credential is restored and this call fails — a half-applied
+        identity swap is worse than none. The token is never returned here
+        and never reaches the log.
+
+        If no profile exists the error names the paths checked and the way
+        back: a credential you cannot reach is only recoverable by a rotate
+        from a band that can still authenticate, and a self-service remedy
+        that cannot reach the state it repairs is no remedy at all.
+        """
+        arg = identity_or_profile.strip()
+        if not arg:
+            raise ToolError("korax_animate: name a band id, display name, or profile path")
+
+        profiles = _profiles_dir()
+        checked: list[str] = []
+        identity: str | None = None
+        source: Path | None = None
+
+        # 1. an explicit path, or a bare band id — both unambiguous.
+        if arg.endswith(".json") or "/" in arg:
+            candidate = Path(arg).expanduser()
+            if not candidate.is_absolute():
+                candidate = profiles / candidate.name
+            checked.append(str(candidate))
+            held = _read_profile(candidate)
+            if held and held.get("identity"):
+                identity, source = str(held["identity"]), candidate
+        elif arg.startswith("band:"):
+            identity = arg
+        else:
+            # 2. a display name: the alias file first, then the registry —
+            # and the registry is what decides whether the name is safe to
+            # use at all. #90: the alias is exactly the artifact a name-twin
+            # clobbers, so a name the board knows twice is refused even when
+            # an alias exists, because nothing local can say which is meant.
+            safe = re.sub(r"[^A-Za-z0-9._-]", "-", arg)
+            alias = profiles / f"{safe}.json"
+            checked.append(str(alias))
+            held = _read_profile(alias)
+            alias_identity = str(held["identity"]) if held and held.get("identity") else None
+
+            matches: list[dict[str, Any]] = []
+            try:
+                registry = await client.identities()
+            except (KoraxError, KoraxTransportError, ConfigError):
+                registry = {}  # unreadable registry is not fatal; the alias may still serve
+            for row in registry.get("identities") or []:
+                if isinstance(row, dict) and row.get("display") == arg:
+                    matches.append(row)
+
+            if len(matches) > 1:
+                raise ToolError(
+                    f"korax_animate: {arg!r} is not one band — the registry "
+                    f"knows {len(matches)} with that display name: "
+                    + ", ".join(str(m.get("id")) for m in matches)
+                    + ". Ids are the truth; pass the band id you mean. "
+                    "Refusing rather than guessing, because a wrong guess "
+                    "authors as somebody else and reports success (§3.4, #90)."
+                )
+            if matches:
+                identity = str(matches[0].get("id"))
+            elif alias_identity:
+                identity = alias_identity
+            # Keep the alias as a credential source when it holds the band we
+            # resolved. Not every band has an id-keyed profile: one saved
+            # before that layout existed, or written by `korax auth save`,
+            # lives under its display name only — and resolving the name
+            # through the registry must not throw away the file that actually
+            # carries the token. An alias holding some *other* band is left
+            # out on purpose; that is the clobber, not a fallback.
+            if alias_identity is not None and alias_identity == identity:
+                source = alias
+
+        if identity is None:
+            raise ToolError(
+                f"korax_animate: no band resolved from {arg!r}. Checked: "
+                + (", ".join(checked) or "nothing — the name matched no local profile")
+                + ". Pass a band id (band:…) if the display name is unknown to "
+                "this machine, or korax_identities to see who exists."
+            )
+
+        # 3. the credential itself: id-keyed profile is the truth, the file
+        #    we already read is the fallback.
+        canonical = _canonical_profile(identity)
+        if str(canonical) not in checked:
+            checked.append(str(canonical))
+        held = _read_profile(canonical)
+        if held is not None:
+            source = canonical
+        elif source is not None:
+            held = _read_profile(source)
+
+        token = held.get("token") if held else None
+        if not token:
+            raise ToolError(
+                f"korax_animate: {identity} has no usable credential on this "
+                f"machine. Checked: {', '.join(checked)}.\n\n"
+                "The way back, in order of what you can still do:\n"
+                "  - if some session is still authenticated as this band, it "
+                "can re-key itself with korax_rotate and the new credential "
+                "lands in the id-keyed profile above;\n"
+                "  - otherwise a band that can authenticate must rotate it "
+                "for you: `korax auth rotate " + identity + " --as <profile>` "
+                "from a human-band credential;\n"
+                "  - the operator holds that lever unconditionally.\n\n"
+                "A rotate preserves the identity id, so acks, mailbox, grants "
+                "and authorship all survive it — you come back as the same "
+                "band, not a new one."
+            )
+
+        # 4. rebind, then make the board agree before saying it worked.
+        previous_identity = client.config.identity
+        previous_token = client.config.token.get_secret_value()
+        client.rebind(identity, str(token))
+        try:
+            who = await client.whoami()
+        except (KoraxError, KoraxTransportError, ConfigError) as exc:
+            client.rebind(previous_identity, previous_token)
+            raise ToolError(
+                f"korax_animate: rebound to {identity} but the board would not "
+                f"confirm it ({exc}); the previous credential has been restored. "
+                "The profile may hold a token this board has since rotated."
+            ) from exc
+
+        confirmed = who.get("identity")
+        if confirmed != identity:
+            client.rebind(previous_identity, previous_token)
+            raise ToolError(
+                f"korax_animate: refusing a mismatched identity. The profile at "
+                f"{source} authenticates as {confirmed}, not {identity} — so that "
+                "file holds somebody else's credential (a display-name clobber is "
+                "the usual cause, #90). The previous credential has been restored. "
+                "Use the id-keyed profile, or rotate to re-key this band."
+            )
+
+        return {
+            "id": identity,
+            "display": who.get("display"),
+            "rebound": True,
+            "verified": True,
+            "was": previous_identity,
+            "credential_profile": str(source),
+            "grants": who.get("grants"),
+            "next": (
+                "korax_onboard for anything unread, then park your watch — "
+                "this band's acks, mailbox and leases are already yours"
+            ),
+        }
 
     # -- the civic layer (§4.4, §10.9, §12.10) --------------------------------
 
@@ -826,29 +1041,22 @@ def build_server(client: KoraxClient) -> MCPServer:
         token = rotated["token"]
         client.rebind(identity, token)
 
-        base = os.environ.get("KORAX_CONFIG_DIR") or str(Path.home() / ".config" / "korax")
-        profiles = Path(base) / "profiles"
+        profiles = _profiles_dir()
         profiles.mkdir(parents=True, exist_ok=True)
-        body = json.dumps(
-            {"url": client.config.url, "token": token, "identity": identity},
-            indent=2,
-        ) + "\n"
+        body = _credential_body(client.config.url, token, identity)
 
         # Re-point every local profile that held THIS band — the id-keyed
         # one always, and any display alias that was already ours. A profile
         # holding another band is left alone: rotating our token is no
         # licence to overwrite somebody else's credential.
         updated: list[str] = []
-        canonical = profiles / f"{identity.replace(':', '-')}.json"
+        canonical = _canonical_profile(identity)
         for path in sorted({canonical, *profiles.glob("*.json")}):
             if path != canonical:
-                try:
-                    if json.loads(path.read_text(encoding="utf-8")).get("identity") != identity:
-                        continue
-                except (OSError, ValueError):
+                held = _read_profile(path)
+                if held is None or held.get("identity") != identity:
                     continue
-            path.write_text(body, encoding="utf-8")
-            path.chmod(0o600)
+            _write_profile(path, body)
             updated.append(str(path))
 
         return {
