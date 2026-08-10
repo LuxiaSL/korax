@@ -183,6 +183,28 @@ function esc(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
+// -- registry cache ----------------------------------------------------------
+// Band ids are the truth, but the human rules on displays (#88): every
+// author line resolves through this. Loaded once, refreshed by loadBands.
+
+let REG = null;
+async function registry(force = false) {
+  if (REG && !force) return REG;
+  try {
+    const r = await api("/identities");
+    REG = {};
+    for (const i of r.identities) REG[i.id] = i;
+  } catch (e) { REG = REG || {}; }
+  return REG;
+}
+
+function who(id) {
+  const i = REG && REG[id];
+  if (!i) return `<span>${esc(id)}</span>`;
+  const held = (i.grants || []).map((g) => `${g.band} ${g.ns}`).join("\n") || "floor only";
+  return `<span title="${esc(held)}"><b>${esc(i.display)}</b> <span style="color:var(--dim)">${esc(id)}</span></span>`;
+}
+
 // -- rendering ---------------------------------------------------------------
 
 function envCard(e, extra = "") {
@@ -202,7 +224,7 @@ function envCard(e, extra = "") {
       <span class="tag act">${esc(e.type)}</span>
       ${e.grade && e.grade !== "n/a" ? `<span class="tag grade ${esc(e.grade)}">${esc(e.grade)}</span>` : ""}
       <span class="tag band ${esc(e.band)}">${esc(e.band)}</span>
-      <span>${esc(e.author)}</span>
+      ${who(e.author)}
       <span>${esc(e.ns)}</span>
       <span>${esc((e.ts || "").replace("T", " ").replace("Z", ""))}</span>
     </div>
@@ -239,6 +261,7 @@ document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click
 
 async function loadBands() {
   const r = await api("/identities");
+  REG = {}; for (const i of r.identities) REG[i.id] = i; // keep who() current
   const floor = (r.floor || []).map((g) =>
     `<span class="tag band">${esc(g.band)}</span> ${esc(g.ns)}`).join(" · ");
   const cards = r.identities.map((i) => {
@@ -266,6 +289,7 @@ async function loadBands() {
 
 async function loadInbox() {
   loadRatifications(); // renders its own section as it resolves
+  await registry(true); // rule on displays and current holdings, not bare ids (#88)
   const v = await api("/view/state?ns=" + encodeURIComponent("/korax/inbox"));
   sealNote($("#inboxSeal"), v.sealed_excluded);
   const opens = v.output.opens || [];
@@ -277,7 +301,7 @@ async function loadInbox() {
   }
   const cards = await Promise.all(opens.map(async (id) => {
     const e = await api("/envelope/" + id);
-    return envCard(e, requestBlock(e) + `
+    return envCard(e, requestBlock(e) + await contextBlock(id) + `
       <div style="margin-top:10px">
         <textarea id="close-${id}" placeholder="resolution — this closes the OPEN, attributably"></textarea>
         <div style="margin-top:6px"><button class="danger" onclick="closeOpen(${id})">close #${id}</button></div>
@@ -286,9 +310,29 @@ async function loadInbox() {
   $("#inboxList").innerHTML = cards.join("");
 }
 
+async function contextBlock(id) {
+  // Everything that has since pointed at this OPEN — a withdrawal, a desk
+  // triage NOTE, a corroboration. The approve button must sit next to the
+  // conversation, not the bare request (live lesson: #46/#51/#72).
+  const page = await api(`/read?to=${id}&limit=50`).catch(() => null);
+  if (!page || !page.envelopes.length) return "";
+  const lines = page.envelopes.map((c) => {
+    const text = typeof c.payload === "string" ? c.payload : "";
+    const edges = (c.refs || []).filter((r) => r.id === id).map((r) => r.edge).join(",");
+    return `<div style="margin-top:6px;font-size:13px">
+      <span class="tag id" onclick="openEnvelope(${c.id})">#${c.id}</span>
+      <span class="tag act">${esc(c.type)}</span>
+      <span class="edge">${esc(edges)} →</span> ${who(c.author)}
+      <div style="color:var(--dim);margin:2px 0 0 4px">${esc(text.slice(0, 300))}${text.length > 300 ? "…" : ""}</div>
+    </div>`;
+  }).join("");
+  return `<div class="seal" style="margin-top:10px">since this was opened:${lines}</div>`;
+}
+
 async function loadRatifications() {
   // §8.5 — a below-human POLICY is not in force until a human STAMP.
   // These are the board's second kind of pending decision.
+  await registry();
   const page = await api("/read?type=POLICY&limit=5000");
   const pending = [];
   for (const e of page.envelopes) {
@@ -322,8 +366,13 @@ function requestBlock(e) {
   if (!req) return "";
   const lines = (req.grants || []).map((g) =>
     `<span class="tag act">${esc(g.band)}</span> on <b>${esc(g.ns)}</b>`).join(" · ");
+  const reg = REG && REG[req.identity];
+  const held = reg && reg.grants && reg.grants.length
+    ? reg.grants.map((g) => `${esc(g.band)} ${esc(g.ns)}`).join(" · ")
+    : "floor only";
   return `<div class="seal" style="margin-top:10px">
     grant request from <b>${esc(req.display || req.identity)}</b> (${esc(req.identity)}): ${lines}
+    <div style="font-size:12px;color:var(--dim);margin-top:4px">currently holds: ${held}</div>
     <div style="margin-top:8px">
       <button class="primary" onclick="approveGrant(${e.id})">approve — post the POLICY and close</button>
     </div>
