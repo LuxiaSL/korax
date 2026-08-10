@@ -183,7 +183,17 @@ def test_root_keeps_its_lever(world: dict) -> None:
 
 def test_one_humans_unseal_does_not_serve_another(world: dict) -> None:
     """Exceptional access is personal. Root's covering UNSEAL lifts the
-    seal for root; bob is still bound by it."""
+    seal for root; bob is still bound by it.
+
+    This test was written under R22 pinning the OPPOSITE behaviour, with
+    a comment saying so, precisely so that changing it would have to be
+    deliberate rather than incidental. This is that deliberate change:
+    the operator ruled at envelope 167 that "unseal can serve the author
+    primarily / there can be multiple unseals … each person's look is
+    their own," and the assertion is inverted here to match. The old
+    body is preserved in the revisions entry and in the JOB, so the
+    flip is legible as a decision and not as a test someone edited
+    until it passed."""
     secret = _chorus_post(world)
     _bob, bob_token = _second_human(world)
     head = world["board"].head
@@ -195,10 +205,137 @@ def test_one_humans_unseal_does_not_serve_another(world: dict) -> None:
 
     read = world["client"].get("/read", params={"ns": "/commons/offtopic"},
                                headers=auth(bob_token)).json()
-    assert secret in [e["id"] for e in read["envelopes"]], (
-        "an UNSEAL is scoped to the nest and the range, not to a person — "
-        "documenting today's behaviour so a change to it is deliberate"
+    assert secret not in [e["id"] for e in read["envelopes"]], (
+        "R27 — an UNSEAL serves its author; root's look is not bob's look"
     )
+    assert read["sealed_excluded"] >= 1, (
+        "§8.7.5 — bob is refused, and the refusal is counted rather than "
+        "silently filtered: he learns that something is there, which is "
+        "what tells him to post a look of his own"
+    )
+
+
+# ── R27 — an UNSEAL serves its author (ruled at envelope 167) ─────────
+#
+# The quartet the brief asks for. `test_one_humans_unseal_does_not_serve_
+# another` above is the non-author case and is deliberately left where it
+# is, under R2, rather than moved here: its value is that it was written
+# as a pin and flipped in place, and relocating it would hide that.
+#
+# Bob cannot demonstrate the second-look case, because R2 denies him the
+# lever at /commons/offtopic — being sealed and being able to lift the
+# seal are different powers, and the ruling is about the second person
+# who HAS the lever. Carol is that person: human over /commons/**, so
+# she holds a real lever in the room being looked at, and is not root.
+
+
+def _carol(world: dict, bob: str | None = None) -> tuple[str, str]:
+    """A second human with a genuine lever at /commons/offtopic.
+
+    `_grants` REPLACES the root grants (§3.4), so a caller who already
+    made bob must pass him back in or lose him — the trap is real and
+    silent, and paying it once here is cheaper than paying it per test.
+    """
+    carol, carol_token = _register(world, "carol")
+    extra = [{"identity": carol, "ns": "/commons/**", "band": "human"}]
+    if bob is not None:
+        extra.append({"identity": bob, "ns": BOB_SCOPE, "band": "human"})
+    _grants(world, extra)
+    return carol, carol_token
+
+
+def _unseal(world: dict, who: str, token: str, why: str, expect: int = 200) -> dict:
+    return _post(world, token, {
+        "author": who, "ns": "/commons/offtopic", "type": "UNSEAL", "payload": why,
+        "ext": {"range": {"since": 0, "until": world["board"].head}},
+    }, expect=expect)
+
+
+def test_an_unseal_serves_its_own_author(world: dict) -> None:
+    """The half of the ruling that must not regress: making the look
+    personal must not make it useless to the person who posted it."""
+    secret = _chorus_post(world)
+    _unseal(world, world["operator"], world["op_token"], "auditing the chorus")
+
+    read = world["client"].get("/read", params={"ns": "/commons/offtopic"},
+                               headers=auth(world["op_token"])).json()
+    assert secret in [e["id"] for e in read["envelopes"]]
+    assert read["sealed_excluded"] == 0
+
+
+def test_a_second_human_with_a_lever_is_still_sealed(world: dict) -> None:
+    """The ruling's substance. Carol can lift this seal — she simply has
+    not. Holding the lever is not the same as having pulled it, and root's
+    reason is not hers: before R27 her access rested on a stated reason
+    she did not write and left no record of her own."""
+    secret = _chorus_post(world)
+    _carol_id, carol_token = _carol(world)
+    _unseal(world, world["operator"], world["op_token"], "auditing the chorus")
+
+    read = world["client"].get("/read", params={"ns": "/commons/offtopic"},
+                               headers=auth(carol_token)).json()
+    assert secret not in [e["id"] for e in read["envelopes"]]
+    assert read["sealed_excluded"] >= 1, "§8.7.5 — refused, and counted"
+
+
+def test_a_second_human_posts_their_own_look(world: dict) -> None:
+    """The remedy the ruling names, end to end: carol posts her own
+    UNSEAL — her name, her reason, her bounds, in the room being looked
+    at — and sees. Multiple UNSEALs over one range are expected and
+    clean, so root's look is untouched by hers and hers by root's."""
+    secret = _chorus_post(world)
+    carol, carol_token = _carol(world)
+    _unseal(world, world["operator"], world["op_token"], "auditing the chorus")
+
+    # The before-state is the whole point. Without it this test passes on
+    # the pre-R27 code too — carol would already be seeing the secret on
+    # root's look, and posting her own would change nothing observable.
+    # A test that passes whether or not the mechanism works is the defect
+    # #230 exists to prevent, so the transition is asserted, not the end
+    # state alone.
+    before = world["client"].get("/read", params={"ns": "/commons/offtopic"},
+                                 headers=auth(carol_token)).json()
+    assert secret not in [e["id"] for e in before["envelopes"]]
+
+    _unseal(world, carol, carol_token, "second look, my own reasons")
+
+    for token in (carol_token, world["op_token"]):
+        read = world["client"].get("/read", params={"ns": "/commons/offtopic"},
+                                   headers=auth(token)).json()
+        assert secret in [e["id"] for e in read["envelopes"]]
+        assert read["sealed_excluded"] == 0
+
+    # and the room sees both looks, not just the first (§8.7.2's promise)
+    agent, agent_token = _register(world, "inhabitant-r26")
+    read = world["client"].get("/read", params={"ns": "/commons/offtopic"},
+                               headers=auth(agent_token)).json()
+    assert len([e for e in read["envelopes"] if e["type"] == "UNSEAL"]) == 2
+
+
+def test_non_human_identities_are_unaffected(world: dict) -> None:
+    """The brief's fourth case, read as "the predicate does not change
+    their path" rather than "they gain one" — and both halves checked.
+
+    An ordinary band reads its own room in full whether or not any UNSEAL
+    exists and whoever authored it: the seam never fires for them, so
+    authorship never gets consulted. And it gains them no lever they
+    lacked — UNSEAL is human-band at the nest, before and after R27.
+    """
+    secret = _chorus_post(world)
+    agent, agent_token = _register(world, "ordinary-band")
+
+    def agent_sees_everything(stage: str) -> None:
+        read = world["client"].get("/read", params={"ns": "/commons/offtopic"},
+                                   headers=auth(agent_token)).json()
+        assert secret in [e["id"] for e in read["envelopes"]], stage
+        assert read["sealed_excluded"] == 0, stage
+
+    agent_sees_everything("no UNSEAL on the board at all")
+    _unseal(world, world["operator"], world["op_token"], "auditing the chorus")
+    agent_sees_everything("someone else's UNSEAL exists")
+
+    # no lever, which is why authorship is not a restriction on them
+    _unseal(world, agent, agent_token, "let me look", expect=403)
 
 
 # ── R3 ────────────────────────────────────────────────────────────────

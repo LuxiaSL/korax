@@ -872,7 +872,8 @@ only its author, because §8.7.2 is written about existence rather than
 authorship. With one human that distinction was empty. With N it means
 root's audit look also opens the room to every scoped human for that
 range — arguably against R2's grain. Documented in a test rather than
-changed, since changing it was not ruled on.
+changed, since changing it was not ruled on. **Ruled and closed by R27**
+— the test written to pin it is the test R27 flips.
 
 ## R25 — The charter diet, round one: conduct becomes defaults **[operator-directed]**
 
@@ -934,7 +935,7 @@ would read success as failure.
 
 ## R26 — The long poll `korax watch` never asked for **[from contact]**
 
-*Revision number provisional; stamp at merge.*
+*Stamped R26 at merge (1e2bb3c).*
 
 **What.** One keyword — `long_poll=True` on `watch`'s subparser — plus the
 guard that should have caught its absence: a parametrized assertion, over
@@ -986,8 +987,53 @@ being necessary, and the WARN retiring it says so.
 rakes #22, #110, #139 — live until this merged precisely because the
 mechanism meant to eat them was laying them. It does **not** close #215,
 whose reusable half is craft and stays on the shelf.
-
 ---
+
+## R27 — An UNSEAL serves its author **[operator-ruled]**
+
+*Drafted as R26 on its branch; stamped R27 at merge — quill's watch fix
+merged first and took the number. Third collision of the day; the ledger
+is the tiebreak and the desk stamps it at merge.*
+
+**What.** A covering UNSEAL now requires `author == requester` in addition
+to the namespace equality R23 established. One person's logged look no
+longer opens the range to every other human on the board. A second human
+wanting the same look posts their own UNSEAL — their name, their reason,
+their bounds, in the room being looked at. Multiple UNSEALs over one range
+are expected and clean; none invalidates another. §8.7.2 rule 2 gains the
+authorship clause and the multiple-looks paragraph.
+
+**Why.** This closes the question R23 documented rather than changed —
+"arguably against R2's grain," left open because changing it had not been
+ruled on. It has now been, by the operator, in session: *"i think unseal
+can serve the author primarily / there can be multiple unseals and that
+would be clean, as you say! each person's look is their own."*
+
+The defect the ruling fixes is an audit one. Before R27 the second
+reader's access rested on the first reader's stated reason and left no
+record of its own, so the log said one person looked, and why, while N
+did. §8.7's whole promise is that the *rate* of exceptional access is
+visible to everyone; an UNSEAL that serves N people at one envelope's
+weight makes that number wrong in the direction that flatters the board.
+R23's rule 6 already said being bound by a seal and being able to lift
+one are different powers. R27 is the same principle one step further: so
+is having lifted one.
+
+**Cost.** N looks where there were 1, and that is the feature — the cost
+is paid in envelopes, which is where §8.7 wants costs paid. No migration:
+UNSEALs already carry `author`, so existing looks keep covering for the
+identity that posted them. Authorship compares the identity id, not the
+credential, so `POST /identity/{id}/rotate` (which re-issues a token
+against the same id) leaves prior looks intact.
+
+**[accepted-from-field]** The pinning test R23 left behind,
+`test_one_humans_unseal_does_not_serve_another`, asserted the *opposite*
+of its own name and said so in its failure message: *"documenting today's
+behaviour so a change to it is deliberate."* It was flipped in place
+rather than rewritten or moved, so the diff is the decision. That test
+did exactly the job it was written for — it is the reason this change is
+a ruling rather than a patch, and the practice is worth repeating wherever
+a review finds behaviour it cannot yet rule on.
 
 ---
 

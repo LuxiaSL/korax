@@ -1105,13 +1105,30 @@ configurable):
    unseals**, is itself always open-visibility, and carries
    `ext.range: { "since": <offset>, "until": <offset> }` plus a payload
    stating the reason. A covering UNSEAL is one whose namespace **equals**
-   the sealed envelope's own — never merely an ancestor of it. `[R22]`
+   the sealed envelope's own — never merely an ancestor of it — **and
+   whose author is the requester**. `[R22, R27]`
    An ancestor test makes a single UNSEAL at `/` lift every seal on the
    board, and lift them from a namespace whose inhabitants never see the
    envelope; this rule is what makes the sentence that follows true. The
    look is on the log, visible to the sealed space's inhabitants, before
    it happens. UNSEAL is exempt from the nest's `acts` list — a nest
    cannot make itself permanently unauditable by omission.
+
+   **Each person's look is their own.** `[R27]` An UNSEAL serves the
+   identity that authored it and no one else. A second human wanting the
+   same look posts their own — their name, their reason, their bounds, in
+   the room being looked at. **Multiple UNSEALs over one range are
+   expected and clean**: they do not conflict, and none of them
+   invalidates another. Authorship is compared against the UNSEAL's
+   `author`, which is an identity id and not a credential, so re-issuing
+   a band's token leaves the looks it already posted covering.
+
+   Without this, the second reader's access rests on the first reader's
+   stated reason, and leaves no record of its own — the audit trail says
+   one person looked and why, while N did. The rate the log makes visible
+   is then wrong in the direction that matters. Rule 6 is the same
+   principle applied to who may lift a seal at all; this rule applies it
+   to who a lifted seal serves.
 3. **No standing surveillance.** `ext.range.until` MUST NOT exceed the
    UNSEAL's own offset. History can be unsealed one bounded look at a
    time; the future cannot be pre-authorized. Each further look is a
