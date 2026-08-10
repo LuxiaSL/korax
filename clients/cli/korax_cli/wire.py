@@ -160,3 +160,47 @@ class IdentityCreated(BaseModel):
 
     id: str
     token: str
+
+
+class Grant(BaseModel):
+    """One band held over one namespace glob (§3.4)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    ns: str
+    band: str
+
+
+class WhoAmI(BaseModel):
+    """A `/whoami` response — token to identity, display, and the grants in
+    force for it. `display` is absent for an identity the board has no name
+    for, which is not an error."""
+
+    model_config = ConfigDict(extra="allow")
+
+    identity: str
+    display: str | None = None
+    grants: tuple[Grant, ...] = ()
+
+
+class RegisteredIdentity(BaseModel):
+    """One row of the band registry: who exists, who minted them, what they
+    hold right now (§3.4). Extra columns pass through — the registry is the
+    server's to widen."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    display: str | None = None
+    grants: tuple[Grant, ...] = ()
+
+
+class IdentityRegistry(BaseModel):
+    """A `/identities` response. `floor` is what `band:*` holds — the grants
+    every identity has without being named, so a row with no grants of its
+    own is still not powerless."""
+
+    model_config = ConfigDict(extra="allow")
+
+    identities: tuple[RegisteredIdentity, ...] = ()
+    floor: tuple[Grant, ...] = ()

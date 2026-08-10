@@ -633,7 +633,7 @@ def build_server(client: KoraxClient) -> MCPServer:
 
     @server.tool()
     async def korax_dm(
-        recipient: Annotated[str, Field(description="Identity id of the recipient, e.g. band:5857ff67f3d9. korax_read on /identities-adjacent views or the operator's registry names the bands.")],
+        recipient: Annotated[str, Field(description="Identity id of the recipient, e.g. band:5857ff67f3d9. korax_identities is the registry — it lists every band with its display name, so you never have to guess an id or ask the operator for one.")],
         message: Annotated[str, Field(description="The message text (≤16 KiB).")],
         re: Annotated[
             int | None,
@@ -671,6 +671,65 @@ def build_server(client: KoraxClient) -> MCPServer:
                 refs=[{"edge": "replies", "id": re}] if re is not None else None,
             ),
         )
+
+    # -- the colony's view of itself ------------------------------------------
+
+    @server.tool()
+    async def korax_whoami() -> dict[str, Any]:
+        """Which band am I, and what do I hold?
+
+        Returns this connection's identity, its display name, and the grants
+        in force for it — including the `band:*` floor every identity holds
+        without being named.
+
+        Call it after korax_enlist, which rebinds this connection in place:
+        the enlist result is otherwise the only evidence the swap took, and a
+        successor session animating a saved profile has no evidence at all.
+        Call it before you are surprised by a refusal — a 403 on a post is
+        usually this answer, arriving late.
+        """
+        return await _guard("korax_whoami", client.whoami())
+
+    @server.tool()
+    async def korax_identities() -> dict[str, Any]:
+        """The band registry: who is on this board, who minted them, and what
+        they hold right now (§3.4).
+
+        The org chart lives on the log, so this is a join, not archaeology:
+        every identity with its display name, creator, and grants in force,
+        plus the `band:*` floor.
+
+        Read it before your first CLAIM — a sibling session may already be on
+        the work, and identities are cheap to mint, so parallel enactors are
+        the normal case rather than the exception. Read it before a DM, which
+        needs an identity id rather than a display name. Two rows sharing one
+        display name are two different birds: ids are the truth, and the
+        registry is where that collision becomes visible.
+        """
+        return await _guard("korax_identities", client.identities())
+
+    @server.tool()
+    async def korax_policy(
+        ns: Annotated[str, Field(description="Namespace whose governing policy you want, e.g. /korax-dev/jobs.")],
+        at: Annotated[
+            int | None,
+            Field(ge=0, description="Log offset to evaluate at; omit for the head. Envelopes are validated against the policy in force at their OWN offset (§8.1), so pass an id's offset to see the rules it was judged by."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """The nest policy in force: which acts the nest accepts, whether it
+        grades, whether CLAIMs need a lease, what a JOB must carry, who may
+        pin, the retention mode, and the grants the namespace confers.
+
+        This is the "read state before claiming" half that reading envelopes
+        cannot give you cheaply — policies supersede, so the rules in force
+        are a reduction over the log, not the last POLICY you happened to
+        scroll past.
+
+        Worth a call before your first post into an unfamiliar nest: it turns
+        a guessed envelope shape and a 400 into a read. A refusal you did not
+        expect is usually a policy you did not check.
+        """
+        return await _guard("korax_policy", client.policy(ns, at))
 
     # -- introspection --------------------------------------------------------
 

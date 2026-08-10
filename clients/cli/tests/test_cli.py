@@ -727,3 +727,151 @@ def test_dm_send_and_reply(cli, world) -> None:
     # the reply edge is what wakes a's to_author stream
     woke = cli("read", "--to-author", a, token=atok).json["envelopes"]
     assert reply.json["id"] in [e["id"] for e in woke]
+
+
+# -- the colony's view of itself (§3.4) ----------------------------------------
+
+
+def test_whoami_names_the_band_and_its_grants(cli, world) -> None:
+    identity, token = register(cli, world, "whoami-subject")
+    grant(cli, world, identity, "/korax-dev/**", "claimant")
+
+    result = cli("whoami", token=token)
+    assert result.exit_code == 0, result.stderr
+    body = result.json
+    assert body["identity"] == identity
+    assert body["display"] == "whoami-subject"
+    # the named grant and the band:* floor both resolve for this token
+    held = {(g["ns"], g["band"]) for g in body["grants"]}
+    assert ("/korax-dev/**", "claimant") in held
+    # the band:* floor resolves for this token too, not just its own grant
+    assert ("/korax/canon/**", "reader") in held
+
+
+def test_identities_lists_the_registry_with_the_floor(cli, world) -> None:
+    first, _ = register(cli, world, "registry-one")
+    second, token = register(cli, world, "registry-two")
+    grant(cli, world, first, "/korax-dev/**", "desk")
+
+    result = cli("identities", token=token)
+    assert result.exit_code == 0, result.stderr
+    body = result.json
+    rows = {row["id"]: row for row in body["identities"]}
+    assert {first, second} <= set(rows)
+    assert rows[first]["display"] == "registry-one"
+    assert ("/korax-dev/**", "desk") in {
+        (g["ns"], g["band"]) for g in rows[first]["grants"]
+    }
+    # the floor is reported separately: a row with no grants of its own is
+    # still not powerless
+    assert rows[second]["grants"] == []
+    assert ("/korax/canon/**", "reader") in {
+        (g["ns"], g["band"]) for g in body["floor"]
+    }
+
+
+def test_identities_makes_a_display_name_collision_visible(cli, world) -> None:
+    """Two bands may carry one display name — ids are the truth. The
+    registry is where that becomes visible instead of confusing a reader."""
+    one, _ = register(cli, world, "enactor-twin")
+    two, token = register(cli, world, "enactor-twin")
+    assert one != two
+
+    rows = cli("identities", token=token).json["identities"]
+    twins = [row["id"] for row in rows if row["display"] == "enactor-twin"]
+    assert sorted(twins) == sorted([one, two])
+
+
+def test_identity_list_is_an_alias_for_identities(cli, world) -> None:
+    _, token = register(cli, world, "alias-subject")
+    direct = cli("identities", token=token)
+    alias = cli("identity", "list", token=token)
+    assert alias.exit_code == 0, alias.stderr
+    assert alias.json == direct.json
+
+
+# -- a fresh watch arms at the head, not at the backlog (§11) ------------------
+
+
+def test_missing_cursor_file_arms_a_wait_at_the_head(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    """A watch wakes on what happens next. Seeding a fresh one at START
+    would return the whole visible log as its first 'wake'."""
+    identity, token = warner
+    posted = cli(
+        "post", "--ns", "/commons/rakes", "--type", "WARN",
+        "--payload", "put a canary in every sweep",
+        token=token, identity=identity,
+    )
+    assert posted.exit_code == 0, posted.stderr
+
+    path = tmp_path / "fresh.cursor"
+    result = cli(
+        "wait", "--ns", "/commons/rakes", "--cursor-file", str(path),
+        "--timeout", "1", token=token,
+    )
+    assert result.exit_code == 0, result.stderr
+    # armed at the head: the backlog, including the post above, is not a wake
+    assert result.json["envelopes"] == []
+    assert result.json["cursor_file"]["seeded_from"] == "head"
+    assert result.json["cursor_file"]["since"] >= posted.json["id"]
+    assert any("arming a fresh watch at the head" in w for w in result.warnings)
+    assert path.exists()
+
+
+def test_missing_cursor_file_still_drains_a_read_from_the_start(
+    cli: Invoke, world: dict[str, Any], tmp_path
+) -> None:
+    """The head-seeding rule is `wait`-only: a drain means everything I
+    have not consumed, and that is unchanged."""
+    path = tmp_path / "absent-read.cursor"
+    result = cli(
+        "read", "--ns", "/commons/rakes", "--cursor-file", str(path),
+        token=world["op_token"],
+    )
+    assert result.exit_code == 0, result.stderr
+    assert result.json["cursor_file"]["since"] == -1
+    assert "seeded_from" not in result.json["cursor_file"]
+    assert len(result.json["envelopes"]) >= 5
+
+
+def test_existing_cursor_file_is_not_reseeded_by_wait(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    identity, token = warner
+    posted = cli(
+        "post", "--ns", "/commons/rakes", "--type", "WARN",
+        "--payload", "check needles for self-matches",
+        token=token, identity=identity,
+    )
+    path = tmp_path / "existing.cursor"
+    path.write_text(str(posted.json["id"] - 1), encoding="utf-8")
+
+    result = cli(
+        "wait", "--ns", "/commons/rakes", "--cursor-file", str(path),
+        "--timeout", "5", token=token,
+    )
+    assert result.exit_code == 0, result.stderr
+    assert [e["id"] for e in result.json["envelopes"]] == [posted.json["id"]]
+    assert "seeded_from" not in result.json["cursor_file"]
+
+
+def test_explicit_since_overrides_head_seeding_for_wait(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    """--since is how you ask a fresh watch for history anyway."""
+    identity, token = warner
+    posted = cli(
+        "post", "--ns", "/commons/rakes", "--type", "WARN",
+        "--payload", "anchor manifests to paths",
+        token=token, identity=identity,
+    )
+    path = tmp_path / "override.cursor"
+    result = cli(
+        "wait", "--ns", "/commons/rakes", "--since", str(posted.json["id"] - 1),
+        "--cursor-file", str(path), "--timeout", "5", token=token,
+    )
+    assert result.exit_code == 0, result.stderr
+    assert [e["id"] for e in result.json["envelopes"]] == [posted.json["id"]]
+    assert "seeded_from" not in result.json["cursor_file"]

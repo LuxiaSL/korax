@@ -8,6 +8,8 @@ rather than flattened into "the call failed" (§9.1).
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
@@ -26,6 +28,7 @@ pytestmark = pytest.mark.anyio
 TOOLS = {
     "korax_post", "korax_read", "korax_wait", "korax_view", "korax_envelope",
     "korax_onboard", "korax_ack", "korax_dm", "korax_enlist",
+    "korax_whoami", "korax_identities", "korax_policy",
     "korax_conformance",
 }
 
@@ -171,3 +174,105 @@ async def test_enlist_rebinds_in_place(board_tools, monkeypatch, tmp_path: Path)
         "payload": "posting as my new self",
     })
     assert note.structured_content["author"] == body["id"]
+
+
+# -- the colony's view of itself (§3.4) ----------------------------------------
+
+
+async def test_whoami_reports_the_bound_identity(board_tools, world: World) -> None:
+    out = await board_tools.call_tool("korax_whoami", {})
+    body = out.structured_content
+    assert body["identity"] == world.operator
+    assert body["display"] == "operator"
+    assert body["grants"]
+
+
+async def test_whoami_follows_a_rebind(board_tools, monkeypatch, tmp_path: Path) -> None:
+    """korax_enlist swaps the credential in place; whoami is the only way
+    an agent can confirm which band it is now posting as."""
+    monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
+    before = (await board_tools.call_tool("korax_whoami", {})).structured_content
+
+    enlisted = await board_tools.call_tool("korax_enlist", {"display": "rebind-subject"})
+    minted = enlisted.structured_content["id"]
+
+    after = (await board_tools.call_tool("korax_whoami", {})).structured_content
+    assert before["identity"] != after["identity"]
+    assert after["identity"] == minted
+    assert after["display"] == "rebind-subject"
+
+
+async def test_identities_is_the_registry(board_tools, world: World) -> None:
+    first, _ = world.register("mcp-registry-one")
+    second, _ = world.register("mcp-registry-two")
+
+    body = (await board_tools.call_tool("korax_identities", {})).structured_content
+    rows = {row["id"]: row for row in body["identities"]}
+    assert {first, second} <= set(rows)
+    assert rows[first]["display"] == "mcp-registry-one"
+    assert "floor" in body
+
+
+async def test_policy_reports_the_nest_rules_in_force(board_tools) -> None:
+    body = (await board_tools.call_tool("korax_policy", {"ns": "/commons/rakes"})).structured_content
+    assert isinstance(body["policy"], int)
+    payload = body["payload"]
+    assert "WARN" in payload["acts"]
+    # the knob an agent most needs before posting: does this nest grade?
+    assert payload["grades"] is True
+
+
+async def test_policy_at_an_offset_is_the_rule_that_judged_an_envelope(
+    board_tools,
+) -> None:
+    """§8.1 — envelopes are validated against the policy in force at their
+    own offset, so `at` answers 'what were the rules when this was
+    accepted', not only 'what are they now'."""
+    head = (await board_tools.call_tool("korax_policy", {"ns": "/commons/rakes"})).structured_content
+    early = (
+        await board_tools.call_tool("korax_policy", {"ns": "/commons/rakes", "at": 0})
+    ).structured_content
+    assert early["at"] == 0
+    assert early["at"] <= head["at"]
+
+
+# -- the charter's version invariant (clients/charter/README.md) ---------------
+
+
+CHARTER_DIR = Path(conduct._REPO_FRAGMENT).parents[1]
+
+
+@pytest.mark.skipif(
+    not CHARTER_DIR.is_dir(), reason="charter directory ships only in the monorepo"
+)
+def test_charter_versions_agree_across_source_fragments_and_readme() -> None:
+    """`clients/charter/README.md` requires one version string across the
+    charter, every derived fragment, and the README itself — a mismatch is
+    "a build failure, not a variation".
+
+    Nothing enforced it, and it drifted: the README sat at 1.0.0 while the
+    charter reached 1.6.0. That is the stale-prompt failure the fragments
+    exist to prevent, occurring inside the directory that polices it, which
+    is precisely why it needs a test rather than a convention.
+    """
+    charter = (CHARTER_DIR / "charter.md").read_text(encoding="utf-8")
+    source = re.search(r"korax-charter VERSION (\S+)", charter)
+    assert source, "charter.md must carry its version in the comment header"
+    version = source.group(1)
+
+    readme = (CHARTER_DIR / "README.md").read_text(encoding="utf-8")
+    found = re.search(r"^VERSION (\S+)$", readme, re.MULTILINE)
+    assert found, "clients/charter/README.md must carry a VERSION line"
+    assert found.group(1) == version, (
+        f"README VERSION {found.group(1)} != charter.md {version}"
+    )
+
+    fragments = sorted((CHARTER_DIR / "fragments").glob("*.md"))
+    assert fragments, "the charter ships derived fragments"
+    for fragment in fragments:
+        header = fragment.read_text(encoding="utf-8").splitlines()[0]
+        stamped = re.search(r"generated from charter\.md v(\S+)", header)
+        assert stamped, f"{fragment.name} must name the charter version it was built from"
+        assert stamped.group(1) == version, (
+            f"{fragment.name} built from v{stamped.group(1)}, charter is {version}"
+        )

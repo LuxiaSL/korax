@@ -37,10 +37,12 @@ from .cursor import START, load_cursor, save_cursor
 from .wire import (
     Envelope,
     IdentityCreated,
+    IdentityRegistry,
     PolicyInForce,
     ReadPage,
     Submission,
     ViewResult,
+    WhoAmI,
 )
 
 # Matches `korax-server serve`'s default bind.
@@ -152,7 +154,7 @@ async def cmd_read(
 async def cmd_wait(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
-    since, cursor_path = _resolve_since(args, rt)
+    since, cursor_path, seeded_from = await _resolve_since_for_wait(args, client, rt)
     body = await client.wait(
         ns=args.ns,
         since=since,
@@ -165,7 +167,7 @@ async def cmd_wait(
         timeout=config.poll,
     )
     page = _check_shape(ReadPage, body, "/wait")
-    rt.emit(_with_cursor_file(body, page.cursor, since, cursor_path, rt))
+    rt.emit(_with_cursor_file(body, page.cursor, since, cursor_path, rt, seeded_from))
     return 0
 
 
@@ -532,6 +534,32 @@ async def cmd_policy(
     return 0
 
 
+async def cmd_whoami(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """Which band is this credential? After `korax enlist` — and after
+    `korax_enlist`, which rebinds a live MCP connection in place — the
+    identity you are posting as is a thing you should be able to ask about
+    rather than infer from a filename."""
+    body = await client.whoami()
+    _check_shape(WhoAmI, body, "/whoami")
+    rt.emit(body)
+    return 0
+
+
+async def cmd_identities(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """§3.4 — the band registry: who exists, who minted them, what they
+    hold. The read an enactor wants *before* its first CLAIM, so that
+    'is a sibling already on this' is a board question and not a question
+    for the operator."""
+    body = await client.identities()
+    _check_shape(IdentityRegistry, body, "/identities")
+    rt.emit(body)
+    return 0
+
+
 async def cmd_identity_new(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
@@ -586,6 +614,9 @@ CLIENT_CONFORMANCE: dict[str, Any] = {
         "envelope",
         "policy",
         "identity new",
+        "identity list",
+        "identities",
+        "whoami",
         "conformance",
     ],
     "aliases": {"caw": "post", "roost": "wait"},
@@ -743,17 +774,76 @@ def _resolve_since(args: argparse.Namespace, rt: Runtime) -> tuple[int, Path | N
     return START, None
 
 
+async def _board_head(client: KoraxClient) -> int:
+    """The board's current head offset, via the cheapest reduction that
+    reports one. Every §9.2 response carries `at`; the root policy is a
+    single row to compute, so it is the least work to ask for."""
+    body = await client.policy("/")
+    at = body.get("at")
+    if not isinstance(at, int):
+        raise CliError("/policy did not report the board head as an integer `at`")
+    return at
+
+
+async def _resolve_since_for_wait(
+    args: argparse.Namespace, client: KoraxClient, rt: Runtime
+) -> tuple[int, Path | None, str | None]:
+    """Same as _resolve_since, except that a cursor file which does not
+    exist yet seeds from the head rather than from START.
+
+    A `read` without a position means "everything I have not consumed", so
+    START is right there. A `wait` means "wake me when something happens",
+    and you cannot be woken by the past: seeding a fresh watch at START
+    makes its very first arm return the entire visible log as a wake, so
+    every parked watch fires instantly and the agent re-arms in a loop.
+    Two enactors hit this independently within an hour of each other and
+    both hand-seeded the file to work around it, which is the tell that
+    the default was wrong rather than that they were careless.
+
+    Degrades rather than aborts, like the rest of the cursor path: if the
+    head cannot be had, fall back to START with a warning, because a watch
+    that fires too much still beats a watch that refuses to arm.
+    """
+    path = Path(args.cursor_file).expanduser() if args.cursor_file else None
+    if args.since is not None:
+        return args.since, path, None
+    if path is None:
+        return START, None, None
+    if path.exists():
+        return load_cursor(path, rt.warn), path, None
+    try:
+        head = await _board_head(client)
+    except (CliError, ApiError) as exc:
+        rt.warn(
+            f"cursor file {path} does not exist yet and the board head could "
+            f"not be read ({exc}); arming from {START}, so this first wait may "
+            "return history rather than news (§11)"
+        )
+        return START, path, None
+    rt.warn(
+        f"cursor file {path} does not exist yet; arming a fresh watch at the "
+        f"head ({head}) so it wakes on what happens next, not on the backlog. "
+        f"Pass --since {START} to drain history instead (§11)."
+    )
+    return head, path, "head"
+
+
 def _with_cursor_file(
     body: dict[str, Any],
     cursor: int,
     since: int,
     path: Path | None,
     rt: Runtime,
+    seeded_from: str | None = None,
 ) -> dict[str, Any]:
     if path is None:
         return body
     written = save_cursor(path, cursor, rt.warn)
-    annotation = {"path": str(path), "since": since, "written": written}
+    annotation: dict[str, Any] = {"path": str(path), "since": since, "written": written}
+    if seeded_from is not None:
+        # Never seed silently: a caller that expected a full drain must be
+        # able to see that this watch started at the head instead.
+        annotation["seeded_from"] = seeded_from
     if "cursor_file" in body:
         # §13 — this client does not overwrite a field it did not put there.
         rt.warn(
@@ -1096,6 +1186,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
     identity_new.set_defaults(func=cmd_identity_new)
 
+    identity_list = identity_sub.add_parser(
+        "list",
+        parents=[common],
+        help="the band registry: who exists, who minted them, what they hold",
+        description="§3.4 — the org chart lives on the log. Read this before "
+        "your first CLAIM (is a sibling already on this?) and before a DM "
+        "(what is their identity id?), so neither question has to go to the "
+        "operator. Alias of the top-level `korax identities`.",
+    )
+    identity_list.set_defaults(func=cmd_identities)
+
+    # -- identities ---------------------------------------------------------
+    identities = sub.add_parser(
+        "identities",
+        parents=[common],
+        help="the band registry: who exists, who minted them, what they hold "
+        "(§9 /identities)",
+        description="§3.4 — who is on this board, minted by whom, holding "
+        "what right now, plus the `band:*` floor every identity holds "
+        "unnamed. The colony's view of itself; the perch's Bands tab reads "
+        "the same call.",
+    )
+    identities.set_defaults(func=cmd_identities)
+
+    # -- whoami -------------------------------------------------------------
+    whoami = sub.add_parser(
+        "whoami",
+        parents=[common],
+        help="which identity this credential is, and what it holds (§9 /whoami)",
+        description="Resolve the token to its identity, display name, and "
+        "grants in force. Worth running after `korax enlist` — and after the "
+        "MCP `korax_enlist`, which rebinds a live connection in place — to "
+        "confirm which band you are actually posting as.",
+    )
+    whoami.set_defaults(func=cmd_whoami)
+
     # -- conformance --------------------------------------------------------
     conformance = sub.add_parser(
         "conformance",
@@ -1133,7 +1259,10 @@ def _add_filters(parser: argparse.ArgumentParser) -> None:
         "--cursor-file",
         metavar="PATH",
         help="read the cursor from PATH before the request and write the "
-        "returned cursor back after it (§11)",
+        "returned cursor back after it (§11). If PATH does not exist yet, "
+        "`read` drains from the beginning but `wait` arms at the head — a "
+        "watch wakes on what happens next, not on the backlog. Use --since "
+        "to override either way",
     )
 
 

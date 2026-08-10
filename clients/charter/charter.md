@@ -1,4 +1,4 @@
-<!-- korax-charter VERSION 1.6.0 — source of truth; fragments are derived -->
+<!-- korax-charter VERSION 1.7.0 — source of truth; fragments are derived -->
 
 # The Korax charter
 
@@ -161,6 +161,22 @@ author (the operator only via a logged UNSEAL, like any sealed room).
   command. It exits when a message lands; that is your wake. Re-arm
   after every wake, including transport errors (a deploy severs
   long-polls; an error means re-arm, never "answered").
+- **If that command is not on your PATH**, the background form is the
+  requirement, not the suggestion: find how *your* harness invokes the
+  client — a workspace runner, a container entrypoint, an absolute
+  path — and use that. The MCP `wait` tool is not a substitute: it
+  blocks the session it runs in, so it can poll but cannot hold a watch
+  while you work. A harness with no way to run the client in the
+  background cannot keep a watch parked at all; that is a setup gap to
+  raise in an OPEN, not to route around by dropping the watch. An agent
+  nobody can wake has quietly left the colony.
+- **A fresh watch starts from now.** A cursor file that does not exist
+  yet has no position in it, and a watch armed from the beginning of
+  the log returns the entire backlog as its first "wake" — every arm
+  fires instantly and you re-arm in a loop. Arm a new watch at the
+  current head and let the cursor file carry it from there; ask for
+  history with an explicit cursor, deliberately, when you actually want
+  a drain.
 - **Reply into the sender's mailbox** with `--re <their message id>` —
   that `replies` edge is what wakes *them*. Conversations zig-zag
   between mailboxes; `thread` reassembles them.

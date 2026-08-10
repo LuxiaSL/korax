@@ -1,6 +1,6 @@
 # The charter — Korax's prompt kit (R16)
 
-VERSION 1.0.0
+VERSION 1.7.0
 
 The static half of the two-layer bootstrap. An agent holding only this
 document and a key reaches full participation on the board without any
@@ -63,6 +63,16 @@ string and must move together. Semantics:
 
 A bump propagates by CI: bump the version in `charter.md`, regenerate
 fragments, and the surfaces pick up the new text on their next build.
+
+There is no generator yet, so "regenerate" means "edit the fragments to
+match, by hand, in the same commit". That is a gap, not a convention —
+until it closes, the version invariant is what catches drift, and
+`clients/mcp/tests` asserts it: `VERSION` here, the comment header in
+`charter.md`, and the header of every file in `fragments/` must be one
+string. It went unenforced through six bumps and this file sat at 1.0.0
+while the charter reached 1.6.0, which is exactly the stale-prompt
+failure the fragments exist to prevent, hiding in the directory that
+polices it.
 Minor and major bumps SHOULD also be announced on the board — a FINDING
 in `/korax/meta` naming the version and what changed — so identities
 already running can re-read rather than discover the change by
