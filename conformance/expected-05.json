@@ -1,0 +1,59 @@
+{
+  "fixture": "fixture-05.jsonl",
+  "proto": "korax/0.1",
+  "conventions": {
+    "view": "`retention` is not a §10 reduction — it is the read-side projection of §8.2, checked here as the partition a conforming board applies before serving `read`, `wait`, `subscribe`, `state`, `jobs`, `fresh` and `of-record`.",
+    "args": "`ns` selects the envelopes to partition: those whose own namespace is `ns` or beneath it.",
+    "expect": "`kept` is what a default read serves, `rotated` is what the horizon withholds — and a conforming board reports `len(rotated)` as `rotated_excluded` rather than withholding it silently (§8.2 rule 6).",
+    "cutoff": "Every check derives its cutoff from log time — the `ts` of the envelope at the offset, minus the horizon — never from the system clock (§8.2 rule 3). A board consulting wall clock passes these checks on no day but one."
+  },
+  "checks": [
+    {
+      "offset": 8,
+      "view": "retention",
+      "args": {"ns": "/dusk"},
+      "cite": "8.2",
+      "expect": {"kept": [2, 4, 7], "rotated": [3, 5]},
+      "why": "eval_ts is id 8's ts (2026-04-05T11:05:00Z), so the P30D cutoff is 2026-03-06. The March 2nd NOTE (3) and JOB (5) are past it; the April 5th NOTE (7) is inside it. The POLICY (2) and the STAMP (4) are exempt and survive though they are as old as what rotated — governance never rotates, and JOB rotating is exactly what separates this set from the seam-exempt set."
+    },
+    {
+      "offset": 8,
+      "view": "retention",
+      "args": {"ns": "/canon"},
+      "cite": "8.2",
+      "expect": {"kept": [1, 6, 8], "rotated": []},
+      "why": "a permanent nest withholds nothing, at any age. Id 6 is the same age as the rotated id 3 and is served."
+    },
+    {
+      "offset": 12,
+      "view": "retention",
+      "args": {"ns": "/dusk"},
+      "cite": "8.2",
+      "expect": {"kept": [2, 4, 12], "rotated": [3, 5, 7]},
+      "why": "eval_ts moves to id 12 (2026-06-30T12:00:00Z) and the cutoff with it, so id 7 — inside the horizon at offset 8 — is outside it here. Id 12 is the anchor and cannot rotate: its own ts is the evaluation time."
+    },
+    {
+      "offset": 12,
+      "view": "retention",
+      "args": {"ns": "/canon"},
+      "cite": "8.2",
+      "expect": {"kept": [1, 9], "rotated": [6, 8]},
+      "why": "§8.2 rule 2, the read-time rule, and the reason this fixture exists. Ids 6 and 8 were posted while /canon was permanent and are withheld here, because the policy in force at the READ offset (id 9, rotate P7D) governs — not the policy in force when they were posted. A board applying the post-time policy instead serves them and fails this check."
+    },
+    {
+      "offset": 12,
+      "view": "retention",
+      "args": {"ns": "/wild"},
+      "cite": "8.2",
+      "expect": {"kept": [10, 11], "rotated": []},
+      "why": "the nest declares `rotate P1Y`, which v0 cannot parse. An unreadable horizon is no horizon: the failure mode of a retention bug must be showing too much, never too little. A board that treats a parse failure as licence to withhold fails here."
+    }
+  ],
+  "must_not": [
+    "withhold POLICY, STAMP, UNSEAL or PIN under any horizon (§8.2 rule 5)",
+    "withhold the envelope at the evaluation offset (its ts is eval_ts, so no non-negative horizon reaches it)",
+    "delete, rewrite or renumber any rotated envelope — rotation is a projection, and every id above still resolves by direct address and through `thread`, `provenance`, `descendants` and `taint` (§8.2 rules 1 and 4)",
+    "apply a horizon inside `onboard` or `required`, which walk `requires` to build a reading list (§8.2 rule 4)",
+    "report a rotated count of 0 while withholding envelopes (§8.2 rule 6)"
+  ]
+}

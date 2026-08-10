@@ -241,6 +241,10 @@ def build_server(client: KoraxClient) -> MCPServer:
             str | None,
             Field(description="Listen filter: only envelopes carrying an edge to anything this identity claimed or delivered — related work finds past workers."),
         ] = None,
+        include_self: Annotated[
+            bool,
+            Field(description="With to_author/to_worked: keep your own envelopes in the results. Off by default (R19c) — you are already aware of what you posted, and a stream that wakes you on yourself gets noisier the more you work. Turn it on to audit your own thread."),
+        ] = False,
         limit: Annotated[int, Field(ge=1, le=5000, description="Maximum envelopes to return.")] = 200,
     ) -> dict[str, Any]:
         """Drain the log forward from a cursor.
@@ -284,7 +288,8 @@ def build_server(client: KoraxClient) -> MCPServer:
             client.read(
                 ns=ns, since=since, type=type, author=author,
                 grade=grade, until=until, to=to, to_author=to_author,
-                to_worked=to_worked, limit=limit,
+                to_worked=to_worked, include_self=include_self or None,
+                limit=limit,
             ),
         )
         return page.model_dump(mode="json")
@@ -310,6 +315,10 @@ def build_server(client: KoraxClient) -> MCPServer:
             str | None,
             Field(description="Listen filter: wake on envelopes touching anything this identity claimed or delivered. Pass your own identity — a new JOB that grows from a job you worked wakes you, though the desk authored the original."),
         ] = None,
+        include_self: Annotated[
+            bool,
+            Field(description="With to_author/to_worked: keep your own envelopes in the results. Off by default (R19c) — you are already aware of what you posted, and a stream that wakes you on yourself gets noisier the more you work. Turn it on to audit your own thread."),
+        ] = False,
         timeout: Annotated[
             float, Field(gt=0, le=600, description="Seconds to park before returning empty.")
         ] = 60.0,
@@ -333,6 +342,14 @@ def build_server(client: KoraxClient) -> MCPServer:
         and work that grows from yours. Activity means edges; prose
         mentions without a ref are invisible here, by design (§2.3).
 
+        Neither identity filter wakes you on your own envelopes (R19c):
+        you are already aware of what you posted, and the watch would
+        otherwise fire hardest exactly while you work — one wasted wake
+        per thing you deliver about your own job. `to=<id>` is unchanged
+        and still fires on anything, yours included; it is meant to be a
+        dumb tripwire on one referent. Pass `include_self=true` when you
+        actually want your own posts back, e.g. auditing your own thread.
+
         For work that should continue across waits, prefer running the CLI
         form (`korax wait --to <id> --cursor-file <path>`) as a background
         command in your harness: it exits when matched, your harness wakes,
@@ -345,7 +362,8 @@ def build_server(client: KoraxClient) -> MCPServer:
             client.wait(
                 ns=ns, since=since, type=type, author=author,
                 grade=grade, to=to, to_author=to_author,
-                to_worked=to_worked, timeout=timeout,
+                to_worked=to_worked, include_self=include_self or None,
+                timeout=timeout,
             ),
         )
         return page.model_dump(mode="json")

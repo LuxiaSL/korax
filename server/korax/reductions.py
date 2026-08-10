@@ -9,8 +9,7 @@ are never selected among, invalidated envelopes are marked, not dropped.
 
 from __future__ import annotations
 
-import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from .leases import Hold, live_holder, resolve
@@ -18,17 +17,9 @@ from .log import Log
 from .models import Act, Band, BAND_RANK, EdgeType, Envelope, Grade
 from .policy import PolicyTimeline
 from .nsglob import in_subtree, ns_matches
+from .retention import parse_horizon as _parse_horizon
 
 ANCESTRY_EDGES = (EdgeType.DERIVES_FROM, EdgeType.SUPERSEDES, EdgeType.BESIDE)
-
-_DURATION = re.compile(r"^P(\d+)D$")
-
-
-def _parse_horizon(horizon: str) -> timedelta:
-    m = _DURATION.match(horizon)
-    if not m:
-        raise ValueError(f"unsupported horizon {horizon!r} (v0 supports PnD)")
-    return timedelta(days=int(m.group(1)))
 
 
 def _fmt(ts: datetime) -> str:

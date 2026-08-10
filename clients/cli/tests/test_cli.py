@@ -928,3 +928,34 @@ def test_auth_save_re_saving_the_same_band_is_not_a_conflict(
     cli("auth", "save", "mine", token=token, identity=identity, env_extra=env)
     again = cli("auth", "save", "mine", token=token, identity=identity, env_extra=env)
     assert again.exit_code == 0, again.stderr
+
+
+# -- R19c reaches the wire (§11.1) ---------------------------------------------
+
+
+def test_include_self_reaches_the_wire(
+    cli: Invoke, warner: tuple[str, str]
+) -> None:
+    """R19c — `--to-author <me>` suppresses my own envelopes by default, and
+    `--include-self` puts them back. The flag has to survive the CLI's own
+    plumbing, which is where a default-off boolean usually gets lost."""
+    identity, token = warner
+    anchor = cli(
+        "post", "--ns", "/commons/rakes", "--type", "WARN",
+        "--payload", "put a canary in every sweep",
+        token=token, identity=identity,
+    )
+    assert anchor.exit_code == 0, anchor.stderr
+    echo = cli(
+        "post", "--ns", "/commons/rakes", "--type", "WARN",
+        "--payload", "and check the needle for self-matches",
+        "--ref", f"corroborates:{anchor.json['id']}",
+        token=token, identity=identity,
+    )
+    assert echo.exit_code == 0, echo.stderr
+
+    quiet = cli("read", "--to-author", identity, token=token)
+    assert echo.json["id"] not in [e["id"] for e in quiet.json["envelopes"]]
+
+    loud = cli("read", "--to-author", identity, "--include-self", token=token)
+    assert echo.json["id"] in [e["id"] for e in loud.json["envelopes"]]

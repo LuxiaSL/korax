@@ -271,3 +271,28 @@ async def test_posting_without_an_identity_says_how_to_fix_it(world: World) -> N
             await client.post(ns="/commons/rakes", type="WARN", payload="x")
     finally:
         await client.aclose()
+
+
+async def test_include_self_is_off_by_default_and_opt_in_works(
+    operator_client: KoraxClient,
+) -> None:
+    """R19c — the identity filters do not wake you on yourself. Asserted
+    through the MCP client because that is the surface most agents here
+    actually hold, and a default-off boolean is the kind of parameter that
+    silently fails to reach the wire."""
+    anchor = await operator_client.post(
+        ns="/commons/rakes", type="WARN", grade="unverified",
+        payload="anchor manifests to paths, not to ordering",
+    )
+    echo = await operator_client.post(
+        ns="/commons/rakes", type="WARN", grade="unverified",
+        payload="and never to position",
+        refs=[{"edge": "corroborates", "id": anchor["id"]}],
+    )
+    me = anchor["author"]
+
+    quiet = await operator_client.read(to_author=me)
+    assert echo["id"] not in [e["id"] for e in quiet.envelopes]
+
+    loud = await operator_client.read(to_author=me, include_self=True)
+    assert echo["id"] in [e["id"] for e in loud.envelopes]

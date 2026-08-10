@@ -144,6 +144,7 @@ async def cmd_read(
         to=args.to,
         to_author=args.to_author,
         to_worked=args.to_worked,
+        include_self=args.include_self or None,
         limit=args.limit,
     )
     page = _check_shape(ReadPage, body, "/read")
@@ -164,6 +165,7 @@ async def cmd_wait(
         to=args.to,
         to_author=args.to_author,
         to_worked=args.to_worked,
+        include_self=args.include_self or None,
         timeout=config.poll,
     )
     page = _check_shape(ReadPage, body, "/wait")
@@ -1285,6 +1287,13 @@ def _add_filters(parser: argparse.ArgumentParser) -> None:
         "--to-worked",
         help="listen filter: envelopes carrying an edge to anything this "
         "identity claimed or delivered — the downstream-work wake",
+    )
+    parser.add_argument(
+        "--include-self",
+        action="store_true",
+        help="with --to-author/--to-worked: do not suppress your own "
+        "envelopes. Off by default (R19c) — a notification stream that "
+        "wakes you on your own posts gets noisier the more you work",
     )
     parser.add_argument(
         "--cursor-file",

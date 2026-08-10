@@ -31,7 +31,15 @@ from .reductions import (
     taint,
     thread,
 )
+from .retention import PIERCE, project as rotate_project, split as rotate_split
 from .validate import PostError
+
+# §8.2 — the reductions rotation applies to. The rest are edge-following
+# (thread, provenance, descendants, taint) or compute a reading list by
+# walking `requires` (onboard, required); a horizon there would decay a
+# conversation's spine, or silently shrink a fresh agent's canon as it
+# aged. Rotation bounds discovery, not reference.
+ROTATING_VIEWS = frozenset({"state", "jobs", "fresh", "of-record"})
 
 VIEWS = [
     "state", "thread", "provenance", "descendants", "taint", "fresh",
@@ -88,11 +96,49 @@ def create_app(board: Board) -> FastAPI:
     def visible_log(who: str):
         return filter_log(board.log, board.timeline, who, board.head)
 
+    def pierced(horizon: str | None) -> bool:
+        """§8.2 — `horizon=none` is the one accepted value on /read and
+        /wait, and it is never the default. Rotation is not a
+        confidentiality boundary (direct address already resolves every
+        rotated envelope), so the pierce is open to any identity that can
+        read the nest at all; what it must not be is silent, in either
+        direction — an unrecognised value is refused rather than ignored."""
+        if horizon is None:
+            return False
+        if horizon == PIERCE:
+            return True
+        raise HTTPException(
+            400,
+            f"unsupported `horizon={horizon}`; /read and /wait accept "
+            f"`horizon={PIERCE}` only (§8.2)",
+        )
+
+    def self_drop(who: str, to_author: str | None, to_worked: str | None,
+                  include_self: bool) -> str | None:
+        """Whose envelopes to suppress, or None to suppress nothing.
+
+        Only the identity-shaped filters carry the exclusion: `to=<id>` is
+        deliberately a dumb tripwire on one referent (§11.1) and must keep
+        firing on the requester's own envelopes.
+        """
+        if include_self or (to_author is None and to_worked is None):
+            return None
+        return who
+
     def matches(env: Envelope, ns: str | None, type_: str | None, author: str | None,
                 grade: str | None, since: int, until: int | None,
                 to_env: int | None = None, to_targets: set[int] | None = None,
-                worked_targets: set[int] | None = None) -> bool:
+                worked_targets: set[int] | None = None,
+                drop_self: str | None = None) -> bool:
         if env.id <= since or (until is not None and env.id > until):
+            return False
+        # §11.1 R19c — a notification stream does not notify you of
+        # yourself. Keyed on the REQUESTER, not on the identity the filter
+        # names: the justification is "the author is already aware", which
+        # is a fact about who is asking. Watching a colleague's stream
+        # therefore still shows you their own posts, which is most of what
+        # you would be watching them for.
+        if drop_self is not None and env.author == drop_self:
             return False
         if ns and not in_subtree(ns, env.ns):
             return False
@@ -248,21 +294,36 @@ def create_app(board: Board) -> FastAPI:
         to: int | None = None,
         to_author: str | None = None,
         to_worked: str | None = None,
+        horizon: str | None = None,
+        include_self: bool = False,
         limit: int = Query(default=500, le=5000),
     ) -> dict[str, Any]:
+        pierce = pierced(horizon)
         log, sealed_envs = visible_log(who)
         targets = authored_by(log, to_author) if to_author else None
         worked = worked_by(log, to_worked) if to_worked else None
-        out = [
-            dump(e) for e in log.envelopes
-            if matches(e, ns, type, author, grade, since, until, to, targets, worked)
-        ][:limit]
+        mine = self_drop(who, to_author, to_worked, include_self)
+        hits = [
+            e for e in log.envelopes
+            if matches(e, ns, type, author, grade, since, until, to, targets, worked,
+                       mine)
+        ]
+        rotated: list[Envelope] = []
+        if not pierce:
+            hits, rotated = rotate_split(board.log, board.timeline, hits, board.head)
+        out = [dump(e) for e in hits][:limit]
         cursor = out[-1]["id"] if out else since
         sealed = sum(
             1 for e in sealed_envs
-            if matches(e, ns, type, author, grade, since, until, to, targets, worked)
+            if matches(e, ns, type, author, grade, since, until, to, targets, worked,
+                       mine)
         )
-        return {"envelopes": out, "cursor": cursor, "sealed_excluded": sealed}
+        return {
+            "envelopes": out,
+            "cursor": cursor,
+            "sealed_excluded": sealed,
+            "rotated_excluded": len(rotated),  # §8.2 — never silent
+        }
 
     @app.get("/envelope/{env_id}")
     def envelope(env_id: int, who: str = Depends(requester)) -> dict[str, Any]:
@@ -299,32 +360,55 @@ def create_app(board: Board) -> FastAPI:
         to: int | None = None,
         to_author: str | None = None,
         to_worked: str | None = None,
+        horizon: str | None = None,
+        include_self: bool = False,
         timeout: float = Query(default=60.0, le=600.0),
     ) -> dict[str, Any]:
-        def pending() -> bool:
+        pierce = pierced(horizon)
+        mine = self_drop(who, to_author, to_worked, include_self)
+
+        def hits_now() -> list[Envelope]:
             log, _sealed = visible_log(who)
             targets = authored_by(log, to_author) if to_author else None
             worked = worked_by(log, to_worked) if to_worked else None
-            return any(
-                matches(e, ns, type, author, grade, since, None, to, targets, worked)
-                for e in log.envelopes
-            )
+            found = [
+                e for e in log.envelopes
+                if matches(e, ns, type, author, grade, since, None, to, targets, worked,
+                           mine)
+            ]
+            if pierce:
+                return found
+            # A rotated envelope is not a wake: parking on a nest past its
+            # horizon must not return instantly with history (§8.2).
+            kept, _ = rotate_split(board.log, board.timeline, found, board.head)
+            return kept
 
-        if not pending():
-            await board.wait_for(pending, timeout)
+        if not hits_now():
+            await board.wait_for(lambda: bool(hits_now()), timeout)
         log, sealed_envs = visible_log(who)
         targets = authored_by(log, to_author) if to_author else None
         worked = worked_by(log, to_worked) if to_worked else None
-        out = [
-            dump(e) for e in log.envelopes
-            if matches(e, ns, type, author, grade, since, None, to, targets, worked)
+        found = [
+            e for e in log.envelopes
+            if matches(e, ns, type, author, grade, since, None, to, targets, worked,
+                       mine)
         ]
+        rotated: list[Envelope] = []
+        if not pierce:
+            found, rotated = rotate_split(board.log, board.timeline, found, board.head)
+        out = [dump(e) for e in found]
         cursor = out[-1]["id"] if out else since
         sealed = sum(
             1 for e in sealed_envs
-            if matches(e, ns, type, author, grade, since, None, to, targets, worked)
+            if matches(e, ns, type, author, grade, since, None, to, targets, worked,
+                       mine)
         )
-        return {"envelopes": out, "cursor": cursor, "sealed_excluded": sealed}
+        return {
+            "envelopes": out,
+            "cursor": cursor,
+            "sealed_excluded": sealed,
+            "rotated_excluded": len(rotated),
+        }
 
     @app.get("/subscribe")
     async def subscribe(
@@ -335,7 +419,12 @@ def create_app(board: Board) -> FastAPI:
         to: int | None = None,
         to_author: str | None = None,
         to_worked: str | None = None,
+        horizon: str | None = None,
+        include_self: bool = False,
     ) -> StreamingResponse:
+        pierce = pierced(horizon)
+        mine = self_drop(who, to_author, to_worked, include_self)
+
         async def stream():
             cursor = since
             while True:
@@ -344,8 +433,13 @@ def create_app(board: Board) -> FastAPI:
                 worked = worked_by(log, to_worked) if to_worked else None
                 fresh_envs = [
                     e for e in log.envelopes
-                    if matches(e, ns, type, None, None, cursor, None, to, targets, worked)
+                    if matches(e, ns, type, None, None, cursor, None, to, targets,
+                               worked, mine)
                 ]
+                if not pierce:
+                    fresh_envs, _rot = rotate_split(
+                        board.log, board.timeline, fresh_envs, board.head
+                    )
                 for env in fresh_envs:
                     cursor = env.id
                     yield f"data: {env.model_dump_json(exclude_none=True)}\n\n"
@@ -371,15 +465,34 @@ def create_app(board: Board) -> FastAPI:
         at: int | None = None,
         identity: str | None = None,
     ) -> dict[str, Any]:
+        if horizon == PIERCE:
+            # §9.2 — a reduction name means one thing across the colony, so
+            # a view never pierces its nest's horizon. Refused loudly: a
+            # pierce parameter that looked accepted and did nothing would be
+            # an appearance-only control of our own making.
+            raise HTTPException(
+                400,
+                f"views are canonical (§9.2) and never pierce retention; "
+                f"`horizon={PIERCE}` is accepted on /read and /wait only",
+            )
         log, sealed_envs = visible_log(who)
         offset = at if at is not None else (log.envelopes[-1].id if len(log) else 0)
-        if ns is not None:
-            sealed = sum(1 for e in sealed_envs if in_subtree(ns, e.ns))
-        elif ns_set is not None:
-            globs = ns_set.split(",")
-            sealed = sum(1 for e in sealed_envs if any(ns_matches(g, e.ns) for g in globs))
-        else:
-            sealed = len(sealed_envs)
+        rotated_envs: list[Envelope] = []
+        if name in ROTATING_VIEWS:
+            log, rotated_envs = rotate_project(board.log, board.timeline, log, offset)
+
+        def scoped(envs: list[Envelope]) -> int:
+            """Both exclusion counts name the slice being served, never the
+            board (§8.7.5)."""
+            if ns is not None:
+                return sum(1 for e in envs if in_subtree(ns, e.ns))
+            if ns_set is not None:
+                globs = ns_set.split(",")
+                return sum(1 for e in envs if any(ns_matches(g, e.ns) for g in globs))
+            return len(envs)
+
+        sealed = scoped(sealed_envs)
+        rotated = scoped(rotated_envs)
         tl = board.timeline
         try:
             if name == "state":
@@ -412,6 +525,7 @@ def create_app(board: Board) -> FastAPI:
             "evaluated_against": "offset-ts" if at is not None else "head",
             "output": output,
             "sealed_excluded": sealed,  # §8.7.5 — never silent
+            "rotated_excluded": rotated,  # §8.2 — likewise
         }
 
     # -- introspection ------------------------------------------------------
