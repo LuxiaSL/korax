@@ -759,3 +759,22 @@ def test_token_rotation_self_human_and_stranger(world: dict) -> None:
     r = client.post("/identity/band:doesnotexist/rotate",
                     headers=auth(world["op_token"]))
     assert r.status_code == 404
+
+
+def test_display_names_are_unique_at_mint(world: dict) -> None:
+    """Operator ruling 2026-08-10 (after rake #90 fired on the live
+    board's first parallel spawn): the mint refuses a taken display and
+    names the holder, so the race is lost loudly at the only cheap
+    moment. Ids were always unique; now displays are too."""
+    client = world["client"]
+    first, _ = _register(world, "unique-name")
+
+    r = client.post("/identity", json={"display": "unique-name"},
+                    headers=auth(world["op_token"]))
+    assert r.status_code == 409
+    assert first in r.json()["message"]
+
+    # a different personal name mints fine
+    r = client.post("/identity", json={"display": "unique-name-2"},
+                    headers=auth(world["op_token"]))
+    assert r.status_code == 200

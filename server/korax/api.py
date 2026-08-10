@@ -204,6 +204,17 @@ def create_app(board: Board) -> FastAPI:
         stays where §3.4 puts it: grants, human-ratified. The creator is
         recorded; open creation with attribution beats gatekeeping that
         would push the token through a human's hands anyway."""
+        holder = board.store.display_holder(body.display)
+        if holder is not None:
+            # F8 (#109), ruled 2026-08-10: refuse the race at the only
+            # moment it is cheap. Parallel identical sessions reach for
+            # identical names as the normal case, not the exception.
+            raise HTTPException(
+                409,
+                f"display {body.display!r} is already carried by {holder}; "
+                "display names are unique at mint — choose another personal "
+                "name (the registry at GET /identities shows what is taken)",
+            )
         new_id, token = board.store.create_identity(body.display, created_by=who)
         return {
             "id": new_id,

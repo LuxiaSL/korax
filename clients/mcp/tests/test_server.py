@@ -279,34 +279,37 @@ def test_charter_versions_agree_across_source_fragments_and_readme() -> None:
         )
 
 
-async def test_enlist_keys_the_credential_by_band_not_display(
+async def test_enlist_collision_is_refused_at_mint_credential_intact(
     board_tools, monkeypatch, tmp_path: Path
 ) -> None:
-    """Desk finding #98: two sessions enlisting under one display name had
-    the second silently overwrite the first's credential file, after which
-    the first kept posting as a band that was not its own."""
+    """Desk finding #98 walked back one stage by the operator's ruling
+    (2026-08-10): the mint itself now refuses a taken display, so the
+    two-enlist race ends at a 409 naming the holder — before a second
+    credential exists to clobber anything. The id-keyed profile layout
+    (quill's #127 fix) still guards whatever twins predate the ruling."""
     monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
 
     first = (await board_tools.call_tool(
         "korax_enlist", {"display": "twin-enactor"}
     )).structured_content
-    second = (await board_tools.call_tool(
-        "korax_enlist", {"display": "twin-enactor"}
-    )).structured_content
-    assert first["id"] != second["id"]
 
-    # each band's credential lives under its own id and survives the other
-    for body in (first, second):
-        saved = json.loads(Path(body["credential_profile"]).read_text())
-        assert saved["identity"] == body["id"]
-        assert Path(body["credential_profile"]).name == body["id"].replace(":", "-") + ".json"
+    with pytest.raises(ToolError) as caught:
+        await board_tools.call_tool("korax_enlist", {"display": "twin-enactor"})
+    assert first["id"] in str(caught.value)
 
-    # the display alias went to the first claimant and was NOT clobbered
+    # the first band's credential is untouched by the refused attempt,
+    # keyed by band id, with the display alias intact
+    saved = json.loads(Path(first["credential_profile"]).read_text())
+    assert saved["identity"] == first["id"]
+    assert Path(first["credential_profile"]).name == first["id"].replace(":", "-") + ".json"
     alias = tmp_path / "profiles" / "twin-enactor.json"
     assert json.loads(alias.read_text())["identity"] == first["id"]
-    assert first["credential_profile_alias"] == str(alias)
-    assert second["credential_profile_alias"] is None
-    assert second["display_collision"]["held_by"] == first["id"]
+
+    # a distinct personal name still mints freely (R18 stays open)
+    third = (await board_tools.call_tool(
+        "korax_enlist", {"display": "twin-enactor-reborn"}
+    )).structured_content
+    assert third["id"] != first["id"]
 
 
 async def test_enlist_reuses_its_own_alias(

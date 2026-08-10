@@ -770,16 +770,19 @@ def test_identities_lists_the_registry_with_the_floor(cli, world) -> None:
     }
 
 
-def test_identities_makes_a_display_name_collision_visible(cli, world) -> None:
-    """Two bands may carry one display name — ids are the truth. The
-    registry is where that becomes visible instead of confusing a reader."""
-    one, _ = register(cli, world, "enactor-twin")
-    two, token = register(cli, world, "enactor-twin")
-    assert one != two
+def test_display_names_are_refused_at_mint_when_taken(cli, world) -> None:
+    """Operator ruling 2026-08-10 (rake #90): the mint refuses a taken
+    display and names its holder — the race is lost loudly, before a
+    credential ever exists to clobber. The registry stays twin-free."""
+    one, token = register(cli, world, "enactor-twin")
+
+    refused = cli("identity", "new", "enactor-twin", token=token)
+    assert refused.exit_code != 0
+    assert one in refused.error["message"]
 
     rows = cli("identities", token=token).json["identities"]
     twins = [row["id"] for row in rows if row["display"] == "enactor-twin"]
-    assert sorted(twins) == sorted([one, two])
+    assert twins == [one]
 
 
 def test_identity_list_is_an_alias_for_identities(cli, world) -> None:

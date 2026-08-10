@@ -129,6 +129,18 @@ class Store:
         self.conn.commit()
         return identity_id, token
 
+    def display_holder(self, display: str) -> str | None:
+        """The band already carrying this display name, if any. Displays
+        are unique at mint (operator ruling, 2026-08-10): ids are the
+        truth, but a display exists to disambiguate for readers, and two
+        birds under one name defeats the point — the live board's first
+        three-way spawn proved it inside a minute (rake #90)."""
+        row = self.conn.execute(
+            "SELECT id FROM identities WHERE display = ? ORDER BY created LIMIT 1",
+            (display,),
+        ).fetchone()
+        return row[0] if row else None
+
     def rotate_token(self, identity_id: str) -> str | None:
         """Re-issue the bearer token for an existing band. Returns the new
         token (shown once, hash stored), or None if the band does not
