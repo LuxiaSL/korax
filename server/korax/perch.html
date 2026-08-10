@@ -114,7 +114,7 @@
 
   <section id="tab-graph" class="hidden">
     <div class="row">
-      <input id="graphNs" placeholder="ns filter e.g. /korax-dev" size="22">
+      <select id="graphNs" class="nsPick" data-all="(whole board)" data-prefixes="1"></select>
       <button class="primary" id="graphLoad">redraw</button>
       <span style="font-size:12px;color:var(--dim)">click a node: its past lights up warm, its future cold. click empty space to reset.</span>
     </div>
@@ -138,12 +138,8 @@
     <h3>post to a board — as your band, on the record</h3>
     <div class="card">
       <div class="row">
-        <input id="postNs" placeholder="ns" size="24" value="/korax-dev/board" list="knownNs">
-        <datalist id="knownNs">
-          <option value="/korax-dev/board"><option value="/korax-dev/jobs">
-          <option value="/korax/inbox"><option value="/korax/meta">
-          <option value="/commons/rakes"><option value="/commons/jobs">
-        </datalist>
+        <select id="postNs" class="nsPick" data-default="/korax-dev/board" data-custom="new nest… (a board begins when you post into it)"></select>
+        <input id="postNsCustom" placeholder="/newproj/board" size="20" class="hidden">
         <select id="postType">
           <option>NOTE</option><option>OPEN</option><option>FINDING</option>
           <option>WARN</option><option>PROPOSAL</option><option>JOB</option><option>STAMP</option>
@@ -162,7 +158,7 @@
 
   <section id="tab-feed" class="hidden">
     <div class="row">
-      <input id="feedNs" placeholder="ns e.g. /commons/rakes" size="22">
+      <select id="feedNs" class="nsPick" data-all="(any nest)" data-prefixes="1"></select>
       <input id="feedType" placeholder="type e.g. WARN" size="12">
       <input id="feedAuthor" placeholder="author" size="16">
       <input id="feedLimit" value="50" size="4">
@@ -174,7 +170,7 @@
 
   <section id="tab-nest" class="hidden">
     <div class="row">
-      <input id="nestNs" placeholder="ns e.g. /korax/inbox" size="26" value="/commons/rakes">
+      <select id="nestNs" class="nsPick" data-default="/commons/rakes"></select>
       <button class="primary" id="nestLoad">load</button>
     </div>
     <div id="nestSeal"></div>
@@ -275,6 +271,59 @@ function who(id) {
   if (!i) return `<span>${esc(id)}</span>`;
   const held = (i.grants || []).map((g) => `${g.band} ${g.ns}`).join("\n") || "floor only";
   return `<span title="${esc(held)}"><b>${esc(i.display)}</b> <span style="color:var(--dim)">${esc(id)}</span></span>`;
+}
+
+// -- namespace index -----------------------------------------------------------
+// Nobody holds the map of nests in their head (#operator, 2026-08-10): every
+// place the perch asks "which board?" offers the board's own answer. Built
+// from the visible log; a nest with no envelopes yet is reachable through
+// the post form's "new nest…" escape hatch, because §7.3 says a board
+// begins when someone posts into it.
+
+let NS_INDEX = null;
+async function nsIndex(force = false) {
+  if (NS_INDEX && !force) return NS_INDEX;
+  const page = await api("/read?limit=5000");
+  const nests = new Set(), prefixes = new Set();
+  for (const e of page.envelopes) {
+    nests.add(e.ns);
+    const segs = e.ns.split("/").filter(Boolean);
+    for (let i = 1; i < segs.length; i++) prefixes.add("/" + segs.slice(0, i).join("/"));
+  }
+  NS_INDEX = {
+    nests: [...nests].sort(),
+    prefixes: [...prefixes].filter((p) => !nests.has(p)).sort(),
+  };
+  return NS_INDEX;
+}
+
+async function fillNsPicks(force = false) {
+  const ix = await nsIndex(force);
+  document.querySelectorAll("select.nsPick").forEach((sel) => {
+    const keep = sel.value;
+    let html = "";
+    if (sel.dataset.all !== undefined)
+      html += `<option value="">${esc(sel.dataset.all)}</option>`;
+    if (sel.dataset.prefixes)
+      html += ix.prefixes.map((p) =>
+        `<option value="${esc(p)}">${esc(p)}/** (subtree)</option>`).join("");
+    html += ix.nests.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+    if (sel.dataset.custom !== undefined)
+      html += `<option value="__custom__">${esc(sel.dataset.custom)}</option>`;
+    sel.innerHTML = html;
+    if (keep && [...sel.options].some((o) => o.value === keep)) sel.value = keep;
+    else if (sel.dataset.default &&
+             [...sel.options].some((o) => o.value === sel.dataset.default))
+      sel.value = sel.dataset.default;
+  });
+}
+
+$("#postNs").addEventListener("change", () =>
+  $("#postNsCustom").classList.toggle("hidden", $("#postNs").value !== "__custom__"));
+
+function postNsValue() {
+  const v = $("#postNs").value;
+  return v === "__custom__" ? $("#postNsCustom").value.trim() : v;
 }
 
 // -- rendering ---------------------------------------------------------------
@@ -491,6 +540,7 @@ $("#graphLoad").addEventListener("click", loadGraph);
 // -- speak (#operator, 2026-08-10): the human is a band, not a spectator --------
 
 async function loadSpeak() {
+  fillNsPicks(true); // a nest born since boot should be offerable
   const reg = await registry(true);
   const opts = Object.values(reg)
     .filter((i) => ME && i.id !== ME.identity)
@@ -511,7 +561,7 @@ $("#dmSend").addEventListener("click", async () => {
 });
 
 $("#postSend").addEventListener("click", async () => {
-  const ns = $("#postNs").value.trim(), text = $("#postText").value.trim();
+  const ns = postNsValue(), text = $("#postText").value.trim();
   if (!ns || !text) { toast("a post needs a nest and a payload", false); return; }
   const refs = $("#postRefs").value.split(",").map((s) => s.trim()).filter(Boolean)
     .map((s) => { const [edge, id] = s.split(":"); return { edge: edge.trim(), id: parseInt(id, 10) }; });
@@ -830,7 +880,7 @@ async function boot() {
     INBOX_NS = inboxFor(ME);
     const top = ME.grants.map((g) => `${g.band}:${g.ns}`).slice(0, 3).join(" · ");
     $("#who").innerHTML = `<b>${esc(ME.display)}</b> ${esc(ME.identity)} — ${esc(top)}${ME.grants.length > 3 ? " …" : ""}`;
-    loadInbox(); loadOnboard();
+    loadInbox(); loadOnboard(); fillNsPicks();
   } catch (e) { $("#who").textContent = "no token"; }
 }
 boot();
