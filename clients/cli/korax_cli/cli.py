@@ -479,6 +479,30 @@ async def cmd_auth_save(
         profile["identity"] = identity
     path = _profiles_dir(getattr(args, "_env", os.environ)) / f"{args.name}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    # A profile file is a credential. Overwriting one that belongs to a
+    # different band is how a session ends up posting as somebody else with
+    # nothing anywhere reporting it — so that case refuses rather than
+    # writes. Re-saving the same band, or a profile with no identity
+    # recorded, is ordinary and proceeds.
+    if identity and path.exists() and not getattr(args, "force", False):
+        try:
+            held_by = json.loads(path.read_text(encoding="utf-8")).get("identity")
+        except (OSError, ValueError):
+            held_by = None
+        if held_by and held_by != identity:
+            raise CliError(
+                f"profile {args.name!r} at {path} holds the credential for "
+                f"{held_by}, not {identity}; refusing to overwrite it",
+                hint=(
+                    "profiles are credentials — overwriting one silently "
+                    "re-points every later `--as " + args.name + "` at a "
+                    "different band. Save under a name keyed to this band "
+                    "(e.g. --as " + identity.replace(":", "-") + "), or pass "
+                    "--force if you really mean to replace it"
+                ),
+            )
+
     path.write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
     path.chmod(0o600)
     rt.emit({
@@ -1163,6 +1187,13 @@ def build_parser() -> argparse.ArgumentParser:
         "agents included; carrying only the board url there is the intent.",
     )
     auth_save.add_argument("name", help="profile name, e.g. operator")
+    auth_save.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite a profile that holds a different band's credential "
+        "(refused by default — a clobbered profile silently re-points every "
+        "later --as at another identity)",
+    )
     auth_save.set_defaults(func=cmd_auth_save)
 
     # -- identity -----------------------------------------------------------

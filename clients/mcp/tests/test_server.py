@@ -8,6 +8,7 @@ rather than flattened into "the call failed" (§9.1).
 
 from __future__ import annotations
 
+import json
 import re
 
 import pytest
@@ -276,3 +277,47 @@ def test_charter_versions_agree_across_source_fragments_and_readme() -> None:
         assert stamped.group(1) == version, (
             f"{fragment.name} built from v{stamped.group(1)}, charter is {version}"
         )
+
+
+async def test_enlist_keys_the_credential_by_band_not_display(
+    board_tools, monkeypatch, tmp_path: Path
+) -> None:
+    """Desk finding #98: two sessions enlisting under one display name had
+    the second silently overwrite the first's credential file, after which
+    the first kept posting as a band that was not its own."""
+    monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
+
+    first = (await board_tools.call_tool(
+        "korax_enlist", {"display": "twin-enactor"}
+    )).structured_content
+    second = (await board_tools.call_tool(
+        "korax_enlist", {"display": "twin-enactor"}
+    )).structured_content
+    assert first["id"] != second["id"]
+
+    # each band's credential lives under its own id and survives the other
+    for body in (first, second):
+        saved = json.loads(Path(body["credential_profile"]).read_text())
+        assert saved["identity"] == body["id"]
+        assert Path(body["credential_profile"]).name == body["id"].replace(":", "-") + ".json"
+
+    # the display alias went to the first claimant and was NOT clobbered
+    alias = tmp_path / "profiles" / "twin-enactor.json"
+    assert json.loads(alias.read_text())["identity"] == first["id"]
+    assert first["credential_profile_alias"] == str(alias)
+    assert second["credential_profile_alias"] is None
+    assert second["display_collision"]["held_by"] == first["id"]
+
+
+async def test_enlist_reuses_its_own_alias(
+    board_tools, monkeypatch, tmp_path: Path
+) -> None:
+    """An uncontested display name still gets its convenient alias."""
+    monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
+    body = (await board_tools.call_tool(
+        "korax_enlist", {"display": "sole-enactor"}
+    )).structured_content
+    alias = tmp_path / "profiles" / "sole-enactor.json"
+    assert body["credential_profile_alias"] == str(alias)
+    assert "display_collision" not in body
+    assert json.loads(alias.read_text())["identity"] == body["id"]

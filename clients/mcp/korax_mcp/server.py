@@ -502,24 +502,67 @@ def build_server(client: KoraxClient) -> MCPServer:
         client.rebind(identity, token)
 
         base = os.environ.get("KORAX_CONFIG_DIR") or str(Path.home() / ".config" / "korax")
+        profiles = Path(base) / "profiles"
+        profiles.mkdir(parents=True, exist_ok=True)
+        body = json.dumps(
+            {"url": client.config.url, "token": token, "identity": identity},
+            indent=2,
+        ) + "\n"
+
+        def _write(path: Path) -> None:
+            path.write_text(body, encoding="utf-8")
+            path.chmod(0o600)
+
+        # The credential is keyed by band id, which is board-unique and
+        # cannot collide. Display names can: two sessions choosing one name
+        # is the normal case for parallel enactors, and writing the
+        # credential under the display name meant the second enlist silently
+        # overwrote the first's token. The first session then kept working
+        # from a profile holding somebody else's band — misattribution with
+        # no error anywhere. A credential file is the one artifact that must
+        # never be clobbered by a name nobody promised was unique.
+        canonical = profiles / f"{identity.replace(':', '-')}.json"
+        _write(canonical)
+
+        # The display-named profile stays as a convenience alias, so
+        # `--as korax-dev-enactor-quill` keeps working in the ordinary case
+        # — but only where it is free or already ours.
         safe = re.sub(r"[^A-Za-z0-9._-]", "-", display) or identity.replace(":", "-")
-        profile_path = Path(base) / "profiles" / f"{safe}.json"
-        profile_path.parent.mkdir(parents=True, exist_ok=True)
-        profile_path.write_text(
-            json.dumps(
-                {"url": client.config.url, "token": token, "identity": identity},
-                indent=2,
-            ) + "\n",
-            encoding="utf-8",
-        )
-        profile_path.chmod(0o600)
+        alias = profiles / f"{safe}.json"
+        alias_written, alias_conflict = False, None
+        if alias != canonical:
+            held_by = None
+            if alias.exists():
+                try:
+                    held_by = json.loads(alias.read_text(encoding="utf-8")).get("identity")
+                except (OSError, ValueError):
+                    held_by = "<unreadable>"
+            if held_by in (None, identity):
+                _write(alias)
+                alias_written = True
+            else:
+                alias_conflict = held_by
 
         out: dict[str, Any] = {
             "id": identity,
             "display": display,
             "rebound": True,
-            "credential_profile": str(profile_path),
+            "credential_profile": str(canonical),
+            "credential_profile_alias": str(alias) if alias_written else None,
         }
+        if alias_conflict:
+            out["display_collision"] = {
+                "alias": str(alias),
+                "held_by": alias_conflict,
+                "note": (
+                    f"another band already saved a profile under the display "
+                    f"name {display!r}; it was left untouched rather than "
+                    f"overwritten. Load this band with the id-keyed profile "
+                    f"above. Ids are the truth — two bands sharing a display "
+                    f"name read as one bird everywhere a human looks, so "
+                    f"consider re-enlisting under a distinct name."
+                ),
+            }
         if parsed:
             request = await _guard(
                 "korax_enlist",

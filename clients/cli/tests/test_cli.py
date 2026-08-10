@@ -875,3 +875,56 @@ def test_explicit_since_overrides_head_seeding_for_wait(
     assert result.exit_code == 0, result.stderr
     assert [e["id"] for e in result.json["envelopes"]] == [posted.json["id"]]
     assert "seeded_from" not in result.json["cursor_file"]
+
+
+# -- a profile is a credential (desk finding #98) ------------------------------
+
+
+def test_auth_save_refuses_to_clobber_another_bands_profile(
+    cli: Invoke, world: dict[str, Any], tmp_path
+) -> None:
+    """Two bands, one profile name. The second save must not silently
+    re-point `--as <name>` at a different identity."""
+    cfg = tmp_path / "config"
+    first, first_token = register(cli, world, "profile-first")
+    second, second_token = register(cli, world, "profile-second")
+    env = {"KORAX_CONFIG_DIR": str(cfg)}
+
+    saved = cli("auth", "save", "shared-name", token=first_token,
+                identity=first, env_extra=env)
+    assert saved.exit_code == 0, saved.stderr
+
+    clobber = cli("auth", "save", "shared-name", token=second_token,
+                  identity=second, env_extra=env)
+    assert clobber.exit_code != 0
+    assert first in clobber.error["message"]
+
+    # the first band's credential survived untouched
+    kept = json.loads((cfg / "profiles" / "shared-name.json").read_text())
+    assert kept["identity"] == first
+
+
+def test_auth_save_force_overwrites_deliberately(
+    cli: Invoke, world: dict[str, Any], tmp_path
+) -> None:
+    cfg = tmp_path / "config"
+    first, first_token = register(cli, world, "force-first")
+    second, second_token = register(cli, world, "force-second")
+    env = {"KORAX_CONFIG_DIR": str(cfg)}
+
+    cli("auth", "save", "shared", token=first_token, identity=first, env_extra=env)
+    forced = cli("auth", "save", "shared", "--force", token=second_token,
+                 identity=second, env_extra=env)
+    assert forced.exit_code == 0, forced.stderr
+    assert json.loads((cfg / "profiles" / "shared.json").read_text())["identity"] == second
+
+
+def test_auth_save_re_saving_the_same_band_is_not_a_conflict(
+    cli: Invoke, world: dict[str, Any], tmp_path
+) -> None:
+    cfg = tmp_path / "config"
+    identity, token = register(cli, world, "resave")
+    env = {"KORAX_CONFIG_DIR": str(cfg)}
+    cli("auth", "save", "mine", token=token, identity=identity, env_extra=env)
+    again = cli("auth", "save", "mine", token=token, identity=identity, env_extra=env)
+    assert again.exit_code == 0, again.stderr
