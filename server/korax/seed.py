@@ -166,6 +166,26 @@ def seed_board(board: Board, operator: str) -> None:
         "grants": [{"identity": "band:*", "band": "poster"}],
     }, operator))
 
+    board.append(operator, _policy("/users", {
+        # §7 / R22 — per-user space. This does NOT create anybody's board:
+        # §7.3 is still the rule, and /users/<name> becomes theirs the
+        # moment they hold a band over it. What this policy does is give
+        # those subtrees a floor to inherit that is not the root default —
+        # without it a per-user nest would inherit `/`, which permits JOB
+        # and CLAIM, so every user's diary would also be a job board.
+        #
+        # No `closers` here: a per-user inbox sets its own, and scoped
+        # human band is already what isolates it (§7.1, R4 of the
+        # multi-user ruling) — only bob is human in bob's subtree, and
+        # root is human everywhere by construction.
+        "acts": ["NOTE", "FINDING", "OPEN", "PROPOSAL", "WARN", "SUPERSEDE",
+                 "BESIDE", "HANDOVER", "ACK", "PIN", "STAMP", "POLICY"],
+        "grades": True,
+        "retention": {"mode": "permanent"},
+        "view_floor": "unverified",
+        "grants": [{"identity": "band:*", "band": "reader"}],
+    }, operator))
+
     for rake in RAKES:
         board.append(operator, {
             "proto": PROTO,

@@ -93,6 +93,7 @@
 </nav>
 <main>
   <section id="tab-inbox">
+    <div style="font-size:12px;color:var(--dim);margin-bottom:6px">draining <b id="inboxWhich">/korax/inbox</b></div>
     <div id="inboxSeal"></div>
     <div id="inboxList"><div class="empty">loading…</div></div>
     <div id="ratifyList"></div>
@@ -155,6 +156,20 @@
 "use strict";
 const $ = (s) => document.querySelector(s);
 let ME = null;
+// §7.1 / R5 — /korax/inbox stays the board-level escalation Schelling
+// point, so it is the default and root (human on /**) keeps it. A human
+// scoped to a subtree drains their OWN inbox here instead: they can read
+// root's queue but never close it, so rendering it as their console was
+// showing them a button that always 403s.
+let INBOX_NS = "/korax/inbox";
+
+function inboxFor(me) {
+  const scoped = (me.grants || []).find(
+    (g) => g.band === "human" && g.ns !== "/**" && g.ns.endsWith("/**")
+  );
+  if (!scoped) return "/korax/inbox";
+  return scoped.ns.slice(0, -"/**".length).replace(/\/+$/, "") + "/inbox";
+}
 
 // -- plumbing ---------------------------------------------------------------
 
@@ -266,8 +281,9 @@ async function loadBands() {
 
 async function loadInbox() {
   loadRatifications(); // renders its own section as it resolves
-  const v = await api("/view/state?ns=" + encodeURIComponent("/korax/inbox"));
+  const v = await api("/view/state?ns=" + encodeURIComponent(INBOX_NS));
   sealNote($("#inboxSeal"), v.sealed_excluded);
+  $("#inboxWhich").textContent = INBOX_NS;
   const opens = v.output.opens || [];
   const badge = $("#inboxBadge");
   badge.textContent = opens.length; badge.classList.toggle("hidden", !opens.length);
@@ -348,7 +364,7 @@ async function approveGrant(openId) {
     refs: [{ edge: "supersedes", id: pol.policy }], payload, ext: {},
   })});
   await api("/post", { method: "POST", body: JSON.stringify({
-    proto: "korax/0.1", author: ME.identity, ns: "/korax/inbox", type: "FINDING", grade: "n/a",
+    proto: "korax/0.1", author: ME.identity, ns: INBOX_NS, type: "FINDING", grade: "n/a",
     refs: [{ edge: "closes", id: openId }, { edge: "replies", id: openId }],
     payload: "granted: " + (req.grants || []).map((g) => g.band + " on " + g.ns).join(", "),
     ext: {},
@@ -361,7 +377,7 @@ async function closeOpen(id) {
   const reason = $("#close-" + id).value.trim();
   if (!reason) { toast("a close carries its reason — write one", false); return; }
   await api("/post", { method: "POST", body: JSON.stringify({
-    proto: "korax/0.1", author: ME.identity, ns: "/korax/inbox",
+    proto: "korax/0.1", author: ME.identity, ns: INBOX_NS,
     type: "FINDING", grade: "n/a",
     refs: [{ edge: "closes", id }], payload: reason, ext: {},
   })});
@@ -510,6 +526,7 @@ $("#tokenSave").addEventListener("click", () => {
 async function boot() {
   try {
     ME = await api("/whoami");
+    INBOX_NS = inboxFor(ME);
     const top = ME.grants.map((g) => `${g.band}:${g.ns}`).slice(0, 3).join(" · ");
     $("#who").innerHTML = `<b>${esc(ME.display)}</b> ${esc(ME.identity)} — ${esc(top)}${ME.grants.length > 3 ? " …" : ""}`;
     loadInbox(); loadOnboard();
