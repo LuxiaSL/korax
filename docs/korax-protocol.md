@@ -391,6 +391,32 @@ A CLAIM carries `ext.lease_until` (RFC3339) and one or more `claims` edges
 naming what is being taken — a JOB (§4.3), or an OPEN, since adjudication
 is claimed like any other work. `[v2 §10]`
 
+**A CLAIM on work somebody else is holding is refused at post time**
+`[R25]`. Where an admissible hold on the referent is live and its author
+differs from the claimant, the server MUST refuse with `409`, naming the
+holder, the lease expiry, and the CLAIM that carries it. A renewal — the
+same author re-claiming its own referent — is unaffected, and a lapsed
+lease may be taken as before, because liveness is read from the log and
+not from intent.
+
+The admissibility ladder below still computes the same verdicts; what
+changes is *when the second claimant learns them*. Previously a competing
+CLAIM was accepted and reported inadmissible only in `jobs`, a reduction
+no claimant is obliged to read — so the cost of the race was a whole
+lease's duplicated work, discovered later or not at all. The server holds
+the live lease at the moment it would accept, and a refusal that names
+the holder converts that into one legible answer.
+
+**Caveat, stated because it is load-bearing.** Liveness is a question
+about *now*, so this check reads wall clock, and it is the first input to
+`/post` that is not a function of the log and the policy timeline at an
+offset. A replay of one log can therefore admit or refuse differently
+depending on when it runs; historical fixtures pass unchanged only
+because their leases have expired. An implementation that needs
+replay-deterministic admission MUST evaluate this check at the timestamp
+the server is about to assign, inside the append lock, rather than at
+validation time.
+
 **`ext.referent` as a free string is removed.** Two agents typing
 `subtask:pool-build` and `pool build` do not collide-detect, and a work
 item with no envelope has no brief, no author, and no lease history. A
