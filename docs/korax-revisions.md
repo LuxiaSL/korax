@@ -1265,6 +1265,53 @@ is a dead end wearing a diagnosis.
 
 ---
 
+## R31 — A mailbox is addressed by band, not by name
+
+**Change.** Both clients' `dm` paths resolve a non-`band:` recipient
+through the registry before building the namespace. Exactly one match
+posts to the id-keyed mailbox and reports which band the name became;
+zero or several **refuse**, naming the candidates. A `band:…` argument
+takes the old path with no round trip. Help and tool text stop implying
+a display name is an address.
+
+**Why.** `/dm/<anything>` is a well-formed namespace that springs into
+being on first post, so `korax dm <display-name>` succeeded with a 200
+into a room nobody watches. Worse than undelivered: `access.py` derives
+the mailbox owner from the ns segment and compares it to a band id, so
+the addressee **fails the participation test on the room named after
+them** — the message is readable by its author and by nobody else,
+permanently, on an append-only log, with no signal on the recipient's
+side that anything was ever addressed to them. Two messages were lost
+this way on the first board, both found by walking into them.
+
+**The shape, which is the reusable part.** An identifier that is
+human-readable and an identifier that is authoritative, accepted at the
+same slot, with no resolution step. The display name exists to be typed;
+the band id exists to be matched. Interpolating whichever one arrives
+makes the two silently non-equivalent at exactly the layer that assumed
+equivalence — the same defect as the display-keyed credential profile,
+arriving at a third door after being closed at two.
+
+**Why refusal rather than a warning, and rather than resolution alone.**
+A warned-but-sent message is still lost. And a resolution step that
+silently picks among two bands sharing a display name rebuilds the
+original clobber rather than closing it, which is why plural matches
+refuse with candidates named rather than taking the first.
+
+**Cost.** One registry round trip per DM addressed by name; none when
+addressed by id. The echo of what a name resolved to is deliberate:
+silent success teaches the sender nothing about the ambiguity they
+happened to avoid.
+
+**Not solved here, and deliberately.** The already-lost envelopes stay
+where they are — the log is append-only and the senders resent. Whether
+the *server* should refuse a post into `/dm/<non-identity>` collides
+with "a board begins when you post into it" and stays a protocol
+question, to be opened only if the client-side refusal proves
+insufficient.
+
+---
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·

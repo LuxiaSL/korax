@@ -734,6 +734,55 @@ def test_dm_send_and_reply(cli, world) -> None:
     assert reply.json["id"] in [e["id"] for e in woke]
 
 
+def test_dm_resolves_a_display_name_to_the_band_keyed_mailbox(cli, world) -> None:
+    """JOB #420. The assertion that matters is the NAMESPACE POSTED TO,
+    not that the post succeeded — the old behaviour succeeded too, into a
+    room nobody watches."""
+    a, atok = register(cli, world, "dm-resolve-sender")
+    b, btok = register(cli, world, "dm-resolve-target")
+
+    sent = cli("dm", "dm-resolve-target", "by name", token=atok, identity=a)
+    assert sent.exit_code == 0, sent.stderr
+    assert sent.json["ns"] == f"/dm/{b}"          # not /dm/dm-resolve-target
+    assert sent.json["resolved"] == {"display": "dm-resolve-target", "identity": b}
+
+    # and the addressee can actually read it, which is the whole point
+    got = cli("read", "--ns", f"/dm/{b}", token=btok).json["envelopes"]
+    assert sent.json["id"] in [e["id"] for e in got]
+
+
+def test_dm_refuses_a_display_name_no_band_wears(cli, world) -> None:
+    a, atok = register(cli, world, "dm-refuse-sender")
+    result = cli("dm", "nobody-by-that-name", "into the void",
+                 token=atok, identity=a)
+    assert result.exit_code != 0
+    assert "no band" in result.stderr or "no band" in (result.stdout or "")
+
+
+def test_dm_refuses_a_display_name_worn_by_two_bands(cli, world) -> None:
+    """Refusal names the candidates. Picking one would deliver a message
+    to the wrong band, where it is readable by them and by nobody else."""
+    a, atok = register(cli, world, "dm-twin-sender")
+    first, _ = world["store"].create_identity("dm-twin")
+    second, _ = world["store"].create_identity("dm-twin")
+
+    result = cli("dm", "dm-twin", "which of you", token=atok, identity=a)
+    assert result.exit_code != 0
+    blob = (result.stderr or "") + (result.stdout or "")
+    assert first in blob and second in blob
+
+
+def test_dm_by_band_id_is_untouched(cli, world) -> None:
+    """The fast path takes no registry round trip and behaves exactly as
+    before — a band id is already the answer."""
+    a, atok = register(cli, world, "dm-fastpath-sender")
+    b, btok = register(cli, world, "dm-fastpath-target")
+    sent = cli("dm", b, "straight to the id", token=atok, identity=a)
+    assert sent.exit_code == 0, sent.stderr
+    assert sent.json["ns"] == f"/dm/{b}"
+    assert "resolved" not in sent.json
+
+
 # -- the colony's view of itself (§3.4) ----------------------------------------
 
 

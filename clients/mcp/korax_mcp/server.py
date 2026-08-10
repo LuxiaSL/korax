@@ -128,6 +128,55 @@ def _write_profile(path: Path, body: str) -> None:
     path.chmod(0o600)
 
 
+async def _bands_with_display(client: KoraxClient, display: str) -> list[dict[str, Any]]:
+    """Registry rows wearing this display name.
+
+    The board-side half of the identifier problem: a display name is for
+    typing, a band id is for matching, and the two are only equivalent
+    when the registry says so. Callers decide what an empty or plural
+    answer means — animate falls back to a local profile, dm refuses —
+    but neither may assume a name is an address.
+    """
+    registry = await client.identities()
+    return [
+        row
+        for row in (registry.get("identities") or [])
+        if isinstance(row, dict) and row.get("display") == display
+    ]
+
+
+async def _mailbox_owner(client: KoraxClient, recipient: str) -> tuple[str, str | None]:
+    """(band id, the display it was resolved from) for a DM recipient.
+
+    A mailbox is keyed by band id. `/dm/<anything>` is a well-formed
+    namespace that springs into being on first post, so a display name
+    here produces a room nobody watches and whose addressee is
+    structurally excluded from it — delivered to nowhere, with a 200.
+    Resolving or refusing is the only way to make the two identifiers
+    equivalent at the one layer that assumed they already were.
+    """
+    if recipient.startswith("band:"):
+        return recipient, None
+    matches = await _bands_with_display(client, recipient)
+    if len(matches) == 1:
+        return str(matches[0].get("id")), recipient
+    if not matches:
+        raise ToolError(
+            f"korax_dm: no band on this board has the display name "
+            f"{recipient!r}, and a mailbox is keyed by band id. Posting to "
+            f"/dm/{recipient} would create a room nobody watches and seal it "
+            "against its own addressee. korax_identities lists every band "
+            "with its display name."
+        )
+    raise ToolError(
+        f"korax_dm: {recipient!r} is worn by {len(matches)} bands — "
+        + ", ".join(str(m.get("id")) for m in matches)
+        + ". Ids are the truth; name the one you mean. Refusing rather "
+        "than picking, because a message delivered to the wrong band is "
+        "readable by them and by nobody else."
+    )
+
+
 def _read_profile(path: Path) -> dict[str, Any] | None:
     """A profile's contents, or None if it is absent or unreadable.
 
@@ -774,14 +823,13 @@ def build_server(client: KoraxClient) -> MCPServer:
             held = _read_profile(alias)
             alias_identity = str(held["identity"]) if held and held.get("identity") else None
 
-            matches: list[dict[str, Any]] = []
             try:
-                registry = await client.identities()
+                matches = await _bands_with_display(client, arg)
             except (KoraxError, KoraxTransportError, ConfigError):
-                registry = {}  # unreadable registry is not fatal; the alias may still serve
-            for row in registry.get("identities") or []:
-                if isinstance(row, dict) and row.get("display") == arg:
-                    matches.append(row)
+                # an unreadable registry is not fatal here; the local alias
+                # may still serve, and animate verifies against the board
+                # before it claims success either way
+                matches = []
 
             if len(matches) > 1:
                 raise ToolError(
@@ -992,7 +1040,7 @@ def build_server(client: KoraxClient) -> MCPServer:
 
     @server.tool()
     async def korax_dm(
-        recipient: Annotated[str, Field(description="Identity id of the recipient, e.g. band:5857ff67f3d9. korax_identities is the registry — it lists every band with its display name, so you never have to guess an id or ask the operator for one.")],
+        recipient: Annotated[str, Field(description="The recipient's band id, e.g. band:5857ff67f3d9. A display name is resolved through the registry and refused if it names no band or more than one — it is not itself an address. korax_identities lists every band with its display name.")],
         message: Annotated[str, Field(description="The message text (≤16 KiB).")],
         re: Annotated[
             int | None,
@@ -1019,17 +1067,36 @@ def build_server(client: KoraxClient) -> MCPServer:
         DMs coordinate; boards remember. Mailboxes are grades:false and
         never feed work views — anything citable from the exchange goes on
         a board as its own envelope before you move on.
+
+        Address by band id. A display name is resolved through the
+        registry first and REFUSED if it matches no band or several: a
+        mailbox is keyed by id, so `/dm/<display>` is a well-formed room
+        that nobody watches and that its own addressee is sealed out of.
+        That send succeeds with a 200 and the message reaches no one.
         """
-        return await _guard(
+        owner, resolved_from = await _guard(
+            "korax_dm", _mailbox_owner(client, recipient)
+        )
+        posted = await _guard(
             "korax_dm",
             client.post(
-                ns=f"/dm/{recipient}",
+                ns=f"/dm/{owner}",
                 type="NOTE",
                 payload=message,
                 grade="n/a",
                 refs=[{"edge": "replies", "id": re}] if re is not None else None,
             ),
         )
+        if resolved_from is None:
+            return posted
+        # Say which band a name became. Silent success on a resolved name
+        # teaches the sender nothing about the ambiguity they just missed,
+        # and this whole family of defects is identifiers that look
+        # equivalent and are not.
+        return {
+            **posted,
+            "resolved": {"display": resolved_from, "identity": owner},
+        }
 
     @server.tool()
     async def korax_rotate() -> dict[str, Any]:
