@@ -9,6 +9,7 @@ import ast
 import hashlib
 import inspect
 import json
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -16,7 +17,7 @@ import pytest
 from conftest import Invoke, grant, register
 
 import korax_cli.cli
-from korax_cli import PROTO
+from korax_cli import PROTO, conventions
 from korax_cli.cli import DEFAULT_POLL, Config, build_parser, resolve_config
 
 
@@ -1680,3 +1681,81 @@ def test_nbhd_is_an_alias(cli: Invoke, warner: tuple[str, str]) -> None:
     long_form = cli("neighbourhood", str(env["id"]), token=token, identity=identity)
     short_form = cli("nbhd", str(env["id"]), token=token, identity=identity)
     assert long_form.json == short_form.json
+
+
+# -- harness conventions (#672's mechanism half, admission rule #671) --------
+#
+# The doc is a queue of unfixed tool defects, not accumulated wisdom, and the
+# thing that keeps it one is that every entry names the issue whose fix
+# deletes it. That rule was enforced by people noticing — it caught two
+# entries at #683 and a third at #691, each time because someone was
+# conscientious. Conscientiousness is not a mechanism (#176 §4), so it gets a
+# test while the list is still small enough that the test's correctness is
+# obvious by inspection.
+#
+# Currency — has the cited issue actually closed, so must the entry die? —
+# is deliberately NOT here. It needs board state, and a test that reads the
+# board fails when the board is down, which is a guard that cries wolf
+# (#215's family). It is filed rather than built.
+
+
+def test_every_convention_entry_names_the_issue_that_deletes_it() -> None:
+    """#671, mechanised. An entry with no expiry id is inadmissible."""
+    entries = conventions.parse_entries(conventions.load_text())
+    for entry in entries:
+        assert entry["expires"] > 0, entry
+        assert entry["mechanism"].strip(), entry
+
+
+def test_the_convention_guard_covers_something() -> None:
+    """Anti-vacuity, and it names a member rather than checking a count
+    (#258). A parser that silently returned [] — a renamed heading level, a
+    reformatted file — would leave every assertion above passing over an
+    empty list, which is the one failure this whole document is about.
+
+    `--as` at the call site is the entry to hardcode: it is the oldest of
+    the five, it guards misattribution rather than convenience, and if it
+    ever leaves this file that should be a deliberate act someone had to
+    edit a test to perform.
+    """
+    entries = conventions.parse_entries(conventions.load_text())
+    assert len(entries) >= 5, entries
+    assert any("--as" in e["mechanism"] for e in entries), [
+        e["mechanism"] for e in entries
+    ]
+
+
+def test_a_convention_without_an_expiry_is_refused_not_skipped() -> None:
+    """The parser must refuse the document rather than return the
+    admissible subset. Skipping would report a clean list for a file that
+    had just admitted folklore — the entry would be served to readers by
+    `korax conventions` and be invisible to every assertion above."""
+    doctored = conventions.load_text() + "\n### run it twice for luck\n\nno id\n"
+    with pytest.raises(ValueError) as caught:
+        conventions.parse_entries(doctored)
+    assert "run it twice for luck" in str(caught.value)
+
+
+def test_conventions_command_serves_what_the_suite_checks(
+    cli: Invoke, world: dict[str, Any]
+) -> None:
+    """One reader for the file, so the served document and the tested
+    document cannot drift. The command makes no board call — it is given a
+    token only because every invocation is."""
+    result = cli("conventions", token=world["op_token"])
+    assert result.exit_code == 0, result.stderr
+    body = result.json
+    assert body["entries"] == conventions.parse_entries(conventions.load_text())
+    assert body["text"] == conventions.load_text()
+    assert body["source"].endswith("conventions.md")
+
+
+def test_conventions_ship_inside_the_package() -> None:
+    """The whole point of the #672 split is that mechanism travels with the
+    code and stales at its clock. `pyproject.toml` declares
+    `packages = ["korax_cli"]`, so a sibling file would sit in the repo and
+    never reach a wheel — the doc would silently fail to travel, which is
+    the remedy-you-cannot-reach shape (#162/#197)."""
+    assert conventions.CONVENTIONS_PATH.is_file()
+    package_root = Path(korax_cli.cli.__file__).resolve().parent
+    assert conventions.CONVENTIONS_PATH.parent == package_root

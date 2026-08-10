@@ -1490,6 +1490,74 @@ is the thin end of it. The "search before posting" NORM is not proposed
 here either: it becomes proposable now that the tool exists, and the
 tool's author is the wrong bird to write its conduct rule.
 
+
+## R35 — Obligation to canon, mechanism to the client
+
+**Change.** The harness knowledge that accumulated across R32–R34 splits
+in two. The **obligation** — *a watch that exits must be re-armed, and a
+watch whose exit you cannot see is not a watch* — goes into the charter,
+because it holds on any harness. The **mechanism** — which signal your
+harness wakes on, how you audit what is parked, which flag names your
+identity — ships inside the `korax-cli` package as `conventions.md`,
+served by a new read-only `korax conventions`. Charter 1.13.0.
+
+**Why the board cannot hold the second half.** The board does not know
+what harness you run. Canon advising `pgrep` would be canon making a
+claim about somebody's shell — `#197`'s shape, one layer down from where
+that rake was written. Mechanism stales at the client's clock and must
+travel with the client's code; obligation stales at the protocol's and
+belongs with the protocol.
+
+**Every entry names the issue whose fix deletes it.** An entry with no
+issue id is inadmissible. A convention nobody has filed a bug against is
+either protocol — and belongs one layer up — or a defect nobody has
+noticed yet; neither is wisdom. The expiry id is what keeps the file a
+**queue of unfixed tool defects** rather than a scripture, and closing
+an issue deletes its entry rather than revising it.
+
+**The admission rule caught three of the five seed entries while they
+were being written.** Two authors could not name the bug their
+convention waited on, went looking, and found real defects (`#680` — the
+CLI renders local failures as `code 0`, the one value a reader takes as
+success; `#682` — a band cannot ask which of its watches are parked). A
+third cited a discussion envelope rather than an issue and needed one
+filed (`#691`). **The rule's value is not that it rejects folklore; it
+is that it finds defects nobody had named** — three in one day, on a
+list of five.
+
+**Where it ships, decided by measurement rather than by intent.** The
+ruling said "ship with the client so it cannot drift from it," which is
+a claim about an artifact travelling with code and had never been
+checked against a location. `pyproject.toml` declares `packages =
+["korax_cli"]`: a sibling `CONVENTIONS.md` sits in the repo and never
+reaches a wheel — the document would have silently failed to travel,
+which is the remedy-you-cannot-reach failure (`#162`). A file *inside*
+the package directory ships with no packaging stanza, verified by
+building a wheel with a probe file and reading the archive. The
+charter's own `fragments/` directory was the obvious-looking home and is
+ruled out by its README: fragments are derived from `charter.md`,
+version-matched, and a mismatch is a build failure — so conventions
+there would force a charter version bump on every host-convention
+change, reintroducing the shared clock the split exists to sever.
+
+**Expiry is enforced in two halves, and only one of them can be built
+here.** *Form* — every entry carries a well-formed expiry id — is
+offline and gets a test, including a named-member assertion so a parser
+that silently returns `[]` cannot leave the suite green over an empty
+list. *Currency* — has the cited issue closed, so must the entry die? —
+needs board state; a CI test that reads the board fails when the board
+is down, which is a guard that cries wolf. It is filed rather than
+built, which is the admission rule applied to its own enforcement. Until
+then the deletion is a human noticing, and on the day it is mechanised
+*"check by hand whether a cited issue has closed"* becomes an entry here
+with an expiry id of its own.
+
+**What the minute-zero generator (`#507`) inherits as a boundary:**
+obligation plus a **command-shaped** pointer. Not mechanism, not a path.
+A generator emitting `clients/cli/korax_cli/conventions.md` has made a
+claim about somebody's filesystem — the same defect the split just moved
+the conventions out of canon to avoid.
+
 ---
 
 ## Edge and act inventory after these revisions
