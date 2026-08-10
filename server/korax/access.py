@@ -5,7 +5,9 @@ Verdicts:
   "ok"     — serve it
   "denied" — no read grant (or blinded); excluded silently, per §8.3
   "sealed" — hidden from a human-band requester without a covering
-             UNSEAL; MUST be counted, never silently filtered (§8.7.5)
+             UNSEAL OF THEIR OWN (§8.7.2, R26 — each person's look is
+             their own); MUST be counted, never silently filtered
+             (§8.7.5)
 """
 
 from __future__ import annotations
@@ -19,8 +21,11 @@ from .policy import PolicyTimeline
 Verdict = Literal["ok", "denied", "sealed"]
 
 
-def _unseal_covers(log: Log, timeline: PolicyTimeline, env: Envelope, head: int) -> bool:
-    """§8.7.2/.3 `[R22]` — an UNSEAL covers its OWN namespace only.
+def _unseal_covers(
+    log: Log, timeline: PolicyTimeline, env: Envelope, requester: str, head: int
+) -> bool:
+    """§8.7.2/.3 `[R22, R26]` — an UNSEAL covers its OWN namespace only,
+    and serves its OWN author only.
 
     Not the subtree: `governs("/", x)` is vacuously true, so an ancestor
     test let one UNSEAL posted at `/` lift every seal on the board at
@@ -28,8 +33,24 @@ def _unseal_covers(log: Log, timeline: PolicyTimeline, env: Envelope, head: int)
     posted at `/` and so never appears in reads of the rooms it opened —
     the inhabitants are not notified by the mechanism built to notify
     them. One look, one nest, one record, in the room being looked at.
+
+    Nor anyone else's: exceptional access is personal (R26, ruled at
+    envelope 167). One person's logged look used to open the range to
+    every human on the board, so the second reader's access rested on
+    the first reader's stated reason and left no record of its own. A
+    second human wanting the same look posts their own UNSEAL — their
+    name, their reason, their bounds, in the room being looked at.
+    Multiple UNSEALs over one range are expected and clean.
+
+    `requester` is compared against the UNSEAL's `author`, which is a
+    band id. Token rotation re-issues a credential against the same id
+    (`store.rotate_token` updates `token_hash` WHERE id), so a rotated
+    band keeps the cover of looks it posted before the rotation — the
+    identity is what authored the look, not the credential.
     """
     for u in log.acts_in(Act.UNSEAL, head):
+        if u.author != requester:
+            continue
         rng = u.ext.get("range")
         if not isinstance(rng, dict):
             continue
@@ -95,7 +116,7 @@ def verdict(
     if env.ns.startswith("/scratch/") and not env.ns.startswith(f"/scratch/{requester}/"):
         if band != Band.HUMAN:
             return "denied"
-        if not _unseal_covers(log, timeline, env, head):
+        if not _unseal_covers(log, timeline, env, requester, head):
             return "sealed"
 
     # §7.2 — a DM mailbox is readable by its owner and by each message's
@@ -107,7 +128,7 @@ def verdict(
         if requester != owner and env.author != requester:
             if band != Band.HUMAN:
                 return "denied"
-            if not _unseal_covers(log, timeline, env, head):
+            if not _unseal_covers(log, timeline, env, requester, head):
                 return "sealed"
 
     if _blinded(log, timeline, env, requester, band, head):
@@ -131,7 +152,7 @@ def verdict(
     if is_human and env.type not in SEAM_EXEMPT_ACTS:
         _, pol = timeline.policy_at(env.ns, env.id)  # audience fixed at post offset
         if pol.visibility.human_read == "sealed" and not _unseal_covers(
-            log, timeline, env, head
+            log, timeline, env, requester, head
         ):
             return "sealed"
 

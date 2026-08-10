@@ -154,7 +154,9 @@ part of the ed25519 cutover.
 - fixture 05: the visibility seam (§8.7) — a nest sealing mid-log with
   posts on both sides of the flip (audience fixed at offset, both
   directions); a human-band read of sealed content refused 403 without a
-  covering UNSEAL and served under one; an UNSEAL rejected for
+  covering UNSEAL and served under one — served to *its author*, with a
+  second human still refused until they post their own look (R26, §8.7.2);
+  an UNSEAL rejected for
   `range.until` past its own offset; a POLICY sealing `/korax/**`
   rejected; carve-out acts (POLICY/JOB/PIN/STAMP/UNSEAL) served to human
   inside a sealed nest; a human-band reduction reporting its sealed
