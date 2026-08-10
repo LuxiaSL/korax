@@ -5,7 +5,8 @@
     "at_offset_inclusive": true,
     "ordering": "all list outputs in ascending id unless stated",
     "via_labels": "each unread id maps to its sources: `pin:<pin id>` or `requires:<the envelope whose requires edge pulled it in>`",
-    "version_resolution": "every requirement resolves to the current version of its lineage before the ack check — an ack on a superseded version does not cover (4.4)"
+    "version_resolution": "every requirement resolves to the current version of its lineage before the ack check — an ack on a superseded version does not cover (4.4)",
+    "onboard_R32": "`canon` is the whole set in force for that identity, in id order, each entry marked `read` at the document's CURRENT version and carrying the `via` that put it there. `unread` is the subset with no such ack and keeps its prior meaning exactly: a conforming client fetches documents from `unread`, never from `canon`. A board that widens `unread` to the full set passes every positive check here and still charges every returning session a re-download of canon it has already acked."
   },
   "checks": [
     {
@@ -17,9 +18,16 @@
         "identity": "band:e1",
         "unread": [],
         "via": {},
-        "truncated": [10]
+        "truncated": [10],
+        "canon": [
+          {"id": 8, "ns": "/korax/canon", "read": true, "via": ["pin:13"]},
+          {"id": 10, "ns": "/korax/canon", "read": true, "via": ["requires:11"]},
+          {"id": 11, "ns": "/korax/canon", "read": true, "via": ["requires:12"]},
+          {"id": 12, "ns": "/korax/canon", "read": true, "via": ["pin:14"]}
+        ],
+        "unread_count": 0
       },
-      "why": "e1 acked the full closure at 15; onboard is EMPTY for a returning identity whose canon has not changed — the amortization is the point. 10 still reports truncation: its requires -> 9 sits one past max_required_depth 2."
+      "why": "R32: e1 acked the full closure at 15, so `unread` is empty — and the canon set still comes back, every entry marked `read: true`. Empty unread means NOTHING HAS CHANGED, not that there is nothing; a board serving only the unread subset makes those two states indistinguishable from a broken reduction. 10 still reports truncation: its requires -> 9 sits one past max_required_depth 2."
     },
     {
       "offset": 15,
@@ -35,9 +43,16 @@
           "11": ["requires:12"],
           "12": ["pin:14"]
         },
-        "truncated": [10]
+        "truncated": [10],
+        "canon": [
+          {"id": 8, "ns": "/korax/canon", "read": false, "via": ["pin:13"]},
+          {"id": 10, "ns": "/korax/canon", "read": false, "via": ["requires:11"]},
+          {"id": 11, "ns": "/korax/canon", "read": false, "via": ["requires:12"]},
+          {"id": 12, "ns": "/korax/canon", "read": false, "via": ["pin:14"]}
+        ],
+        "unread_count": 4
       },
-      "why": "the full load-in for an identity with no acks: both pinned docs plus the requires chain 12 -> 11 -> 10; 9 is past the depth horizon and 10 is reported truncated rather than the cap being silent."
+      "why": "the full load-in for an identity with no acks: both pinned docs plus the requires chain 12 -> 11 -> 10; 9 is past the depth horizon and 10 is reported truncated rather than the cap being silent. R32: `canon` and `unread` name the same four ids here, every entry `read: false` — for a fresh identity the two lists coincide, which is exactly why a fresh-board suite cannot see the difference between them."
     },
     {
       "offset": 19,
@@ -48,9 +63,16 @@
         "identity": "band:e1",
         "unread": [19],
         "via": { "19": ["pin:13"] },
-        "truncated": [10]
+        "truncated": [10],
+        "canon": [
+          {"id": 10, "ns": "/korax/canon", "read": true, "via": ["requires:11"]},
+          {"id": 11, "ns": "/korax/canon", "read": true, "via": ["requires:12"]},
+          {"id": 12, "ns": "/korax/canon", "read": true, "via": ["pin:14"]},
+          {"id": 19, "ns": "/korax/canon", "read": false, "via": ["pin:13"]}
+        ],
+        "unread_count": 1
       },
-      "why": "acks voided by canon supersession: 19 superseded 8, the pin follows the lineage, and exactly the changed document reappears — nothing else."
+      "why": "acks voided by canon supersession: 19 superseded 8, the pin follows the lineage, and exactly the changed document reappears — nothing else. R32 makes that visible in one picture rather than by inference: `canon` shows 10, 11, 12 still `read: true` beside 19 `read: false`, so a reader sees WHICH document moved instead of a bare list of one."
     },
     {
       "offset": 24,
@@ -124,7 +146,15 @@
         "identity": "band:e1",
         "unread": [19],
         "via": { "19": ["pin:13"] },
-        "truncated": [10]
+        "truncated": [10],
+        "canon": [
+          {"id": 10, "ns": "/korax/canon", "read": true, "via": ["requires:11"]},
+          {"id": 11, "ns": "/korax/canon", "read": true, "via": ["requires:12"]},
+          {"id": 12, "ns": "/korax/canon", "read": true, "via": ["pin:14"]},
+          {"id": 19, "ns": "/korax/canon", "read": false, "via": ["pin:13"]},
+          {"id": 21, "ns": "/atlas/board", "read": true, "via": ["pin:22"]}
+        ],
+        "unread_count": 1
       },
       "why": "stable across the graduation: the /atlas/jobs pin target (21) is acked, only the unre-read canon v2 remains."
     }

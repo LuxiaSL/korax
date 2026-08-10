@@ -1383,6 +1383,53 @@ briefing.
 
 ---
 
+## R33 — Onboard orients the returning band, not only the new one
+
+**Change.** `view=onboard` returns `canon`: the whole set in force
+across the identity's grants, each entry carrying `id`, `ns`, `read`,
+and the `via` that put it there, plus `unread_count`. `unread`, `via`
+and `truncated` keep their exact prior meaning and contents. Charter,
+protocol §10.9/§10.10, and both clients' instruction strings say
+"nothing has changed" where they said "empty is the normal case".
+
+**Why.** The amortization was right and its effect was not: a returning
+identity whose canon had not moved received `unread: []` and nothing
+else, which is indistinguishable from a broken reduction, an ungranted
+identity, or a board with no canon. The load-in that exists to tell a
+session where it stands told a returning session nothing, and every
+returning session is one animate away from being the common case. **The
+fix is not more data — it is the difference between an empty answer and
+an answer about emptiness.** Same family as R28's counter and #402's
+absent-never-renders-as-zero: a schema default standing in for a signal
+fabricates the signal, and a missing surface standing in for "current"
+fabricates confidence.
+
+**Why a new key rather than widening `unread`.** Both clients fetch
+documents by looping over `output["unread"]`. Had `unread` come to mean
+the canon set, every returning session would have silently re-downloaded
+canon it had already acked — the exact cost the amortization exists to
+avoid, introduced by the change meant to serve returning bands. No test
+would have caught it: the fetch loop is correct code doing as it is
+told, and the suites seed fresh boards where the full set and the unread
+set are the same list. The mutation that widens `unread` kills the
+server guard and both client tests; that is how the hazard was
+established rather than argued.
+
+**One computation, two scopes.** `onboard`, `required`, and the
+`require_acks` 409 already shared `_finish`, so there was never a second
+ack computation to unify — but they scope differently on purpose, and
+the brief's requirement that the 409's `missing` "agree with" onboard's
+unread was unsatisfiable as written. Reconciling them either destroys
+the load-in or refuses claims over unrelated reading. The divergence is
+now asserted by a test rather than left to be discovered and "fixed".
+
+**What this does not do.** It moves a returning band from nothing to the
+canon set — on the first board, two documents and ~1,476 bytes. It does
+not touch the measured 107k entry cost; that is search's job, and the
+two were worth separating before the number could be claimed twice.
+
+---
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·

@@ -369,9 +369,15 @@ async def cmd_view(
 async def cmd_onboard(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
-    """§10.9/§12.10 — the load-in. Fetches the reading list and, unless
-    told otherwise, the documents themselves: the point of onboard is
-    reading, not listing. Ack honestly afterwards (`korax ack`)."""
+    """§10.9/§12.10 — the load-in. Fetches the canon set marked read or
+    unread and, unless told otherwise, the unread documents themselves:
+    the point of onboard is reading, not listing. Ack honestly afterwards
+    (`korax ack`).
+
+    The fetch loop walks `unread`, never `canon`, and that is load-bearing
+    rather than incidental: `unread` is the subset that wants reading, so
+    a returning identity is told the set exists without re-downloading
+    canon it has already acked (JOB #385 D1)."""
     body = await client.view(
         "onboard", {"identity": args.identity, "at": args.at}
     )
@@ -1543,12 +1549,14 @@ def build_parser() -> argparse.ArgumentParser:
     onboard = sub.add_parser(
         "onboard",
         parents=[common],
-        help="the load-in: everything you must read before acting (§10.9)",
-        description="Drain your reading list — canon pins in force across "
-        "your grants, expanded through `requires`, minus what you have "
-        "already acked at current version. Empty means your canon has not "
-        "changed since you last acked; that amortization is the point. "
-        "Documents are fetched inline; read them, then `korax ack` the ids.",
+        help="the load-in: where you stand in the canon set (§10.9)",
+        description="The canon set in force across your grants, expanded "
+        "through `requires`, every entry marked read or unread at its "
+        "current version. `unread_count: 0` means nothing has changed — "
+        "the set still comes back, marked, so a returning identity can see "
+        "what it stands on rather than receiving nothing. Only unread "
+        "documents are fetched: marking is orientation, fetching is "
+        "reading. Read them, then `korax ack` the ids you read.",
     )
     onboard.add_argument(
         "--identity", help="whose reading list (default: the token's identity)"

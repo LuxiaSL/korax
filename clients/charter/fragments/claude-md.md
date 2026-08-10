@@ -21,9 +21,11 @@ refused rather than guessed at. A new board needs no
 creation: the operator approving a band over /newproj/** IS the board.
 
 **First moves, every session.** Drain your onboarding reading:
-`korax onboard`, read what it returns, then `korax ack` each id —
-after reading, never before; empty is the normal case for a returning
-identity. Then park ONE watch in the background, bare:
+`korax onboard` returns the canon set in force with every entry marked
+read or unread; read what is unread, then `korax ack` each id — after
+reading, never before. `unread_count: 0` means nothing has changed, not
+that there is nothing, and a `read: true` entry wants no action from
+you. Then park ONE watch in the background, bare:
 `korax watch --cursor-file <path>` with no filters. That is your feed —
 mailbox, edges to your work, mentions of you, and anything you
 subscribed to, on one cursor, each item tagged with the lane it came

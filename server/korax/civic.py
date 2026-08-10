@@ -70,17 +70,42 @@ def ack_set(log: Log, identity: str, offset: int) -> set[int]:
 @dataclass
 class Closure:
     """One requirement set: ids in `id` order, how each got there, and
-    where expansion was cut at depth (§10.10 — never silent)."""
+    where expansion was cut at depth (§10.10 — never silent).
+
+    `complete` is every document the closure required, acked or not;
+    `unread` is the subset with no current-version ack. Both come from
+    one pass over one ack set (§10.9) — the 409's `missing`, `required`
+    and `onboard` are the same computation over different *scopes*, and
+    the scopes are deliberate (JOB #385 D3). Callers project; only
+    `onboard` serves `complete`, because it is the only surface whose
+    scope is "everything you hold grants in" and therefore the only one
+    where the full set answers a question a reader asked."""
 
     unread: list[int] = field(default_factory=list)
     via: dict[str, list[str]] = field(default_factory=dict)
     truncated: list[int] = field(default_factory=list)
+    complete: list[dict] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {
             "unread": sorted(self.unread),
             "via": {k: sorted(v) for k, v in sorted(self.via.items())},
             "truncated": sorted(self.truncated),
+        }
+
+    def as_onboard_dict(self) -> dict:
+        """§10.9 — the canon set in force, each entry marked read or
+        unread, plus the unread projection every existing caller reads.
+
+        `unread` keeps its exact prior meaning on purpose: both clients
+        fetch documents by looping over it (cli.py, mcp server.py), so
+        widening it would silently make every returning session
+        re-download canon it has already acked. Marking is orientation;
+        fetching is reading (JOB #385 D1)."""
+        return {
+            "canon": self.complete,
+            "unread_count": len(self.unread),
+            **self.as_dict(),
         }
 
 
@@ -130,8 +155,20 @@ def _closure_for_pins(
 def _finish(expander: _Expander, log: Log, identity: str, offset: int) -> Closure:
     acked = ack_set(log, identity, offset)
     closure = Closure()
-    for doc_id, sources in expander.required.items():
-        if doc_id in acked:
+    for doc_id, sources in sorted(expander.required.items()):
+        env = log.get(doc_id)
+        read = doc_id in acked
+        closure.complete.append(
+            {
+                "id": doc_id,
+                # a document the reader cannot resolve is still required —
+                # report the gap rather than dropping the entry (§10.10)
+                "ns": env.ns if env is not None else None,
+                "read": read,
+                "via": sorted(sources),
+            }
+        )
+        if read:
             continue
         closure.unread.append(doc_id)
         closure.via[str(doc_id)] = sorted(sources)
@@ -140,10 +177,16 @@ def _finish(expander: _Expander, log: Log, identity: str, offset: int) -> Closur
 
 
 def onboard(log: Log, timeline: PolicyTimeline, offset: int, identity: str) -> dict:
-    """§10.9 — everything the identity must read before acting, across
-    every namespace it holds grants in, minus what it has already acked
-    at current version. Empty for a returning identity whose canon has
-    not changed — the amortization is the point."""
+    """§10.9 — the canon set in force across every namespace the identity
+    holds grants in, each document marked read or unread at its current
+    version.
+
+    `unread` is still only what wants reading, so the amortization is
+    unchanged — but a returning identity whose canon has not changed now
+    learns *that*, instead of receiving nothing and having to guess
+    whether nothing meant "current" or "broken" (JOB #385, FR4 of #280).
+    Absent and empty were the same answer here; they are not the same
+    question."""
     patterns = [
         pattern
         for grantee, pattern, _band in timeline.grants_at(offset)
@@ -161,7 +204,7 @@ def onboard(log: Log, timeline: PolicyTimeline, offset: int, identity: str) -> d
     for ns in sorted(nests):
         _closure_for_pins(expander, log, timeline, ns, offset)
     result = _finish(expander, log, identity, offset)
-    return {"identity": identity, **result.as_dict()}
+    return {"identity": identity, **result.as_onboard_dict()}
 
 
 def required(

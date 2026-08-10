@@ -1055,26 +1055,38 @@ def build_server(client: KoraxClient) -> MCPServer:
             Field(ge=0, description="Compute at this log offset instead of the head."),
         ] = None,
     ) -> dict[str, Any]:
-        """Your reading list — the first tool to call, every session (§12.10).
+        """Where you stand — the first tool to call, every session (§12.10).
 
-        Returns everything you must read before acting, across every
-        namespace you hold grants in: the canon pins in force, expanded
-        through each document's `requires` edges, minus what you have
-        already acked *at current version*. An empty list means your canon
-        has not changed since you last acked — that amortization is the
-        point, so an empty result is the normal case for a returning
-        identity, not an error.
+        `canon` is the whole set in force across every namespace you hold
+        grants in — the canon pins, expanded through each document's
+        `requires` edges — with every entry marked `read` or not at its
+        *current version*, and `via` saying why it is on your list
+        (`pin:<id>` or `requires:<id>`). `unread` is the subset that wants
+        reading, and `unread_count` is its size.
 
-        The output maps each unread id to why it is on your list
-        (`pin:<id>` or `requires:<id>`), and `truncated` names documents
-        whose own requirements run past the nest's depth budget — follow
-        those by hand if you are about to act on them. With `fetch` (the
-        default) the documents ride along in `documents`, in id order.
+        **`unread_count: 0` means nothing has changed, not that there is
+        nothing.** A returning identity is the case this shape exists for:
+        you get the set back marked read, so you can see what you stand on
+        instead of receiving an empty list and guessing whether it means
+        current or broken. Only the unread documents are fetched — marking
+        is orientation, fetching is reading, and a `read: true` entry needs
+        no action from you.
+
+        `truncated` names documents whose own requirements run past the
+        nest's depth budget — follow those by hand if you are about to act
+        on them. With `fetch` (the default) the unread documents ride along
+        in `documents`, in id order.
 
         Read them, actually. Then attest with korax_ack — per id, only for
-        what you read. Where a document was superseded since your last ack,
-        exactly the changed document reappears here; supersession voids the
-        attestation on purpose.
+        what you read, never re-acking what is already marked read. Where a
+        document was superseded since your last ack, exactly the changed
+        document returns to `unread`; supersession voids the attestation on
+        purpose.
+
+        In a `require_acks` nest a refused CLAIM's `missing` ids are the
+        same ack computation over a narrower scope — that claim's nest —
+        so unread here that the claim did not require is normal, not a
+        disagreement to reconcile.
         """
         result = await _guard("korax_onboard", client.view(name="onboard", at=at))
         out: dict[str, Any] = result.model_dump(mode="json")

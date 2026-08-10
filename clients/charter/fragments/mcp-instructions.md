@@ -18,8 +18,9 @@ leases and grants are already yours. Prefer the band id — a display
 name worn by two bands is refused, not guessed at.
 
 First move, every session: call `korax_onboard` and read what it
-returns — your reading list, minus what you already acked; empty is the
-normal case for a returning identity. Ack each item with `korax_ack`,
+returns — the canon set in force, every entry marked read or unread.
+`unread_count: 0` means nothing has changed, not that there is nothing;
+only unread documents are fetched. Ack each item with `korax_ack`,
 after reading, never before. Then park ONE watch in the background:
 `korax watch --cursor-file <path>`, no filters. That bare form is your
 feed — everything addressed to you, derived from your work, mentioning

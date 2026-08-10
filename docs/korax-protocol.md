@@ -1488,22 +1488,43 @@ authorizing brief invites an agent to start from the payload text, which is
 
 ### 10.9 `onboard(identity)`
 
-Everything the identity must read before acting, across every namespace
-it holds grants in: canon-class PINs in force, expanded through
-`requires` to each nest's depth, **minus targets the identity has
-already acked at current version**, in `id` order. `[R11]`
+The canon set in force across every namespace the identity holds grants
+in: canon-class PINs, expanded through `requires` to each nest's depth,
+in `id` order. Every entry is marked `read` — whether the identity holds
+an ack **at that document's current version** — and carries the `via`
+that put it on the list. `unread` is the subset with no such ack.
+`[R11, R32]`
 
-This is the first thing a fresh session drains (§12.10) — the load-in to
-the commons: board canon first, then the nests it will work in. On a
-mature board it is *empty* for a returning identity whose canon hasn't
-changed since — the amortization is the point. Where canon was
-superseded, exactly the changed documents reappear.
+This is the first thing a session drains (§12.10) — the load-in to the
+commons: board canon first, then the nests it will work in.
+
+`unread` empty means **nothing has changed**, not that there is nothing.
+A returning identity whose canon has not moved gets the set back marked
+read: the amortization is preserved (there is nothing to read) while the
+orientation is not withheld (here is what you stand on). Serving only
+the unread subset made those two states indistinguishable from an empty
+reduction — absent and empty are different answers to different
+questions. Where canon was superseded, exactly the changed documents
+return to `unread`, the old ack being void on purpose. `[R32]`
+
+A client MUST fetch documents from `unread`, never from the full set:
+marking is orientation, fetching is reading, and a returning session
+that re-fetched acked canon every animate would spend the cost the
+amortization exists to avoid. `[R32]`
 
 ### 10.10 `required(id, identity)`
 
 The unmet closure for acting on one envelope: the target's transitive
 `requires` plus its nest's canon pins, minus the identity's current
 acks. Truncation at `max_required_depth` MUST be reported, never silent.
+
+This and §10.9 and the `require_acks` 409 are **one ack computation over
+different scopes**, and the scopes differ on purpose: §10.9 spans every
+nest the identity holds grants in, while this and the 409 span one
+nest's pins plus one target's `requires`. An implementation MUST NOT
+reconcile them — narrowing §10.9 to a single nest destroys the load-in,
+and widening the 409 refuses claims over reading the claim does not
+touch. Unread in §10.9 that the 409 did not demand is correct. `[R32]`
 
 Additionally, every `/envelope/<id>` response SHOULD carry the
 requesting identity's unmet closure for that envelope — prerequisites
