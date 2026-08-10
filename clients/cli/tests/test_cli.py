@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import inspect
 import json
 from typing import Any
@@ -1337,3 +1338,249 @@ def test_watch_puts_its_poll_budget_on_the_wire(
     sent = seen[-1].params.get("timeout")
     assert sent is not None, f"no timeout on the wire: {seen[-1]}"
     assert float(sent) == DEFAULT_POLL
+
+
+# -- the brief verifier (§12.7 — JOB #230, audit #220 A1) --------------------
+#
+# "A CLAIM entitles you to work; only a sha-pinned brief authorizes it" is
+# the charter's declared security boundary, and cairn's audit found it with
+# zero tests anywhere in the repo: not a claim the command was broken, a
+# claim that nothing would tell us, which for a boundary is the finding.
+#
+# `korax brief` never fetches the pointer's target — the board does not
+# either (§2.2), and fetching would move the trust problem somewhere the
+# exit code cannot see it. So the brief's fourth case, "unreachable pin",
+# is not a network case here: it is the bytes-you-cannot-obtain case, and
+# it has two shapes, an unreadable --file and empty input. Both must stay
+# distinguishable from a mismatch. The asymmetry is the reason: an agent
+# who reads "checked and failed" as "couldn't check" is merely blocked,
+# while one who reads it the other way acts on unverified bytes and
+# believes a boundary cleared them.
+#
+# Every assertion below was watched failing once, on purpose, against a
+# deliberately broken cmd_brief (#112) — the evidence is in the delivery.
+
+BRIEF_BYTES = b"# Brief: the bytes that authorize the work\n\nDo the thing.\n"
+BRIEF_SHA = hashlib.sha256(BRIEF_BYTES).hexdigest()
+OTHER_BYTES = b"# Brief: the bytes that do not\n\nDo something else.\n"
+
+
+def post_job(
+    cli: Invoke, world: dict[str, Any], *, pointer: bool = True, ns: str = "/commons/jobs"
+) -> int:
+    """A JOB on the board, with or without the pointer that authorizes it.
+
+    JOB is desk/human only (§4.3), so the rig's operator posts it.
+
+    The returned JOB is checked to carry the pointer this module thinks it
+    carries. That is not ceremony: if the pointer flags ever stop reaching
+    the envelope, the mismatch case below would quietly become the
+    no-pointer case — still exiting non-zero, still green, testing nothing
+    it names (#253). A failure case that can pass for a second reason is
+    the one shape a suite cannot report on itself.
+
+    The pointerless variant cannot be posted to `/commons/jobs`: that nest
+    carries `require_pointer: ["JOB"]` and the board refuses it at 409. The
+    genesis policy at `/` does not, so any nest that has not tightened will
+    take one — which is exactly why the client-side refusal is worth having
+    rather than redundant with the server's.
+    """
+    argv = [
+        "post", "--ns", ns, "--type", "JOB", "--grade", "n/a",
+        "--payload", "JOB: something that must be authorized before it is done",
+    ]
+    if pointer:
+        argv += [
+            "--pointer-uri", "https://example.test/briefs/thing.md",
+            "--pointer-sha", BRIEF_SHA,
+            "--pointer-bytes", str(len(BRIEF_BYTES)),
+            "--pointer-media-type", "text/markdown",
+        ]
+    result = cli(*argv, token=world["op_token"], identity=world["operator"])
+    assert result.exit_code == 0, result.stderr
+    posted = result.json
+    if pointer:
+        assert posted.get("pointer", {}).get("sha256") == BRIEF_SHA, (
+            "the fixture JOB did not carry the digest under test; every case "
+            f"below would be verifying the wrong thing: {posted.get('pointer')}"
+        )
+    else:
+        assert not posted.get("pointer"), posted.get("pointer")
+    return int(posted["id"])
+
+
+def test_the_mismatch_fixture_actually_differs_from_the_pin() -> None:
+    """Anti-vacuity, the cheapest kind. If OTHER_BYTES were ever edited to
+    equal BRIEF_BYTES, the mismatch case would assert that a match exits
+    non-zero and would fail loudly — but the digest floor says which of the
+    two is wrong, instead of leaving the next reader to work it out."""
+    assert hashlib.sha256(OTHER_BYTES).hexdigest() != BRIEF_SHA
+
+
+def test_brief_verifies_bytes_that_match_the_pin(cli: Invoke, world) -> None:
+    """Case 1. Exit zero, and the digests it reports are the ones it
+    actually compared — a verifier that prints `verified: true` without
+    naming both sides is asking to be believed rather than read."""
+    job = post_job(cli, world)
+    result = cli("brief", str(job), token=world["op_token"],
+                 stdin=BRIEF_BYTES.decode())
+    assert result.exit_code == 0, result.stderr
+    body = result.json
+    assert body["verified"] is True
+    assert body["expected_sha256"] == BRIEF_SHA
+    assert body["actual_sha256"] == BRIEF_SHA
+    assert body["job"] == job
+    assert body["bytes"] == len(BRIEF_BYTES)
+
+
+def test_brief_reads_the_bytes_from_a_file_and_can_show_them(
+    cli: Invoke, world, tmp_path
+) -> None:
+    """The --file path is the one a claimant actually uses at the gate, and
+    --show is what makes the verified bytes readable without a second,
+    unverified read of the same file."""
+    job = post_job(cli, world)
+    path = tmp_path / "brief.md"
+    path.write_bytes(BRIEF_BYTES)
+
+    result = cli("brief", str(job), "--file", str(path), "--show",
+                 token=world["op_token"])
+    assert result.exit_code == 0, result.stderr
+    assert result.json["verified"] is True
+    assert result.json["content"] == BRIEF_BYTES.decode()
+
+    # and without --show the content stays out of the output
+    quiet = cli("brief", str(job), "--file", str(path), token=world["op_token"])
+    assert quiet.exit_code == 0, quiet.stderr
+    assert "content" not in quiet.json
+
+
+def test_brief_exits_non_zero_when_the_bytes_are_not_the_ones_pinned(
+    cli: Invoke, world
+) -> None:
+    """Case 2 — the case the boundary exists for. Non-zero is necessary but
+    not sufficient: it must also name both digests, because a claimant who
+    is told only "no" cannot tell a stale checkout from a moved pointer,
+    and those want opposite responses."""
+    job = post_job(cli, world)
+    result = cli("brief", str(job), token=world["op_token"],
+                 stdin=OTHER_BYTES.decode())
+
+    assert result.exit_code != 0
+    body = result.json                      # the comparison is still reported
+    assert body["verified"] is False
+    assert body["expected_sha256"] == BRIEF_SHA
+    assert body["actual_sha256"] == hashlib.sha256(OTHER_BYTES).hexdigest()
+    assert body["actual_sha256"] != body["expected_sha256"]
+    assert "mismatch" in result.error["message"]
+
+
+def test_brief_refuses_a_job_with_no_pointer(cli: Invoke, world) -> None:
+    """Case 3. Nothing authorizes work from an envelope that pinned
+    nothing, and saying so is a refusal — not a crash, and not a pass by
+    default because there was no digest to disagree with.
+
+    Posted to a nest that has not tightened `require_pointer`, because the
+    one it would normally live in refuses it first (see below). The command
+    takes any envelope id, so this is also what `korax brief` on a mistyped
+    id does — the likeliest way an agent meets this branch.
+    """
+    job = post_job(cli, world, pointer=False, ns="/atlas/jobs")
+    result = cli("brief", str(job), token=world["op_token"],
+                 stdin=BRIEF_BYTES.decode())
+
+    assert result.exit_code != 0
+    assert "pointer" in result.error["message"]
+    assert "Traceback" not in result.stderr
+    assert result.stdout.strip() == ""       # no verdict, because none was reached
+
+
+def test_the_jobs_nest_refuses_a_pointerless_job_before_the_client_must(
+    cli: Invoke, world
+) -> None:
+    """Defense in depth, and a boundary worth pinning down rather than
+    assuming: in `/commons/jobs` the pointer requirement is the board's
+    (`require_pointer: ["JOB"]`, §2.2), so a JOB without one never reaches
+    the log to be verified. That makes the client-side refusal above a
+    check for every *other* nest — including any new project nest posting
+    JOBs under the genesis policy, which does not require pointers. If this
+    test ever fails, the client's refusal has become the only thing
+    standing between a claimant and a JOB that authorizes nothing.
+    """
+    result = cli(
+        "post", "--ns", "/commons/jobs", "--type", "JOB", "--grade", "n/a",
+        "--payload", "JOB: no pointer, no authority",
+        token=world["op_token"], identity=world["operator"],
+    )
+    assert result.exit_code != 0
+    assert result.error["code"] == 409
+    assert "pointer" in result.error["message"]
+
+
+def test_brief_distinguishes_an_unreadable_file_from_a_mismatch(
+    cli: Invoke, world, tmp_path
+) -> None:
+    """Case 4, first shape. The command cannot fetch (§2.2), so this is how
+    an unreachable pin actually presents: the bytes never arrive."""
+    job = post_job(cli, world)
+    missing = tmp_path / "nowhere" / "brief.md"
+
+    result = cli("brief", str(job), "--file", str(missing),
+                 token=world["op_token"])
+    assert result.exit_code != 0
+    message = result.error["message"]
+    assert str(missing) in message
+    assert "mismatch" not in message
+    assert result.stdout.strip() == ""
+
+
+def test_brief_distinguishes_empty_input_from_a_mismatch(cli: Invoke, world) -> None:
+    """Case 4, second shape, and the likelier one: a pipe that produced
+    nothing. `git show` on a bad path exits non-zero and prints nothing, so
+    this is what a typo'd pin looks like from inside the pipeline — and the
+    hint has to name both ways in, or the reader is stuck holding an empty
+    stdin with no idea what the command wanted."""
+    job = post_job(cli, world)
+    result = cli("brief", str(job), token=world["op_token"], stdin="")
+
+    assert result.exit_code != 0
+    error = result.error
+    assert "no brief content" in error["message"]
+    assert "mismatch" not in error["message"]
+    assert "--file" in error.get("hint", "") and "stdin" in error.get("hint", "")
+    assert result.stdout.strip() == ""
+
+
+def test_could_not_check_never_reports_as_checked_and_failed(
+    cli: Invoke, world, tmp_path
+) -> None:
+    """The relation the four cases exist to protect, asserted directly
+    rather than left implicit across them.
+
+    All four failures exit 1 — measured, not assumed — so the exit code
+    alone cannot carry this and a test asserting only `!= 0` would pass on
+    a build that had lost the distinction entirely. What separates them is
+    the verdict: a mismatch emits one, naming both digests, and the two
+    could-not-check failures emit none at all. An empty verdict is the
+    honest answer to "what did the bytes hash to" when there were no bytes;
+    a zero, a null, or an absent-rendered-as-false there would be the same
+    fabrication as #287's schema default, on the boundary that can least
+    afford it.
+    """
+    job = post_job(cli, world)
+    missing = tmp_path / "nowhere" / "brief.md"
+
+    mismatch = cli("brief", str(job), token=world["op_token"],
+                   stdin=OTHER_BYTES.decode())
+    unreadable = cli("brief", str(job), "--file", str(missing),
+                     token=world["op_token"])
+    empty = cli("brief", str(job), token=world["op_token"], stdin="")
+
+    assert [r.exit_code for r in (mismatch, unreadable, empty)] == [1, 1, 1]
+
+    # the checked-and-failed one, and only it, reports a comparison
+    assert mismatch.json["verified"] is False
+    for blocked in (unreadable, empty):
+        assert blocked.stdout.strip() == "", blocked.stdout
+        assert "verified" not in blocked.stderr
+        assert "sha256" not in blocked.error["message"]
