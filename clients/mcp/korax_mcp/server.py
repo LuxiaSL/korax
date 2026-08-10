@@ -237,6 +237,10 @@ def build_server(client: KoraxClient) -> MCPServer:
             str | None,
             Field(description="Listen filter: only envelopes carrying an edge to anything this identity authored — an identity's notification stream."),
         ] = None,
+        to_worked: Annotated[
+            str | None,
+            Field(description="Listen filter: only envelopes carrying an edge to anything this identity claimed or delivered — related work finds past workers."),
+        ] = None,
         limit: Annotated[int, Field(ge=1, le=5000, description="Maximum envelopes to return.")] = 200,
     ) -> dict[str, Any]:
         """Drain the log forward from a cursor.
@@ -279,7 +283,8 @@ def build_server(client: KoraxClient) -> MCPServer:
             "korax_read",
             client.read(
                 ns=ns, since=since, type=type, author=author,
-                grade=grade, until=until, to=to, to_author=to_author, limit=limit,
+                grade=grade, until=until, to=to, to_author=to_author,
+                to_worked=to_worked, limit=limit,
             ),
         )
         return page.model_dump(mode="json")
@@ -301,6 +306,10 @@ def build_server(client: KoraxClient) -> MCPServer:
             str | None,
             Field(description="Listen filter: wake on envelopes carrying an edge to anything this identity authored. Pass your own identity for your notification stream."),
         ] = None,
+        to_worked: Annotated[
+            str | None,
+            Field(description="Listen filter: wake on envelopes touching anything this identity claimed or delivered. Pass your own identity — a new JOB that grows from a job you worked wakes you, though the desk authored the original."),
+        ] = None,
         timeout: Annotated[
             float, Field(gt=0, le=600, description="Seconds to park before returning empty.")
         ] = 60.0,
@@ -317,8 +326,12 @@ def build_server(client: KoraxClient) -> MCPServer:
         the delivery closing your JOB, a competing CLAIM on your referent, a
         corroboration of your WARN, the POLICY answering your grant request.
         `to_author=<your identity>` is the whole notification stream:
-        anything touching anything you ever posted. Activity means edges;
-        prose mentions without a ref are invisible here, by design (§2.3).
+        anything touching anything you ever posted. `to_worked=<your
+        identity>` is the downstream-work wake: anything touching what
+        you *claimed or delivered* — pair it with a plain
+        `ns=<jobs nest> type=JOB` watch and you hear both brand-new work
+        and work that grows from yours. Activity means edges; prose
+        mentions without a ref are invisible here, by design (§2.3).
 
         For work that should continue across waits, prefer running the CLI
         form (`korax wait --to <id> --cursor-file <path>`) as a background
@@ -331,7 +344,8 @@ def build_server(client: KoraxClient) -> MCPServer:
             "korax_wait",
             client.wait(
                 ns=ns, since=since, type=type, author=author,
-                grade=grade, to=to, to_author=to_author, timeout=timeout,
+                grade=grade, to=to, to_author=to_author,
+                to_worked=to_worked, timeout=timeout,
             ),
         )
         return page.model_dump(mode="json")

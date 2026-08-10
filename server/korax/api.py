@@ -90,7 +90,8 @@ def create_app(board: Board) -> FastAPI:
 
     def matches(env: Envelope, ns: str | None, type_: str | None, author: str | None,
                 grade: str | None, since: int, until: int | None,
-                to_env: int | None = None, to_targets: set[int] | None = None) -> bool:
+                to_env: int | None = None, to_targets: set[int] | None = None,
+                worked_targets: set[int] | None = None) -> bool:
         if env.id <= since or (until is not None and env.id > until):
             return False
         if ns and not in_subtree(ns, env.ns):
@@ -107,12 +108,28 @@ def create_app(board: Board) -> FastAPI:
             return False
         if to_targets is not None and not ({r.id for r in env.refs} & to_targets):
             return False
+        if worked_targets is not None and not ({r.id for r in env.refs} & worked_targets):
+            return False
         return True
 
     def authored_by(log, identity: str) -> set[int]:
         """Referents for to_author — computed over the requester's
         *visible* log, so listening reveals nothing reading would not."""
         return {e.id for e in log.envelopes if e.author == identity}
+
+    def worked_by(log, identity: str) -> set[int]:
+        """Referents for to_worked — everything the identity has claimed
+        or delivered (targets of its own claims/closes edges). The
+        downstream-work wake: a JOB edging to a job you worked finds
+        you through this set, though the desk authored the original."""
+        out: set[int] = set()
+        for e in log.envelopes:
+            if e.author != identity:
+                continue
+            for r in e.refs:
+                if r.edge in (EdgeType.CLAIMS, EdgeType.CLOSES):
+                    out.add(r.id)
+        return out
 
     # -- the perch (operator's browser view) --------------------------------
 
@@ -200,18 +217,20 @@ def create_app(board: Board) -> FastAPI:
         grade: str | None = None,
         to: int | None = None,
         to_author: str | None = None,
+        to_worked: str | None = None,
         limit: int = Query(default=500, le=5000),
     ) -> dict[str, Any]:
         log, sealed_envs = visible_log(who)
         targets = authored_by(log, to_author) if to_author else None
+        worked = worked_by(log, to_worked) if to_worked else None
         out = [
             dump(e) for e in log.envelopes
-            if matches(e, ns, type, author, grade, since, until, to, targets)
+            if matches(e, ns, type, author, grade, since, until, to, targets, worked)
         ][:limit]
         cursor = out[-1]["id"] if out else since
         sealed = sum(
             1 for e in sealed_envs
-            if matches(e, ns, type, author, grade, since, until, to, targets)
+            if matches(e, ns, type, author, grade, since, until, to, targets, worked)
         )
         return {"envelopes": out, "cursor": cursor, "sealed_excluded": sealed}
 
@@ -249,13 +268,15 @@ def create_app(board: Board) -> FastAPI:
         grade: str | None = None,
         to: int | None = None,
         to_author: str | None = None,
+        to_worked: str | None = None,
         timeout: float = Query(default=60.0, le=600.0),
     ) -> dict[str, Any]:
         def pending() -> bool:
             log, _sealed = visible_log(who)
             targets = authored_by(log, to_author) if to_author else None
+            worked = worked_by(log, to_worked) if to_worked else None
             return any(
-                matches(e, ns, type, author, grade, since, None, to, targets)
+                matches(e, ns, type, author, grade, since, None, to, targets, worked)
                 for e in log.envelopes
             )
 
@@ -263,14 +284,15 @@ def create_app(board: Board) -> FastAPI:
             await board.wait_for(pending, timeout)
         log, sealed_envs = visible_log(who)
         targets = authored_by(log, to_author) if to_author else None
+        worked = worked_by(log, to_worked) if to_worked else None
         out = [
             dump(e) for e in log.envelopes
-            if matches(e, ns, type, author, grade, since, None, to, targets)
+            if matches(e, ns, type, author, grade, since, None, to, targets, worked)
         ]
         cursor = out[-1]["id"] if out else since
         sealed = sum(
             1 for e in sealed_envs
-            if matches(e, ns, type, author, grade, since, None, to, targets)
+            if matches(e, ns, type, author, grade, since, None, to, targets, worked)
         )
         return {"envelopes": out, "cursor": cursor, "sealed_excluded": sealed}
 
@@ -282,15 +304,17 @@ def create_app(board: Board) -> FastAPI:
         type: str | None = None,
         to: int | None = None,
         to_author: str | None = None,
+        to_worked: str | None = None,
     ) -> StreamingResponse:
         async def stream():
             cursor = since
             while True:
                 log, _ = visible_log(who)
                 targets = authored_by(log, to_author) if to_author else None
+                worked = worked_by(log, to_worked) if to_worked else None
                 fresh_envs = [
                     e for e in log.envelopes
-                    if matches(e, ns, type, None, None, cursor, None, to, targets)
+                    if matches(e, ns, type, None, None, cursor, None, to, targets, worked)
                 ]
                 for env in fresh_envs:
                     cursor = env.id

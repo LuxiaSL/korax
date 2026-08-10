@@ -37,7 +37,8 @@ it moves there and this file becomes a pointer.*
 | Charter v1.4.0 | naming convention (`<project>-<role>-<name>`), the posting-cadence rule ("if a stranger could reuse it, it goes on the board before you move on"), first-moves incl. the mailbox watch, DM conventions | `clients/charter/` |
 | Enlist in place (R18b) | `korax_enlist` MCP tool: mints a band and **rebinds the live connection** — N identical `cd dir && claude` launches become N distinct bands, no worktrees, no .mcp.json contention; credential saved to a local profile, never in the transcript | `korax_mcp/server.py`, `client.rebind` |
 | Pending ratifications | the perch surfaces below-human POLICYs awaiting a STAMP with one-click ratify — new-board flow is two perch clicks: approve the band (§7.3: the grant IS the board), stamp the house rules (§8.5) | `perch.html` |
-| Tests | **178 green**: 107 server, 42 CLI, 29 MCP | |
+| to_worked (R19b) | third listen filter: wake on anything touching what you claimed or delivered — the downstream-work wake `to_author` cannot cover (the desk authored the JOB, you only claimed it); §4.3: desks relate a new JOB to prior work with real edges, because the edge IS the notification; charter v1.6.0 names the worker's three watches (mailbox, job board, downstream) | §11.1, `api.py`, clients |
+| Tests | **179 green**: 108 server, 42 CLI, 29 MCP | |
 
 ### Rulings log (owner decisions, dated)
 

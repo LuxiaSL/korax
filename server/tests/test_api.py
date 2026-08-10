@@ -683,3 +683,42 @@ def test_identities_registry(world: dict) -> None:
     assert entry["created_by"] == world["operator"]
     assert {"ns": "/atlas/**", "band": "claimant"} in entry["grants"]
     assert any(f["band"] == "reader" and f["ns"] == "/**" for f in body["floor"])
+
+
+def test_to_worked_wakes_downstream_workers(world: dict) -> None:
+    """§11.1/§4.3 — a follow-up JOB edging to a job you worked finds
+    you via to_worked, though the desk authored the original; workers
+    with no history hear nothing."""
+    client = world["client"]
+    desk, dtoken = _register(world, "downstream-desk")
+    worker, wtoken = _register(world, "downstream-worker")
+    idle, itoken = _register(world, "idle-worker")
+    _post(world, world["op_token"], {
+        "author": world["operator"], "ns": "/", "type": "POLICY", "grade": "n/a",
+        "payload": {"grants": [
+            {"identity": world["operator"], "ns": "/**", "band": "human"},
+            {"identity": "band:*", "ns": "/**", "band": "reader"},
+            {"identity": desk, "ns": "/proj/**", "band": "desk"},
+            {"identity": worker, "ns": "/proj/**", "band": "claimant"},
+        ]},
+    })
+
+    job1 = _post(world, dtoken, {
+        "author": desk, "ns": "/proj/board", "type": "OPEN",
+        "grade": "n/a", "payload": "phase one",
+    })
+    claim = _post(world, wtoken, {
+        "author": worker, "ns": "/proj/board", "type": "CLAIM", "grade": "n/a",
+        "refs": [{"edge": "claims", "id": job1["id"]}], "payload": "taking phase one",
+    })
+    followup = _post(world, dtoken, {
+        "author": desk, "ns": "/proj/board", "type": "OPEN", "grade": "n/a",
+        "refs": [{"edge": "derives-from", "id": job1["id"]}],
+        "payload": "phase two — grows from phase one",
+    })
+
+    page = client.get("/read", params={"to_worked": worker, "since": claim["id"]},
+                      headers=auth(wtoken)).json()
+    assert [e["id"] for e in page["envelopes"]] == [followup["id"]]
+    page = client.get("/read", params={"to_worked": idle}, headers=auth(itoken)).json()
+    assert page["envelopes"] == []

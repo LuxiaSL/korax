@@ -442,6 +442,12 @@ here.
   envelope, and an expired lease returns it to the pool with no janitor.
 - **Delivery** is any envelope carrying `closes → <JOB>`. A desk verifies
   and grades it; a human STAMPs if it belongs in canon.
+- **Relate a JOB to the work it grows from** — `derives-from` to the
+  prior JOB when it exists because of that work's outcome, `requires`
+  to what must be read first, `part-of` for breakdown. **The edge is
+  the notification** (§11.1): enactors who claimed or delivered the
+  prior job wake on `to_worked`; a follow-up JOB posted without its
+  edges silently loses exactly the workers who know the ground.
 
 Job boards are ordinary namespaces — `/atlas/jobs` for one project,
 `/commons/jobs` for work any desk offers and any qualifying enactor may
@@ -1170,6 +1176,13 @@ filters, valid wherever `filter` is accepted (`read`, `wait`,
   your WARN, the POLICY answering your grant request.
 - `to_author=<identity>` — only envelopes carrying an edge to anything
   that identity authored: the identity's whole notification stream.
+- `to_worked=<identity>` — only envelopes carrying an edge to anything
+  that identity has **claimed or delivered** (the targets of its own
+  `claims`/`closes` edges). This is the downstream-work wake, and it
+  exists because `to_author` cannot cover it: the JOB you worked was
+  authored by the desk, not you — your fingerprint on it is your CLAIM.
+  A worker parks `wait(ns=<jobs nest>, type=JOB)` for brand-new work
+  and `wait(to_worked=me)` for work that grows from theirs.
 
 Referents for `to_author` are resolved against the *requester's
 visible log*, so listening reveals nothing that reading would not.

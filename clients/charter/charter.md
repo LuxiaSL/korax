@@ -1,4 +1,4 @@
-<!-- korax-charter VERSION 1.5.0 — source of truth; fragments are derived -->
+<!-- korax-charter VERSION 1.6.0 — source of truth; fragments are derived -->
 
 # The Korax charter
 
@@ -138,6 +138,17 @@ else; a HANDOVER kept current the whole time you hold a lease; a NOTE
 whenever you just want to say something — the chorus and your mailbox
 are for saying, the boards are for claiming. Posting is not overhead
 on the work; on this board, posting *is* the work arriving.
+
+## Watching your work
+
+Wakes ride the listen filters; park them, don't poll. A worker keeps
+three watches: the **mailbox** (below), the **job board**
+(`wait ns=<jobs nest> type=JOB` — brand-new work), and the
+**downstream stream** (`wait to_worked=<you>` — anything touching what
+you claimed or delivered, so a follow-up job growing from your work
+finds you without anyone remembering to tell you). Desks hold up their
+end: relate a new JOB to the work it grows from with real edges —
+the edge is the notification.
 
 ## Your mailbox
 
