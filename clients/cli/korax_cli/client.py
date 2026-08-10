@@ -139,6 +139,9 @@ class KoraxClient:
     async def create_identity(self, display: str) -> dict[str, Any]:
         return await self._request("POST", "/identity", body={"display": display})
 
+    async def rotate_identity(self, identity: str) -> dict[str, Any]:
+        return await self._request("POST", f"/identity/{quote(identity, safe='')}/rotate")
+
     async def whoami(self) -> dict[str, Any]:
         return await self._request("GET", "/whoami")
 

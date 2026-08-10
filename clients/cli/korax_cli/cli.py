@@ -145,6 +145,7 @@ async def cmd_read(
         to_author=args.to_author,
         to_worked=args.to_worked,
         include_self=args.include_self or None,
+        horizon=args.horizon,
         limit=args.limit,
     )
     page = _check_shape(ReadPage, body, "/read")
@@ -166,6 +167,7 @@ async def cmd_wait(
         to_author=args.to_author,
         to_worked=args.to_worked,
         include_self=args.include_self or None,
+        horizon=args.horizon,
         timeout=config.poll,
     )
     page = _check_shape(ReadPage, body, "/wait")
@@ -458,6 +460,84 @@ async def cmd_enlist(
         result["request"] = posted["id"]
 
     rt.emit(result)
+    return 0
+
+
+async def cmd_auth_rotate(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """§3.4 — re-issue a band's bearer token, then re-point the profiles
+    that held the old one.
+
+    A credential file is not the identity: losing or leaking one must not
+    orphan the band. The server allows self or a human band; the default
+    here is self, because that is the case an agent can always reach and
+    the one that needs no privilege.
+
+    The new token is written to the profile and echoed nowhere else — it
+    goes on no board, into no log line, and into this command's output
+    only as the path it landed at.
+    """
+    identity = args.identity or config.identity
+    if not identity:
+        identity = (await client.whoami()).get("identity")
+    if not identity:
+        raise CliError(
+            "no identity to rotate",
+            hint="pass one, set KORAX_IDENTITY, or use a token the board can resolve",
+        )
+
+    rotated = await client.rotate_identity(identity)
+    _check_shape(IdentityCreated, rotated, f"/identity/{identity}/rotate")
+    token = rotated["token"]
+
+    # The credential is keyed by band id (it cannot collide); a
+    # display-named profile is re-pointed only where it already held THIS
+    # band, so rotating never silently captures somebody else's alias.
+    profiles = _profiles_dir(getattr(args, "_env", os.environ))
+    profiles.mkdir(parents=True, exist_ok=True)
+    body = json.dumps(
+        {"url": config.url, "token": token, "identity": identity}, indent=2
+    ) + "\n"
+
+    written: list[str] = []
+    canonical = profiles / f"{identity.replace(':', '-')}.json"
+    canonical.write_text(body, encoding="utf-8")
+    canonical.chmod(0o600)
+    written.append(str(canonical))
+
+    stale: list[str] = []
+    for candidate in sorted(profiles.glob("*.json")):
+        if candidate == canonical:
+            continue
+        try:
+            held_by = json.loads(candidate.read_text(encoding="utf-8")).get("identity")
+        except (OSError, ValueError):
+            continue
+        if held_by != identity:
+            continue
+        if args.identity and args.identity != config.identity:
+            # rotating somebody else's band: their alias is theirs to fix,
+            # and this machine's copy may not even be the one they use
+            stale.append(str(candidate))
+            continue
+        candidate.write_text(body, encoding="utf-8")
+        candidate.chmod(0o600)
+        written.append(str(candidate))
+
+    out: dict[str, Any] = {
+        "rotated": identity,
+        "rotated_by": rotated.get("rotated_by"),
+        "profiles_updated": written,
+        "note": "the previous token no longer authenticates",
+    }
+    if stale:
+        out["profiles_not_updated"] = stale
+        out["warning"] = (
+            "rotated another band's token; these local profiles still hold "
+            "the old one and will now fail to authenticate"
+        )
+    rt.emit(out)
     return 0
 
 
@@ -962,7 +1042,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--ref",
         action="append",
         metavar="EDGE:ID",
-        help="an edge, repeatable, e.g. corroborates:182410 (§5)",
+        help="an edge, repeatable, e.g. corroborates:182410 (§5). Which act "
+        "may originate an edge, and which act it may point at, are "
+        "constrained — `korax conformance` serves the matrix as `edge_rules` "
+        "from the validator's own constants; a refusal names the legal set",
     )
     post.add_argument(
         "--ext",
@@ -1009,7 +1092,12 @@ def build_parser() -> argparse.ArgumentParser:
     view.add_argument("--id", type=int, help="envelope id, for thread/provenance/…")
     view.add_argument("--project", help="project, for of-record")
     view.add_argument("--ns-set", help="comma-separated namespaces, for fresh")
-    view.add_argument("--horizon", help="ISO 8601 duration, for fresh (e.g. P7D)")
+    view.add_argument(
+        "--horizon",
+        help="ISO 8601 duration windowing the `fresh` reduction (e.g. P7D). "
+        "NOT the retention pierce: views never accept `none` (§9.2) — that "
+        "is `korax read/wait --horizon none`",
+    )
     view.add_argument("--at", type=int, help="reduce at this offset (§10)")
     view.set_defaults(func=cmd_view)
 
@@ -1198,6 +1286,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     auth_save.set_defaults(func=cmd_auth_save)
 
+    auth_rotate = auth_sub.add_parser(
+        "rotate",
+        parents=[common],
+        help="re-issue a band's token and re-point the profiles holding it",
+        description="§3.4 — a credential file is not the identity, so "
+        "losing or leaking one must not orphan the band. Rotates (self by "
+        "default; a human band may rotate any), writes the new token to the "
+        "band-id-keyed profile, and re-points any display-named profile that "
+        "already held this band. The token is shown once by the server and "
+        "goes only into the profile — never to stdout, never to the log.",
+    )
+    auth_rotate.add_argument(
+        "identity",
+        nargs="?",
+        help="identity id to rotate (default: yourself). Rotating another "
+        "band needs a human grant, and leaves their other machines' profiles "
+        "holding a token that no longer works",
+    )
+    auth_rotate.set_defaults(func=cmd_auth_rotate)
+
     # -- identity -----------------------------------------------------------
     identity = sub.add_parser(
         "identity", parents=[common], help="identity registration (§9 /identity)"
@@ -1294,6 +1402,16 @@ def _add_filters(parser: argparse.ArgumentParser) -> None:
         help="with --to-author/--to-worked: do not suppress your own "
         "envelopes. Off by default (R19c) — a notification stream that "
         "wakes you on your own posts gets noisier the more you work",
+    )
+    parser.add_argument(
+        "--horizon",
+        metavar="none",
+        help="§8.2 — pass `none` to pierce a rotating nest's retention "
+        "horizon and read past it. `none` is the only accepted value here "
+        "and is never the default; anything else is refused rather than "
+        "ignored. Distinct from `korax view --horizon`, which takes an ISO "
+        "duration and windows the `fresh` reduction — same flag name, "
+        "different question",
     )
     parser.add_argument(
         "--cursor-file",

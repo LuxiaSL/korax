@@ -778,3 +778,89 @@ def test_display_names_are_unique_at_mint(world: dict) -> None:
     r = client.post("/identity", json={"display": "unique-name-2"},
                     headers=auth(world["op_token"]))
     assert r.status_code == 200
+
+
+# -- the edge matrix is served, and the refusals finish the lesson (#134) ------
+
+
+def test_conformance_serves_edge_rules_from_the_live_constants(world: dict) -> None:
+    """§14 — a client that hand-copies the edge table becomes a second
+    source of truth and drifts from the validator silently. Serving it
+    from EDGE_SOURCE_ACTS/EDGE_TARGET_ACTS keeps one source."""
+    from korax.models import EDGE_SOURCE_ACTS, EDGE_TARGET_ACTS, EdgeType
+
+    rules = world["client"].get("/conformance").json()["edge_rules"]
+
+    # every edge is present, so absence of a key means "any act", never
+    # "this build forgot the edge"
+    assert set(rules) == {e.value for e in EdgeType}
+
+    assert rules["part-of"] == {"sources": ["JOB"], "targets": ["JOB"]}
+    assert rules["endorses"] == {"targets": ["PROPOSAL"]}
+    assert "sources" not in rules["endorses"]  # unconstrained source = absent
+    assert rules["derives-from"] == {}  # unconstrained both ways
+
+    # generated, not restated: the served table matches the constants
+    for edge in EdgeType:
+        served = rules[edge.value]
+        sources = EDGE_SOURCE_ACTS.get(edge)
+        targets = EDGE_TARGET_ACTS.get(edge)
+        assert served.get("sources") == (
+            sorted(a.value for a in sources) if sources else None
+        )
+        assert served.get("targets") == (
+            sorted(a.value for a in targets) if targets else None
+        )
+
+
+def test_edge_source_refusal_names_the_legal_sources(world: dict) -> None:
+    """The question you have at a refusal is 'then what may I write?'.
+    Two enactors and the desk each spent a round trip on this one."""
+    identity, token = _register(world, "edge-source")
+    _grant(world, identity, "/commons/**", "claimant")
+    job = world["client"].get("/read", params={"ns": "/commons/rakes"},
+                              headers=auth(token)).json()["envelopes"][0]["id"]
+
+    r = world["client"].post("/post", headers=auth(token), json={
+        "proto": PROTO, "author": identity, "ns": "/commons/rakes",
+        "type": "FINDING", "grade": "unverified", "payload": "x",
+        "refs": [{"edge": "part-of", "id": job}], "ext": {},
+    })
+    assert r.status_code == 400
+    message = r.json()["message"]
+    assert "may not originate from FINDING" in message
+    assert "legal sources: JOB" in message
+
+
+def test_edge_target_refusal_names_the_legal_targets(world: dict) -> None:
+    identity, token = _register(world, "edge-target")
+    _grant(world, identity, "/commons/**", "claimant")
+    rake = world["client"].get("/read", params={"ns": "/commons/rakes"},
+                               headers=auth(token)).json()["envelopes"][0]["id"]
+
+    r = world["client"].post("/post", headers=auth(token), json={
+        "proto": PROTO, "author": identity, "ns": "/commons/rakes",
+        "type": "FINDING", "grade": "unverified", "payload": "x",
+        "refs": [{"edge": "endorses", "id": rake}], "ext": {},
+    })
+    assert r.status_code == 400
+    message = r.json()["message"]
+    assert "may not target" in message
+    assert "legal targets: PROPOSAL" in message
+
+
+def test_supersede_type_mismatch_explains_the_rule(world: dict) -> None:
+    identity, token = _register(world, "edge-supersede")
+    _grant(world, identity, "/commons/**", "claimant")
+    rake = world["client"].get("/read", params={"ns": "/commons/rakes"},
+                               headers=auth(token)).json()["envelopes"][0]["id"]
+
+    r = world["client"].post("/post", headers=auth(token), json={
+        "proto": PROTO, "author": identity, "ns": "/commons/rakes",
+        "type": "FINDING", "grade": "unverified", "payload": "x",
+        "refs": [{"edge": "supersedes", "id": rake}], "ext": {},
+    })
+    assert r.status_code == 400
+    message = r.json()["message"]
+    assert "may not supersede" in message
+    assert "same act" in message and "SUPERSEDE carrier" in message
