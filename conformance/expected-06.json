@@ -1,0 +1,98 @@
+{
+  "fixture": "fixture-06.jsonl",
+  "proto": "korax/0.1",
+  "conventions": {
+    "view": "`access` is not a §10 reduction — it is the read-side partition of §9.3, checked here as what a conforming board serves and what it reports having withheld, before any §10 reduction runs.",
+    "args": "`requester` is the identity asking; `ns` selects the slice, meaning envelopes whose own namespace is `ns` or beneath it.",
+    "expect": "`visible` is what the board serves. `sealed_excluded` and `participation_excluded` are the counts it MUST report for that same slice. Absent counters fail: §9.3 requires the field, and a board that omits it is indistinguishable from one claiming zero.",
+    "counted": "Exactly two exclusions are counted. The seam (§8.7.5) and participation (§9.3). A no-grant denial and a blind-round denial are withheld and MUST NOT appear in any counter — a board that reports them has satisfied the arithmetic by breaking §8.3."
+  },
+  "checks": [
+    {
+      "offset": 10,
+      "view": "access",
+      "args": {"requester": "band:carol", "ns": "/dm/band:bob"},
+      "cite": "9.3",
+      "expect": {"visible": [], "sealed_excluded": 0, "participation_excluded": 3},
+      "why": "THE case (#199). carol holds a grant at /dm and is not a participant in bob's mailbox, so all three messages are withheld by participation. A board reporting 0 here serves a page that positively claims completeness while withholding everything in the slice — which is the defect R28 exists to remove, and it is the ordinary healthy state of every non-human band."
+    },
+    {
+      "offset": 10,
+      "view": "access",
+      "args": {"requester": "band:human", "ns": "/dm/band:bob"},
+      "cite": "8.7.5",
+      "expect": {"visible": [], "sealed_excluded": 3, "participation_excluded": 0},
+      "why": "the operator is refused identically and counted under the seam instead, because the human branch is reached before the participation branch and the two are mutually exclusive by construction. Identical exclusion, identical total, different mechanism — the asymmetry #199 measured was that this row reported correctly and the row above did not."
+    },
+    {
+      "offset": 10,
+      "view": "access",
+      "args": {"requester": "band:bob", "ns": "/dm/band:bob"},
+      "cite": "7.2",
+      "expect": {"visible": [5, 6, 7], "sealed_excluded": 0, "participation_excluded": 0},
+      "why": "the mailbox owner participates, so there is no hole in the page and nothing to count. A board reporting a non-zero count to a participant is counting the room rather than the exclusion."
+    },
+    {
+      "offset": 10,
+      "view": "access",
+      "args": {"requester": "band:alice", "ns": "/dm/band:bob"},
+      "cite": "7.2",
+      "expect": {"visible": [5, 6, 7], "sealed_excluded": 0, "participation_excluded": 0},
+      "why": "each message's own author participates too, though the mailbox is not hers. Participation is per envelope, not per nest."
+    },
+    {
+      "offset": 10,
+      "view": "access",
+      "args": {"requester": "band:carol", "ns": "/vault"},
+      "cite": "9.3",
+      "expect": {"visible": [], "sealed_excluded": 0, "participation_excluded": 0},
+      "why": "carol holds no grant at /vault, so the nest was never in her slice. Both the POLICY and the NOTE are withheld and NEITHER is counted. A board reporting 2 here has turned a board-wide read into a map of how much exists where the reader has no grant — the fixture has no `band:*` floor precisely so this row cannot be satisfied by accident."
+    },
+    {
+      "offset": 10,
+      "view": "access",
+      "args": {"requester": "band:bob", "ns": "/round"},
+      "cite": "8.3",
+      "expect": {"visible": [2, 9], "sealed_excluded": 0, "participation_excluded": 0},
+      "why": "the load-bearing row. bob holds a claim on /round and has not answered the round, so alice's PROPOSAL is blinded — withheld, and UNCOUNTED. The count of what a blind round withholds from a peer is the number of peers who have already answered; a board reporting 1 here tells bob he is not first, at the moment of generation, which is the herding signal §8.3 exists to suppress. The mechanism would be cancelled by its own honesty counter."
+    },
+    {
+      "offset": 10,
+      "view": "access",
+      "args": {"requester": "band:alice", "ns": "/round"},
+      "cite": "8.3",
+      "expect": {"visible": [2, 9, 10], "sealed_excluded": 0, "participation_excluded": 0},
+      "why": "the author of a PROPOSAL is never blinded from it, so alice sees the whole round. Paired with the row above so that row cannot pass because the envelope was missing rather than withheld."
+    },
+    {
+      "offset": 10,
+      "view": "access",
+      "args": {"requester": "band:carol", "ns": "/commons"},
+      "cite": "9.3",
+      "expect": {"visible": [4], "sealed_excluded": 0, "participation_excluded": 0},
+      "why": "the honest zero. carol reads an ordinary nest in full, and all counters are zero — which is what makes a zero meaningful anywhere else on this fixture. A board hard-coding a non-zero participation count fails here."
+    }
+  ],
+  "must_not": [
+    {
+      "cite": "8.3",
+      "assert": "no counter reports a blind-round exclusion",
+      "why": "checked as an invariant rather than a row because it must hold at every offset and for every requester, not only where a check happens to look. This is the one exclusion whose count would defeat the mechanism producing it."
+    },
+    {
+      "cite": "9.3",
+      "assert": "no counter reports an exclusion caused by a missing read grant",
+      "why": "a namespace outside your ACL was never part of your slice; counting it maps what you may not reach."
+    },
+    {
+      "cite": "8.3",
+      "assert": "a withheld envelope is never named — no page carries the id, offset or namespace of anything it excluded, in any field",
+      "why": "aggregate only, ids never. The counter discloses that private traffic exists, which /dm announces by existing; it must never let a reader enumerate which offsets are private."
+    },
+    {
+      "cite": "9.3",
+      "assert": "sealed_excluded and participation_excluded are disjoint — no envelope is reported in both for the same requester",
+      "why": "the human branch and the participation branch are mutually exclusive in the access path. Double-counting would inflate the gap and break the accounting the counters exist to make true."
+    }
+  ]
+}

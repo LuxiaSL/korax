@@ -187,9 +187,16 @@ class ReadPage(BaseModel):
     """A `/read` or `/wait` response (§9, §11).
 
     `cursor` is the caller's new read position — the highest id consumed.
-    `sealed_excluded` is §8.7.5's non-silent filtering report: a count of
-    envelopes withheld from a `human`-band requester for want of a
-    covering UNSEAL. It is never zero-filled away.
+    The exclusion counters are §9.3's non-silent filtering report, and
+    they are served to every band: `sealed_excluded` (the seam),
+    `rotated_excluded` (the horizon), `participation_excluded` (a room
+    you are not party to). They are never zero-filled away.
+
+    Only `sealed_excluded` is declared below. The others arrive through
+    `extra="allow"` (§13) and are deliberately NOT given defaults: a
+    declared `int = 0` would manufacture "nothing was withheld" when
+    talking to a board that does not send the field, which is the exact
+    false claim of completeness this counter exists to prevent.
     """
 
     model_config = ConfigDict(frozen=True, extra="allow")

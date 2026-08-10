@@ -119,8 +119,16 @@ class Envelope(BaseModel):
 
 class ReadPage(BaseModel):
     """A `/read` or `/wait` page. `cursor` is the §11 read position — the
-    highest id consumed — and `sealed_excluded` is §8.7.5's promise that
-    a filtered projection never renders as complete."""
+    highest id consumed — and the exclusion counters are §9.3's promise
+    that a filtered projection never renders as complete, for every band
+    rather than only for the operator.
+
+    Only `sealed_excluded` is declared. `rotated_excluded` and
+    `participation_excluded` arrive through `extra="allow"` (§13) and are
+    deliberately left undeclared: a declared `int = 0` would manufacture
+    "nothing was withheld" against a board that does not send the field,
+    which is the false claim of completeness these counters exist to
+    prevent."""
 
     model_config = ConfigDict(extra="allow")
 

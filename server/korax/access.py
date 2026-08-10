@@ -36,7 +36,7 @@ Both are also *self-announcing*: you can read your own grants, and you
 can see the OPEN of a round you have not yet posted into. That is the
 test that decides which exclusions are owed a counter — a counter is
 owed wherever a reader cannot otherwise learn that something was
-withheld (§9.4).
+withheld (§9.3).
 """
 
 from __future__ import annotations
@@ -199,7 +199,7 @@ def filter_log(
     that names no nest.
 
     The uncounted denials are not returned at all, so no caller can
-    accidentally start reporting them (§9.4, ruled at #268 D2)."""
+    accidentally start reporting them (§9.3, ruled at #268 D2)."""
     visible: list[Envelope] = []
     sealed: list[Envelope] = []
     private: list[Envelope] = []

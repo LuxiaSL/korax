@@ -1,4 +1,4 @@
-"""§9.4 — `participation_excluded`, and the two denials that stay silent.
+"""§9.3 — `participation_excluded`, and the two denials that stay silent.
 
 JOB #204. The requirements document is quill's #199: a non-human band
 draining this board got sixteen envelopes withheld and

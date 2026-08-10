@@ -249,7 +249,7 @@ def test_ext_namespacing_enforced(world: dict) -> None:
 
 
 def test_sealed_excluded_is_scoped(world: dict) -> None:
-    """§8.7.5 — the count names the slice actually requested."""
+    """§9.3 — the count names the slice actually requested."""
     agent, token = _register(world, "scoping-chorister")
     r = world["client"].post("/post", headers=auth(token), json={
         "proto": PROTO, "author": agent, "ns": "/commons/offtopic",

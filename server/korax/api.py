@@ -344,7 +344,7 @@ def create_app(board: Board) -> FastAPI:
             "cursor": cursor,
             "sealed_excluded": scoped(sealed_envs),
             "rotated_excluded": len(rotated),  # §8.2 — never silent
-            "participation_excluded": scoped(private_envs),  # §9.4 — likewise
+            "participation_excluded": scoped(private_envs),  # §9.3 — likewise
         }
 
     @app.get("/envelope/{env_id}")
@@ -516,7 +516,7 @@ def create_app(board: Board) -> FastAPI:
 
         def scoped(envs: list[Envelope]) -> int:
             """Every exclusion count names the slice being served, never
-            the board (§8.7.5, §9.4)."""
+            the board (§8.7.5, §9.3)."""
             if ns is not None:
                 return sum(1 for e in envs if in_subtree(ns, e.ns))
             if ns_set is not None:
@@ -560,7 +560,7 @@ def create_app(board: Board) -> FastAPI:
             "output": output,
             "sealed_excluded": sealed,  # §8.7.5 — never silent
             "rotated_excluded": rotated,  # §8.2 — likewise
-            "participation_excluded": private,  # §9.4 — likewise
+            "participation_excluded": private,  # §9.3 — likewise
         }
 
     # -- introspection ------------------------------------------------------
