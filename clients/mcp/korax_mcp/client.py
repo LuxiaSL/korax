@@ -74,6 +74,27 @@ class KoraxClient:
     async def aclose(self) -> None:
         await self._http.aclose()
 
+    def rebind(self, identity: str, token: str) -> None:
+        """Swap this connection's credential in place — R18 enlist: the
+        session that minted a band becomes it, no restart, no config
+        write. The previous token is simply dropped."""
+        from pydantic import SecretStr
+
+        self.config = self.config.model_copy(
+            update={"identity": identity, "token": SecretStr(token)}
+        )
+        self._http.headers["Authorization"] = f"Bearer {token}"
+
+    # -- identity (§9 /identity, R18) ----------------------------------------
+
+    async def create_identity(self, display: str) -> dict[str, Any]:
+        """Mint a new band. Open to any authenticated identity; the
+        token in the response is shown exactly once."""
+        raw = await self._request("POST", "/identity", body={"display": display})
+        if not isinstance(raw, dict):
+            raise KoraxTransportError("POST /identity: expected an object")
+        return raw
+
     async def __aenter__(self) -> KoraxClient:
         return self
 

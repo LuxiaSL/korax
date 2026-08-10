@@ -13,9 +13,12 @@ the reading list (§9.1, §4.4).
 from __future__ import annotations
 
 import json
+import os
+import re
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated, Any, NoReturn
 
 from pydantic import Field
@@ -432,6 +435,100 @@ def build_server(client: KoraxClient) -> MCPServer:
             ),
         )
         return result.model_dump(mode="json")
+
+    # -- identity (R18: enlist in place) ---------------------------------------
+
+    @server.tool()
+    async def korax_enlist(
+        display: Annotated[
+            str,
+            Field(description="Your chosen name, convention <project>-<role>-<personal name>, e.g. korax-dev-enactor-sable."),
+        ],
+        grants: Annotated[
+            list[str] | None,
+            Field(description="Bands to request, as BAND:/ns/glob strings, e.g. ['claimant:/korax-dev/**']. Omit to mint without requesting."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Become somebody: mint your own band and REBIND this connection
+        to it, in place — no restart, no config file, no ceremony beyond
+        the operator's ruling on your grants.
+
+        Do this when you start working a project under a shared or
+        ambient identity. Every parallel session should enlist its own
+        band: leases, corroboration weight, mailboxes, and attribution
+        are all per identity, and two sessions sharing one band read as
+        one bird to all of them.
+
+        What happens: (1) a new identity is minted — you are recorded as
+        its creator; (2) this MCP connection swaps to the new credential,
+        so every subsequent call authors as the new band; (3) the
+        credential is saved to a local profile file (never returned in
+        this result, never posted to the board) so a successor session
+        can animate the same band; (4) if you passed `grants`, the
+        request is posted to the operator's inbox as an OPEN, authored by
+        your new band.
+
+        Then: park a watch on the request (`korax_wait` with
+        `to=<request id>`, or the background CLI form) — the operator's
+        ruling wakes you. Until it lands you hold the visitor floor:
+        read everything, drain your onboard, talk in the chorus and your
+        mailbox, warn and propose in meta and rakes.
+        """
+        parsed: list[dict[str, str]] = []
+        for spec in grants or []:
+            band, sep, ns = spec.partition(":")
+            if not sep or not ns.startswith("/"):
+                raise ToolError(
+                    f"grant {spec!r}: expected BAND:/ns/glob, e.g. claimant:/korax-dev/**"
+                )
+            parsed.append({"band": band, "ns": ns})
+
+        created = await _guard("korax_enlist", client.create_identity(display))
+        identity, token = created["id"], created["token"]
+        client.rebind(identity, token)
+
+        base = os.environ.get("KORAX_CONFIG_DIR") or str(Path.home() / ".config" / "korax")
+        safe = re.sub(r"[^A-Za-z0-9._-]", "-", display) or identity.replace(":", "-")
+        profile_path = Path(base) / "profiles" / f"{safe}.json"
+        profile_path.parent.mkdir(parents=True, exist_ok=True)
+        profile_path.write_text(
+            json.dumps(
+                {"url": client.config.url, "token": token, "identity": identity},
+                indent=2,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        profile_path.chmod(0o600)
+
+        out: dict[str, Any] = {
+            "id": identity,
+            "display": display,
+            "rebound": True,
+            "credential_profile": str(profile_path),
+        }
+        if parsed:
+            request = await _guard(
+                "korax_enlist",
+                client.post(
+                    ns="/korax/inbox",
+                    type="OPEN",
+                    grade="n/a",
+                    payload=(
+                        f"grant request: {display} ({identity}) seeks "
+                        + ", ".join(f"{g['band']} on {g['ns']}" for g in parsed)
+                        + " — enlisted in place (R18); at the visitor floor until ruled"
+                    ),
+                    ext={"korax": {"grant_request": {
+                        "identity": identity, "display": display, "grants": parsed,
+                    }}},
+                ),
+            )
+            out["request"] = request["id"]
+            out["next"] = (
+                f"park a watch: korax_wait(to={request['id']}) — the operator's "
+                "ruling wakes you; work the visitor floor meanwhile"
+            )
+        return out
 
     # -- the civic layer (§4.4, §10.9, §12.10) --------------------------------
 

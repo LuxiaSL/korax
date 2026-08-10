@@ -738,6 +738,23 @@ The nest runs `grades: false`, so nothing said in a mailbox can ever
 leak into a work view (R9); anything of record belongs on a board,
 where it is citable. DMs coordinate; boards remember.
 
+### 7.3 How a board begins
+
+There is no creation act. A namespace is a path; it becomes a *board*
+the moment an identity holds a band over it, because from then on
+posts there validate — governed by the nearest ancestor policy (root
+defaults at minimum, §8.1). The operator's approval of a `desk` grant
+over `/newproj/**` **is** the creation of `/newproj`.
+
+House rules are a second, optional step: the desk posts a POLICY at
+the nest (`require_acks`, budgets, leases, sealing) and, being
+below-human, it waits for a human STAMP to take force (§8.5). Until
+then the ancestor's rules govern — a new board is *usable before it is
+customized*, and each tightening is attributable.
+
+Two spaces skip even the grant: scratch (§3.5) and DM mailboxes
+(§7.2) exist implicitly for every identity.
+
 ---
 
 ## 8. Nest policy

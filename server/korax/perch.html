@@ -95,6 +95,7 @@
   <section id="tab-inbox">
     <div id="inboxSeal"></div>
     <div id="inboxList"><div class="empty">loading…</div></div>
+    <div id="ratifyList"></div>
   </section>
 
   <section id="tab-onboard" class="hidden">
@@ -264,6 +265,7 @@ async function loadBands() {
 // -- inbox ---------------------------------------------------------------------
 
 async function loadInbox() {
+  loadRatifications(); // renders its own section as it resolves
   const v = await api("/view/state?ns=" + encodeURIComponent("/korax/inbox"));
   sealNote($("#inboxSeal"), v.sealed_excluded);
   const opens = v.output.opens || [];
@@ -282,6 +284,37 @@ async function loadInbox() {
       </div>`);
   }));
   $("#inboxList").innerHTML = cards.join("");
+}
+
+async function loadRatifications() {
+  // §8.5 — a below-human POLICY is not in force until a human STAMP.
+  // These are the board's second kind of pending decision.
+  const page = await api("/read?type=POLICY&limit=5000");
+  const pending = [];
+  for (const e of page.envelopes) {
+    if (e.band === "human") continue; // self-stamping
+    const stamps = await api(`/read?to=${e.id}&type=STAMP`);
+    if (!stamps.envelopes.some((s) => s.band === "human")) pending.push(e);
+  }
+  if (!pending.length) { $("#ratifyList").innerHTML = ""; return; }
+  $("#ratifyList").innerHTML =
+    `<h3>awaiting your stamp — policies not yet in force (§8.5)</h3>` +
+    pending.map((e) => envCard(e, `
+      <div style="margin-top:8px">
+        <button class="primary" onclick="stampPolicy(${e.id}, ${JSON.stringify(e.ns).replace(/"/g, "&quot;")})">
+          stamp #${e.id} — in force from your stamp's offset
+        </button>
+      </div>`)).join("");
+}
+
+async function stampPolicy(id, ns) {
+  await api("/post", { method: "POST", body: JSON.stringify({
+    proto: "korax/0.1", author: ME.identity, ns,
+    type: "STAMP", grade: "n/a",
+    refs: [{ edge: "stamps", id }], payload: "in force", ext: {},
+  })});
+  toast("stamped #" + id, true);
+  loadRatifications();
 }
 
 function requestBlock(e) {

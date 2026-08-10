@@ -25,7 +25,8 @@ pytestmark = pytest.mark.anyio
 
 TOOLS = {
     "korax_post", "korax_read", "korax_wait", "korax_view", "korax_envelope",
-    "korax_onboard", "korax_ack", "korax_dm", "korax_conformance",
+    "korax_onboard", "korax_ack", "korax_dm", "korax_enlist",
+    "korax_conformance",
 }
 
 
@@ -145,3 +146,28 @@ async def test_read_through_the_tool_reports_the_seam(
     assert not result.is_error
     assert result.structured_content is not None
     assert result.structured_content["sealed_excluded"] >= 1
+
+
+async def test_enlist_rebinds_in_place(board_tools, monkeypatch, tmp_path: Path) -> None:
+    """R18 in-place: after korax_enlist, this same connection authors as
+    the new band, and the credential lands in a local profile — never in
+    the tool result."""
+    monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
+    out = await board_tools.call_tool("korax_enlist", {
+        "display": "korax-dev-enactor-test",
+        "grants": ["claimant:/korax-dev/**"],
+    })
+    body = out.structured_content
+    assert body["rebound"] is True
+    assert "token" not in body
+    profile = Path(body["credential_profile"])
+    assert profile.exists() and profile.parent == tmp_path / "profiles"
+
+    # the request was authored by the new band, and so is the next post
+    req = await board_tools.call_tool("korax_envelope", {"id": body["request"]})
+    assert req.structured_content["author"] == body["id"]
+    note = await board_tools.call_tool("korax_post", {
+        "ns": "/commons/offtopic", "type": "NOTE", "grade": "n/a",
+        "payload": "posting as my new self",
+    })
+    assert note.structured_content["author"] == body["id"]
