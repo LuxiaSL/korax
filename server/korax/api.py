@@ -318,7 +318,7 @@ def create_app(board: Board) -> FastAPI:
         limit: int = Query(default=500, le=5000),
     ) -> dict[str, Any]:
         pierce = pierced(horizon)
-        log, sealed_envs = visible_log(who)
+        log, sealed_envs, private_envs = visible_log(who)
         targets = authored_by(log, to_author) if to_author else None
         worked = worked_by(log, to_worked) if to_worked else None
         mine = self_drop(who, to_author, to_worked, include_self)
@@ -332,16 +332,19 @@ def create_app(board: Board) -> FastAPI:
             hits, rotated = rotate_split(board.log, board.timeline, hits, board.head)
         out = [dump(e) for e in hits][:limit]
         cursor = out[-1]["id"] if out else since
-        sealed = sum(
-            1 for e in sealed_envs
-            if matches(e, ns, type, author, grade, since, until, to, targets, worked,
-                       mine)
-        )
+        def scoped(envs: list[Envelope]) -> int:
+            return sum(
+                1 for e in envs
+                if matches(e, ns, type, author, grade, since, until, to, targets,
+                           worked, mine)
+            )
+
         return {
             "envelopes": out,
             "cursor": cursor,
-            "sealed_excluded": sealed,
+            "sealed_excluded": scoped(sealed_envs),
             "rotated_excluded": len(rotated),  # §8.2 — never silent
+            "participation_excluded": scoped(private_envs),  # §9.3 — likewise
         }
 
     @app.get("/envelope/{env_id}")
@@ -350,12 +353,20 @@ def create_app(board: Board) -> FastAPI:
         if env is None:
             raise HTTPException(404, "no such envelope")
         v = verdict(board.log, board.timeline, env, who, board.head)
-        if v == "denied":
-            raise HTTPException(404, "no such envelope")  # unreadable is absence
+        # Enumerate PERMISSION, not the refusals. `sealed` is the one
+        # refusal allowed to be visible (§8.7.2 — the human's own lever is
+        # discoverable); everything else that is not `ok` fuses into
+        # absence (§8.3). Written this way round so that a verdict added
+        # later is refused by default rather than served by omission: the
+        # `if v == "denied"` form was correct only while `Verdict` had
+        # three values, and this is the one endpoint where an over-serve
+        # hands over an envelope the access layer just refused.
         if v == "sealed":
             raise HTTPException(
                 403, "sealed at post time; a covering UNSEAL is required (§8.7)"
             )
+        if v != "ok":
+            raise HTTPException(404, "no such envelope")  # unreadable is absence
         out = dump(env)
         # §10.10 — prerequisites arrive annotated on the document, not as
         # separate ceremony the client must remember to perform
@@ -387,7 +398,7 @@ def create_app(board: Board) -> FastAPI:
         mine = self_drop(who, to_author, to_worked, include_self)
 
         def hits_now() -> list[Envelope]:
-            log, _sealed = visible_log(who)
+            log, _sealed, _private = visible_log(who)
             targets = authored_by(log, to_author) if to_author else None
             worked = worked_by(log, to_worked) if to_worked else None
             found = [
@@ -404,7 +415,7 @@ def create_app(board: Board) -> FastAPI:
 
         if not hits_now():
             await board.wait_for(lambda: bool(hits_now()), timeout)
-        log, sealed_envs = visible_log(who)
+        log, sealed_envs, private_envs = visible_log(who)
         targets = authored_by(log, to_author) if to_author else None
         worked = worked_by(log, to_worked) if to_worked else None
         found = [
@@ -417,16 +428,19 @@ def create_app(board: Board) -> FastAPI:
             found, rotated = rotate_split(board.log, board.timeline, found, board.head)
         out = [dump(e) for e in found]
         cursor = out[-1]["id"] if out else since
-        sealed = sum(
-            1 for e in sealed_envs
-            if matches(e, ns, type, author, grade, since, None, to, targets, worked,
-                       mine)
-        )
+        def scoped(envs: list[Envelope]) -> int:
+            return sum(
+                1 for e in envs
+                if matches(e, ns, type, author, grade, since, None, to, targets,
+                           worked, mine)
+            )
+
         return {
             "envelopes": out,
             "cursor": cursor,
-            "sealed_excluded": sealed,
+            "sealed_excluded": scoped(sealed_envs),
             "rotated_excluded": len(rotated),
+            "participation_excluded": scoped(private_envs),
         }
 
     @app.get("/subscribe")
@@ -447,7 +461,7 @@ def create_app(board: Board) -> FastAPI:
         async def stream():
             cursor = since
             while True:
-                log, _ = visible_log(who)
+                log, _, _ = visible_log(who)
                 targets = authored_by(log, to_author) if to_author else None
                 worked = worked_by(log, to_worked) if to_worked else None
                 fresh_envs = [
@@ -494,15 +508,15 @@ def create_app(board: Board) -> FastAPI:
                 f"views are canonical (§9.2) and never pierce retention; "
                 f"`horizon={PIERCE}` is accepted on /read and /wait only",
             )
-        log, sealed_envs = visible_log(who)
+        log, sealed_envs, private_envs = visible_log(who)
         offset = at if at is not None else (log.envelopes[-1].id if len(log) else 0)
         rotated_envs: list[Envelope] = []
         if name in ROTATING_VIEWS:
             log, rotated_envs = rotate_project(board.log, board.timeline, log, offset)
 
         def scoped(envs: list[Envelope]) -> int:
-            """Both exclusion counts name the slice being served, never the
-            board (§8.7.5)."""
+            """Every exclusion count names the slice being served, never
+            the board (§8.7.5, §9.3)."""
             if ns is not None:
                 return sum(1 for e in envs if in_subtree(ns, e.ns))
             if ns_set is not None:
@@ -512,6 +526,7 @@ def create_app(board: Board) -> FastAPI:
 
         sealed = scoped(sealed_envs)
         rotated = scoped(rotated_envs)
+        private = scoped(private_envs)
         tl = board.timeline
         try:
             if name == "state":
@@ -545,6 +560,7 @@ def create_app(board: Board) -> FastAPI:
             "output": output,
             "sealed_excluded": sealed,  # §8.7.5 — never silent
             "rotated_excluded": rotated,  # §8.2 — likewise
+            "participation_excluded": private,  # §9.3 — likewise
         }
 
     # -- introspection ------------------------------------------------------

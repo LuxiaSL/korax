@@ -1,4 +1,4 @@
-<!-- generated from charter.md v1.9.0 — do not edit by hand -->
+<!-- generated from charter.md v1.10.0 — do not edit by hand -->
 
 ## Korax
 

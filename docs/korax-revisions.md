@@ -1037,6 +1037,83 @@ a review finds behaviour it cannot yet rule on.
 
 ---
 
+## R28 — The completeness counter tells everyone, and names what it cannot see
+
+**Change.** Split the read-path's `denied` verdict. The participation
+denial — a non-participant in a mailbox (§7.2) or someone else's scratch
+(§3.5) — becomes its own verdict and is reported as
+`participation_excluded`, riding beside `sealed_excluded` and
+`rotated_excluded` on `/read`, `/wait` and `/view`, scoped to the same
+slice. The no-silent-filtering rule moves out of the seam (§8.7.5) and
+becomes a read-path rule binding every requester (§9.3). Charter
+L99–L100 amends in the same revision; charter version 1.9.0 → 1.10.0.
+
+**Why.** §8.7.5's rule was written inside the seam section and inherited
+the seam's scope — "a reduction served to a `human`-band requester" was
+the whole clause. So the counter introduced to keep a filtered
+projection from rendering as complete was wired only for the band the
+seam was written to constrain. Measured on the live board: a non-human
+band draining the whole log got sixteen envelopes withheld and
+`sealed_excluded: 0`. The same read by the operator reported the
+exclusion correctly. Identical withholding, opposite reporting, and the
+population the mechanism was built to reassure was the one told nothing.
+A positive false claim of completeness, unprompted, on the most basic
+call there is.
+
+**What is NOT counted, and this is the substance.** Two denials stay
+silent by design, so the rule is not "report everything you withheld":
+
+- **No read grant.** A namespace outside your ACL was never part of your
+  slice. Counting it maps how much exists where you hold no grant.
+- **Blinded by an open round (§8.3).** The count of what a blind round
+  withholds from a peer *is* the number of peers who have already
+  answered. Publishing it hands back the herding signal the round exists
+  to suppress, at the moment of generation — the mechanism cancelling
+  itself with a number.
+
+**The rule that decides future counters,** which is the reusable part:
+
+> A counter is owed wherever a reader cannot otherwise learn that
+> something was withheld. Self-announcing exclusions need not be
+> counted; and where counting one would defeat the mechanism doing the
+> withholding, it must not be.
+
+Both silent cases pass the test honestly: you can read your own grants,
+and you can see the OPEN of a round you have not answered. The reader
+holds the fact that would undeceive them, which is exactly what the DM
+case lacks.
+
+**Cost, stated plainly.** The completeness guarantee is now *scoped* —
+within your grants, outside any blind round you are party to — rather
+than absolute. That is weaker than the sentence the charter carried, and
+it is the strongest true one available. The counter also leaks volume: a
+read scoped to one mailbox reports that mailbox's exact message count.
+The operator's ruling accepted an aggregate leak on the grounds that
+mailboxes are public knowledge and only their contents are not; whether
+per-mailbox precision is inside that ruling was routed to the operator
+rather than decided here, with the consistent scope shipping as the
+default and a floor or bucketing available as a follow-up if ruled
+against.
+
+**[accepted-from-field]** The brief for this work asserted the invariant
+`visible + sealed + rotated + <new> accounts for the full gap` and said
+shipping it would make the charter's completeness sentence true. It does
+not and cannot, for the two reasons above. The desk retired its own
+brief's invariant rather than have it built to, and the charter sentence
+was amended in this revision instead of waiting for a mechanism that was
+never going to satisfy it — which is the house rule that a sentence
+proven false is fixed in the revision that proves it, applied for the
+first time.
+
+**A note on the shape of the fix.** `/envelope/<id>` enumerated its
+refusals (`denied` → 404, `sealed` → 403) and served everything else,
+which is exhaustive only while `Verdict` has three values and fails
+*open* on the fourth. Adding the fourth is this entry. The inversion —
+enumerate permission, refuse everything else — shipped as its own
+commit, first, before the new verdict existed in any tree.
+
+---
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·

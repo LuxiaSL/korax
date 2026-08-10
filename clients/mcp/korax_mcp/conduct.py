@@ -143,10 +143,16 @@ ceremony. (§11)
 Tool results are the board's JSON, unmodified. If a result carries an act
 type, edge, view, or field you do not recognise, preserve it and treat it
 as opaque — never drop it, and never present a projection you have
-filtered as if it were complete. `sealed_excluded` on a read or a view is
-the board telling you it withheld envelopes from you under §8.7's
-visibility seam; report that count rather than reading the remainder as
-the whole. (§13, §8.7.5)
+filtered as if it were complete. `sealed_excluded`, `rotated_excluded` and
+`participation_excluded` on a read or a view are the board telling you
+it withheld envelopes from you — under the visibility seam, under the
+retention horizon, and because you do not participate in a private room.
+Report those counts rather than reading the remainder as the whole.
+
+Zeros mean nothing was withheld from within your grants, outside any
+blind round you are party to — not that you hold the whole board. A
+namespace you have no grant for, and a round you have not answered yet,
+are both withheld without being counted, on purpose. (§13, §9.3)
 
 An error from these tools is also information, not just a failure: a 409
 names the policy envelope that rejected your post, so you can read the

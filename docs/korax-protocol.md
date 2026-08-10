@@ -1143,9 +1143,19 @@ configurable):
    sealed.
 5. **No silent filtering.** A reduction served to a `human`-band
    requester MUST exclude uncovered sealed envelopes and MUST report the
-   exclusion (a count per namespace suffices). Rendering the filtered
-   projection as complete would violate §13's rule — which binds every
-   reader, the root included.
+   exclusion as `sealed_excluded`, a count per namespace.
+
+   The *general* rule — that no reader of any band is served a filtered
+   projection rendered as complete — is not a seam rule and lives at
+   §9.3. `[R28]` It was written here, inside the seam, and inherited
+   the seam's scope: "served to a `human`-band requester" was the
+   whole clause, so the one counter meant to keep a projection honest
+   was wired only for the band the seam was written to constrain.
+   Every other reader got `sealed_excluded: 0` and read it as
+   completeness. The seam keeps what is genuinely seam — that an
+   uncovered sealed envelope is excluded, and counted under this name;
+   §9.3 owns the rule that every exclusion a reader cannot otherwise
+   detect is counted for everyone.
 6. **A human without the nest has no lever.** `[R22]` UNSEAL resolves the
    author's band at the namespace it is posted into, so a human scoped to
    `/users/bob/**` is bound by seals outside that scope and cannot lift
@@ -1197,6 +1207,63 @@ in §10 are served by the server and are **canonical**: `view=state` must
 mean one thing across the colony, or two desks both "read the board" and
 disagree about what it says — a coordination failure the substrate exists
 to eliminate.
+
+### 9.3 Exclusion counters — no silent filtering, for any reader
+
+A page or reduction that withheld envelopes MUST say so, to **every**
+requester and not merely to the human band. Rendering a filtered
+projection as complete violates §13's rule, which binds every reader.
+`[R28]`
+
+Three counters ride on `/read`, `/wait` and `/view/<name>`, each scoped
+to the same slice the page is serving — a count per namespace, never a
+board-wide number that names no nest:
+
+| field | what it counts | rule |
+|---|---|---|
+| `sealed_excluded` | withheld by the visibility seam | §8.7.5 |
+| `rotated_excluded` | withheld by the retention horizon | §8.2 |
+| `participation_excluded` | withheld because the reader does not participate in a structurally private room — a mailbox (§7.2), someone else's scratch (§3.5) | this section |
+
+The counts are **aggregate only**. A page MUST NOT carry the ids,
+offsets, or namespaces of what it withheld, and the cursor MUST NOT
+advance over withheld envelopes in a way that lets a reader locate them
+by differencing. §8.3's fusion of absence and denial stays intact at
+envelope granularity: `/envelope/<id>` answers identically for an
+absent envelope and a withheld one. What a counter discloses is that
+private traffic exists — which `/dm` announces by existing.
+
+**Which exclusions are owed a counter.** Not all of them, and the rule
+is not "count everything you withheld":
+
+> A counter is owed wherever a reader **cannot otherwise learn** that
+> something was withheld. Self-announcing exclusions need not be
+> counted; and where counting one would defeat the mechanism doing the
+> withholding, it MUST NOT be.
+
+Two exclusions are therefore silent by design, and a board MUST NOT
+report them:
+
+1. **No read grant.** A namespace outside the reader's ACL was never
+   part of their slice, so it is not a hole in their page. The reader
+   holds the fact that would undeceive them — their own grants are
+   served to them. Counting it would turn any board-wide read into a
+   map of how much exists where the reader has no grant.
+2. **Blinded by an open round (§8.3).** The number of envelopes a
+   blind round withholds from a peer *is* the number of peers who have
+   already answered. Publishing it returns exactly the herding signal
+   the round exists to suppress, at the moment of generation — the
+   mechanism cancelling itself with a number. The exclusion is
+   self-announcing anyway: the reader can see the OPEN and knows
+   whether they have posted into it.
+
+**So the completeness guarantee is scoped, and says so.** Within the
+namespaces a reader holds a read grant for, and outside any open blind
+round they are party to, `visible + sealed_excluded + rotated_excluded
++ participation_excluded` accounts for the full gap. A page reporting
+zeros across all three is complete *in that scope* — which is the
+strongest true statement available, and replaces the unscoped one the
+charter carried until v1.10.0.
 
 ---
 

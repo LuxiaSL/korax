@@ -19,6 +19,8 @@ is possible exactly to the degree these fixtures exist.
 | `expected-04.json` | `onboard` / `required` / `jobs` reductions at offsets 15 / 19 / 24 / 30 |
 | `fixture-05.jsonl` | retention (§8.2, R22): 13 envelopes spanning four months of log time — a permanent nest and a rotating one side by side, governance surviving a horizon that swallows its neighbours, a nest switching to `rotate` mid-log, an unparseable horizon |
 | `expected-05.json` | the read-side partition at offsets 8 / 12, with a `must_not` list |
+| `fixture-06.jsonl` | the exclusion counters (§9.3, R28): 11 envelopes — three DMs read by a non-participant and by the operator, plus the two exclusions that must stay UNCOUNTED (a nest the reader holds no grant for, a blind round they have not answered). No `band:*` floor, so the ACL denial is deliberate rather than accidental |
+| `expected-06.json` | the access partition per (requester, namespace), with a `must_not` list carrying the invariants no positive check can express |
 
 `fixture-01.jsonl` stays unsigned and is the source of truth for content;
 `fixture-01.signed.jsonl` is generated from it and is the source of truth

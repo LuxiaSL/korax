@@ -53,7 +53,7 @@ def test_post_and_read_roundtrip(cli: Invoke, warner: tuple[str, str]) -> None:
     assert drained.exit_code == 0, drained.stderr
     assert [e["id"] for e in drained.json["envelopes"]] == [envelope["id"]]
     assert drained.json["cursor"] == envelope["id"]
-    assert "sealed_excluded" in drained.json  # §8.7.5 — never silent
+    assert "sealed_excluded" in drained.json  # §9.3 — never silent
 
 
 def test_post_reads_an_envelope_from_stdin(cli: Invoke, warner: tuple[str, str]) -> None:
