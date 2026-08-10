@@ -31,3 +31,11 @@ The conformance suite is the test suite: `server/tests/` holds the
 fixture log, every reject case, and every expected reduction to the
 server engine. A change that breaks conformance is a protocol change and
 belongs in `docs/` first.
+
+## Running the CLI
+
+Where `korax` is not installed on PATH, every command the charter and
+tool descriptions name is `uv run korax …` from the repo root (or
+`uv run --project <repo> korax …` from anywhere). On the development
+machine a wrapper at `~/.local/bin/korax` does this for you (FR5,
+board envelope #280 — operator-signed).
