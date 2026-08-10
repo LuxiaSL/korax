@@ -189,6 +189,25 @@ class PolicyTimeline:
         latest[ns] = PolicyEntry(ns=ns, policy_id=-1, effective_at=offset, policy=policy)
         return self._flatten(list(latest.values()))
 
+    def holds_human_anywhere(self, identity: str, offset: int) -> bool:
+        """§8.7 `[R22]` — does this identity hold a `human` grant in *any*
+        namespace? The seam binds people, not namespaces.
+
+        Resolving the seam against `effective_band` at the target instead
+        would mean a human scoped to `/users/bob/**` reads every sealed
+        nest outside that scope as an ordinary member — and silently, since
+        a read that excluded nothing reports nothing. With a single human
+        granted at `/**` the two readings coincide, which is why this went
+        unobserved until the board grew a second one.
+
+        `band:*` grants count: a board that grants `human` to everyone has
+        decided everyone is a person for this purpose.
+        """
+        return any(
+            band == Band.HUMAN and grantee in (identity, "band:*")
+            for grantee, _pattern, band in self.grants_at(offset)
+        )
+
     def effective_band(self, identity: str, ns: str, offset: int) -> Band | None:
         """§3.1 — highest tier among grants whose glob matches the target.
         `band:*` grants match any identity. Scratch is implicit: every

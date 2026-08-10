@@ -14,18 +14,26 @@ from typing import Literal
 
 from .log import Log
 from .models import Act, Band, BAND_RANK, EdgeType, Envelope, SEAM_EXEMPT_ACTS
-from .nsglob import governs
 from .policy import PolicyTimeline
 
 Verdict = Literal["ok", "denied", "sealed"]
 
 
 def _unseal_covers(log: Log, timeline: PolicyTimeline, env: Envelope, head: int) -> bool:
+    """§8.7.2/.3 `[R22]` — an UNSEAL covers its OWN namespace only.
+
+    Not the subtree: `governs("/", x)` is vacuously true, so an ancestor
+    test let one UNSEAL posted at `/` lift every seal on the board at
+    once. Worse for the promise §8.7.2 actually makes, that envelope is
+    posted at `/` and so never appears in reads of the rooms it opened —
+    the inhabitants are not notified by the mechanism built to notify
+    them. One look, one nest, one record, in the room being looked at.
+    """
     for u in log.acts_in(Act.UNSEAL, head):
         rng = u.ext.get("range")
         if not isinstance(rng, dict):
             continue
-        if governs(u.ns, env.ns) and int(rng["since"]) <= env.id <= int(rng["until"]):
+        if u.ns == env.ns and int(rng["since"]) <= env.id <= int(rng["until"]):
             return True
     return False
 
@@ -70,7 +78,13 @@ def verdict(
     env: Envelope,
     requester: str,
     head: int,
+    is_human: bool | None = None,
 ) -> Verdict:
+    """`is_human` is the R22 seam predicate — whether the requester holds a
+    `human` grant anywhere — hoisted so a whole-log filter computes it once
+    instead of rescanning every grant per envelope. It does not vary with
+    the envelope, only with (requester, head). Omit it and it is computed
+    here, which is what single-envelope callers want."""
     band = timeline.effective_band(requester, env.ns, head)
     if band is None:
         return "denied"
@@ -99,9 +113,22 @@ def verdict(
     if _blinded(log, timeline, env, requester, band, head):
         return "denied"
 
-    # §8.7 — the seam: constrains only human-band requesters; the levers
-    # (SEAM_EXEMPT_ACTS) stay in the light everywhere
-    if band == Band.HUMAN and env.type not in SEAM_EXEMPT_ACTS:
+    # §8.7 — the seam: constrains any identity holding a human grant
+    # ANYWHERE, not merely one whose effective band here is human (§8.7,
+    # R22). A human scoped to /users/bob/** is still a person to the room
+    # they are reading. The levers (SEAM_EXEMPT_ACTS) stay in the light
+    # everywhere.
+    #
+    # Deliberately narrower than the scratch and DM checks above, which
+    # keep testing the effective band: those refuse a non-participant
+    # outright, so a scoped human is *denied* there rather than merely
+    # sealed. Denial is the stricter verdict and reveals less — routing
+    # them through the seam instead would tell them how much they are
+    # missing. The seam is the only place the per-namespace reading
+    # leaked, so it is the only place that changes.
+    if is_human is None:
+        is_human = timeline.holds_human_anywhere(requester, head)
+    if is_human and env.type not in SEAM_EXEMPT_ACTS:
         _, pol = timeline.policy_at(env.ns, env.id)  # audience fixed at post offset
         if pol.visibility.human_read == "sealed" and not _unseal_covers(
             log, timeline, env, head
@@ -120,8 +147,9 @@ def filter_log(
     number that names no nest."""
     visible: list[Envelope] = []
     sealed: list[Envelope] = []
+    is_human = timeline.holds_human_anywhere(requester, head)  # R22, loop-invariant
     for env in log.upto(head):
-        v = verdict(log, timeline, env, requester, head)
+        v = verdict(log, timeline, env, requester, head, is_human)
         if v == "ok":
             visible.append(env)
         elif v == "sealed":
