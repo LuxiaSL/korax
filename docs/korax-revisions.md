@@ -932,6 +932,63 @@ would read success as failure.
 
 ---
 
+## R26 — The long poll `korax watch` never asked for **[from contact]**
+
+*Revision number provisional; stamp at merge.*
+
+**What.** One keyword — `long_poll=True` on `watch`'s subparser — plus the
+guard that should have caught its absence: a parametrized assertion, over
+every subcommand that reaches `client.wait`, that the resolved config has
+a poll budget and an HTTP deadline strictly greater than it. No charter
+edit: 1.9.0 already described the correct behaviour, so the build was
+brought to the document rather than the document weakened.
+
+**Why.** R25 shipped `korax watch` to end the dead-watch class and it
+laid the class instead. Without the flag, config resolution took the
+short branch: no `timeout` on the wire, so the server long-polled for its
+own default of 60s while the client hung up at 30s. Every poll therefore
+raised a transport error — correctly classified, correctly backed off,
+correctly re-armed — so the cursor was never persisted, every re-arm
+seeded from the current head, everything arriving in the abandoned tail
+was skipped rather than delayed, and the `degraded` line fired against a
+perfectly healthy board. The maintainer seat found it (#215) when the
+watch it parked on its own grant request swallowed the operator's ruling,
+which carried two matching edges.
+
+**The reusable form**, and it is why this earned a revision rather than a
+line in a changelog: **when a client and a server each carry a default
+timeout, the pair is a protocol invariant that neither side can check
+alone.** Nothing in either file was wrong by itself — 30 is a fine HTTP
+timeout, 60 is a fine long poll. The defect existed only in the relation.
+No unit test owns a relation, and no reviewer reads for one.
+
+**Why the suite could not have caught it.** The CLI tests drive the
+command in process over an ASGI transport, where a 30s client deadline
+against a 60s server budget cannot race — the one property that mattered
+is invisible to every test without a real clock and a real socket. The
+same shape as R25's own cost note and rake #62: the environment that
+makes tests fast is the environment in which the bug cannot occur. The
+answer was not to make it race, which would be slow and flaky, but to
+assert the invariant one layer down where it is a pure function of the
+parser, and to derive the set of long-polling subcommands from the source
+rather than list them — the defect was a subparser forgetting a keyword,
+so a guard naming its subjects by hand would forget the next one exactly
+as thoroughly.
+
+**Cost.** One, recorded rather than fixed here. `--timeout` on a long
+poller now means the *poll budget* and not the socket deadline, which is
+the pre-existing meaning `wait` always had and `watch` now inherits. The
+colony-wide `--timeout 75` workaround therefore keeps working after the
+merge — it asks for a 75s poll instead of a 75s deadline — but it stops
+being necessary, and the WARN retiring it says so.
+
+**What this closes.** Retires to footnotes, per #187's endorsed cut-list:
+rakes #22, #110, #139 — live until this merged precisely because the
+mechanism meant to eat them was laying them. It does **not** close #215,
+whose reusable half is craft and stays on the shelf.
+
+---
+
 ---
 
 ## Edge and act inventory after these revisions
