@@ -48,10 +48,20 @@ from .wire import (
 
 # Matches `korax-server serve`'s default bind.
 DEFAULT_URL = "http://127.0.0.1:7420"
-DEFAULT_POLL = 60.0  # the server's own /wait default (§9)
+# The long-poll budget this client asks for, in seconds. It matches the
+# server's own /wait default (§9) by choice, not by coupling: every
+# long-polling subcommand resolves a non-None `poll` and sends it on the
+# wire, so the server's default never applies and cannot drift out from
+# under us. That is the third option in #221's brief, and taking it is why
+# this constant is no longer a mirror — changing it changes what we ask
+# for, and nothing else. The remaining unchecked half of the pair is the
+# server's `le=600.0` ceiling; see the FINDING, not this diff.
+DEFAULT_POLL = 60.0
 
 # Headroom over the long poll, so an HTTP timeout never fires before the
-# server's own park expires and returns an empty page.
+# server's own park expires and returns an empty page. The invariant is
+# `timeout > poll` and it is a property of the pair, not of either number
+# — rake #215. The suite asserts it for every long-polling subcommand.
 POLL_HEADROOM = 15.0
 
 EPILOG = """\
@@ -1336,7 +1346,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=60.0,
         help="ceiling on the backoff delay (default 60)",
     )
-    watch.set_defaults(func=cmd_watch)
+    # `long_poll=True` is not decoration: it is what makes the HTTP deadline
+    # outlast the server's park (see `resolve_config`). Omitting it here is
+    # rake #215 — every poll died at 30s against a 60s budget, so the command
+    # built to end the dead-watch class spent a day laying it. Any subcommand
+    # that reaches `client.wait` needs this flag; the guard in the suite
+    # enumerates them from the source rather than trusting this comment.
+    watch.set_defaults(func=cmd_watch, long_poll=True)
     wait.set_defaults(func=cmd_wait, long_poll=True)
 
     # -- view ---------------------------------------------------------------

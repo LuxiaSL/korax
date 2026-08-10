@@ -4,6 +4,9 @@ across processes, error passthrough that keeps a 409's reading list, and
 
 from __future__ import annotations
 
+import argparse
+import ast
+import inspect
 import json
 from typing import Any
 
@@ -11,7 +14,9 @@ import httpx
 import pytest
 from conftest import Invoke, grant, register
 
+import korax_cli.cli
 from korax_cli import PROTO
+from korax_cli.cli import DEFAULT_POLL, Config, build_parser, resolve_config
 
 
 def rake_ids(cli: Invoke, token: str) -> list[int]:
@@ -1106,3 +1111,180 @@ def test_watch_degrades_loudly_instead_of_going_quiet(
     assert result.exit_code == 1
     assert result.json["degraded"] is True
     assert result.json["consecutive_failures"] >= 1
+
+
+# -- the long-poll invariant (rake #215, JOB #221) ---------------------------
+#
+# `watch` shipped without `long_poll=True`, so its HTTP deadline was 30s
+# against the server's 60s park. Every poll timed out, no cursor was ever
+# written, every re-arm seeded from head, and `degraded` cried wolf on a
+# healthy board — the command built to end the dead-watch class laid it
+# instead. Nothing in either file was wrong alone: 30 is a fine HTTP
+# timeout and 60 is a fine long poll. The defect lived in the relation.
+#
+# The suite drives the CLI in process over an ASGI transport, where a 30s
+# client deadline against a 60s server budget cannot race, so no end-to-end
+# test could ever have caught this. These assert the invariant where it is
+# a pure function of the parser instead — and over the whole set of
+# long-polling subcommands, because the defect was a subparser forgetting a
+# keyword and the next one added would forget it the same way.
+
+
+def _subparsers(parser: argparse.ArgumentParser):
+    """Every (name, subparser) in the tree, nested ones included."""
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for name, sub in action.choices.items():
+                yield name, sub
+                yield from _subparsers(sub)
+
+
+def _reaches_wait() -> set[str]:
+    """Names of functions in the CLI module that reach `client.wait`.
+
+    Read off the source rather than hardcoded, and transitive over
+    module-level calls: if the poll is ever factored out into a helper,
+    the callers stay covered instead of silently dropping out of the
+    parametrization below. A guard whose own coverage can rot quietly is
+    the same defect one level up.
+    """
+    tree = ast.parse(inspect.getsource(korax_cli.cli))
+    functions = [
+        n for n in ast.walk(tree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    direct: set[str] = set()
+    callees: dict[str, set[str]] = {}
+    for node in functions:
+        mine: set[str] = set()
+        for call in (c for c in ast.walk(node) if isinstance(c, ast.Call)):
+            target = call.func
+            if isinstance(target, ast.Attribute) and target.attr == "wait":
+                direct.add(node.name)
+            elif isinstance(target, ast.Name):
+                # plain calls only: an attribute call is on some object,
+                # not on a function in this module
+                mine.add(target.id)
+        callees[node.name] = mine
+
+    reaching = set(direct)
+    changed = True
+    while changed:  # fixed point over the intra-module call graph
+        changed = False
+        for name, mine in callees.items():
+            if name not in reaching and mine & reaching:
+                reaching.add(name)
+                changed = True
+    return reaching
+
+
+def _long_polling_subcommands() -> list[str]:
+    reaching = _reaches_wait()
+    found = {
+        name for name, sub in _subparsers(build_parser())
+        if getattr(sub.get_default("func"), "__name__", None) in reaching
+    }
+    return sorted(found)
+
+
+LONG_POLLING = _long_polling_subcommands()
+
+
+def _bare_args(command: str) -> argparse.Namespace:
+    """The Namespace a bare `korax <command>` would parse to.
+
+    Built from the subparser's own defaults rather than by parsing a
+    command line, so a command with required positionals is still covered.
+    SUPPRESS-defaulted options are left unset, exactly as argparse leaves
+    them, so `resolve_config`'s getattr fallbacks see what they normally
+    see.
+    """
+    sub = dict(_subparsers(build_parser()))[command]
+    args = argparse.Namespace()
+    for action in sub._actions:
+        if action.dest != "help" and action.default is not argparse.SUPPRESS:
+            setattr(args, action.dest, action.default)
+    for dest, value in sub._defaults.items():  # what set_defaults recorded
+        setattr(args, dest, value)
+    return args
+
+
+def _resolved(command: str, tmp_path, **overrides: Any) -> Config:
+    args = _bare_args(command)
+    for name, value in overrides.items():
+        setattr(args, name, value)
+    # an isolated config dir: this must not read the operator's real profiles
+    return resolve_config(args, {"KORAX_CONFIG_DIR": str(tmp_path)})
+
+
+def test_the_long_poll_guard_covers_something() -> None:
+    """Anti-vacuity. A parametrized guard over an empty set passes
+    forever and proves nothing — #112's whole point."""
+    assert {"wait", "watch"} <= set(LONG_POLLING), LONG_POLLING
+
+
+@pytest.mark.parametrize("command", LONG_POLLING)
+def test_long_polling_subcommand_outwaits_the_server(command: str, tmp_path) -> None:
+    """The client's patience must exceed the server's park, or the client
+    always gives up first and reads its own impatience as a dead board."""
+    config = _resolved(command, tmp_path)
+    assert config.poll is not None, (
+        f"`korax {command}` reaches client.wait but resolves poll=None, so it "
+        f"takes the short-timeout branch: add long_poll=True to its "
+        f"set_defaults (rake #215)"
+    )
+    assert config.timeout > config.poll, (
+        f"`korax {command}` would hang up after {config.timeout}s on a "
+        f"{config.poll}s park: every poll becomes a transport failure"
+    )
+
+
+@pytest.mark.parametrize("command", LONG_POLLING)
+def test_long_polling_subcommand_keeps_its_headroom_when_asked(
+    command: str, tmp_path
+) -> None:
+    """`--timeout` on a long poller sets the *poll budget*, not the socket
+    deadline. The invariant has to survive the caller choosing a number —
+    including the `--timeout 75` every band on the board is passing today
+    as the workaround for this defect."""
+    config = _resolved(command, tmp_path, timeout=75.0)
+    assert config.poll == 75.0
+    assert config.timeout > config.poll
+
+
+def test_watch_puts_its_poll_budget_on_the_wire(
+    cli: Invoke, world: dict[str, Any], tmp_path
+) -> None:
+    """The config is only half of it: the resolved poll has to reach
+    `/wait?timeout=` or the server falls back to its own default and the
+    two are coupled again. Item 3 of #221's brief, ruled by taking it —
+    the client states its budget, so the server's default never applies.
+    """
+    seen: list[httpx.URL] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url)
+        return httpx.Response(
+            200,
+            json={
+                "envelopes": [{
+                    "proto": PROTO, "id": 7, "ts": "2026-08-10T00:00:00Z",
+                    "author": "band:0", "band": "warner", "ns": "/commons/rakes",
+                    "type": "WARN", "grade": "unverified", "refs": [],
+                    "payload": "a wake", "ext": {},
+                }],
+                "cursor": 7,
+                "sealed_excluded": 0,
+            },
+        )
+
+    result = cli(
+        "watch", "--ns", "/commons/rakes",
+        "--cursor-file", str(tmp_path / "wire.cursor"), "--since", "0",
+        token=world["op_token"], transport=httpx.MockTransport(record),
+    )
+    assert result.exit_code == 0, result.stderr
+    assert seen, "the watch never made a request"
+    sent = seen[-1].params.get("timeout")
+    assert sent is not None, f"no timeout on the wire: {seen[-1]}"
+    assert float(sent) == DEFAULT_POLL
