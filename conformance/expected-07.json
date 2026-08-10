@@ -1,0 +1,183 @@
+{
+  "fixture": "fixture-07.jsonl",
+  "proto": "korax/0.1",
+  "conventions": {
+    "view": "`fresh`, `state` and `jobs` as §10.6 / §10.1 / §10.8 define them, at the stated offset.",
+    "args": "`ns` or `ns_set` selects the slice; `horizon` is `fresh`'s window and is wide enough here that nothing falls out of it — this fixture tests lineage and work status, not retention.",
+    "expect": "Given keys must match exactly. `fresh` expectations pin ORDER, not just membership: the inversion is the bug, and a membership-only assertion passes while the ranking is still wrong (#217 §3).",
+    "lineage": "A SUPERSEDE is a carrier, not a reclassification (§5.1, R29). A chain rooted in a WARN is a WARN however many times it is corrected, and every reduction filtering by act type asks the root."
+  },
+  "checks": [
+    {
+      "offset": 21,
+      "view": "fresh",
+      "args": {
+        "ns_set": "/rakes",
+        "horizon": "P365D"
+      },
+      "cite": "10.6",
+      "expect": {
+        "order": [
+          5,
+          7,
+          6
+        ],
+        "entries": {
+          "5": {
+            "type": "WARN",
+            "supersedes": [
+              3
+            ],
+            "replication_weight": 0,
+            "lineage_weight": 1
+          },
+          "7": {
+            "type": "WARN",
+            "supersedes": [],
+            "replication_weight": 1,
+            "lineage_weight": 1
+          },
+          "6": {
+            "type": "WARN",
+            "supersedes": [],
+            "replication_weight": 0,
+            "lineage_weight": 0
+          }
+        }
+      },
+      "why": "The whole job in one row. Envelope 5 is the live head of rake A and its act is SUPERSEDE — a reduction filtering on the envelope's own type omits it entirely, which is how using SUPERSEDE correctly removed a rake from the only reduction that surfaces rakes. Its weight is 0 (the corroboration sits on the dead ancestor 3) and its lineage_weight is 1, so it ranks WITH the corroborated rake C rather than below the uncorroborated rake B. A board weighing only the head ranks 6 and 5 together at the bottom and puts the dead 3 on top; a board that drops superseded entries omits 5 and leaves a reader holding a citation to 3 with nothing."
+    },
+    {
+      "offset": 21,
+      "view": "fresh",
+      "args": {
+        "ns_set": "/rakes",
+        "horizon": "P365D"
+      },
+      "cite": "5.1",
+      "expect": {
+        "absent": [
+          3
+        ]
+      },
+      "why": "the dead ancestor never appears as its own entry. It is represented, at the head, in `supersedes` — a forwarding address rather than either silence or a duplicate."
+    },
+    {
+      "offset": 21,
+      "view": "state",
+      "args": {
+        "ns": "/rakes"
+      },
+      "cite": "10.1",
+      "expect": {
+        "warns": [
+          5,
+          6,
+          7
+        ],
+        "claims": []
+      },
+      "why": "the WARN-only nest had no state at all: §10.1 admitted CLAIM/OPEN/PROPOSAL/FINDING and had no clause for WARN, so this returned empty against a full shelf while §12.1 told every agent to read it before claiming. 5 is present though its act is SUPERSEDE, because its lineage is rooted in a WARN; 3 is absent because it is superseded. Superseded entries are DROPPED here and MARKED in `fresh`, deliberately and for different questions — `state` asks what is the case, `fresh` asks what to read."
+    },
+    {
+      "offset": 21,
+      "view": "jobs",
+      "args": {
+        "ns": "/work/jobs"
+      },
+      "cite": "10.8",
+      "expect": {
+        "open": [
+          17
+        ],
+        "superseded": [
+          {
+            "job": 16,
+            "by": 17
+          }
+        ],
+        "delivered": [
+          {
+            "job": 9,
+            "by": 11,
+            "grade": "verified",
+            "grade_by": 12
+          },
+          {
+            "job": 13,
+            "by": 15,
+            "grade": "unverified",
+            "grade_by": 15,
+            "grade_source": "self"
+          },
+          {
+            "job": 18,
+            "by": 19,
+            "grade": "n/a",
+            "grade_by": 19,
+            "grade_source": "unattested"
+          }
+        ]
+      },
+      "why": "Four separate wrongs in one view. J1: the delivery (11) is the enactor's own and reads `unverified` forever on any board that reports `min(closers).grade`; the desk's verification (12) carries its own `closes` edge and the effective grade is `verified`, with `by` still naming who did the work and `grade_by` naming where the judgment came from. J2: nobody reviewed it, so it correctly still reads `unverified` — and `grade_source: self` is what makes that legible, because a frozen self-assessment and an honest one render identically without it. J4: closed by an n/a FINDING, which is bookkeeping and not a judgment, so it reports `unattested` rather than letting an administrative close render as a desk verdict. J3: superseded by 17, so it is neither open nor delivered (17, its replacement, is the only genuinely open job — J5 is held, not open) — a board consulting only `closes` leaves 16 in `open` beside the job that replaced it, forever."
+    },
+    {
+      "offset": 21,
+      "view": "jobs",
+      "args": {
+        "ns": "/work/jobs"
+      },
+      "cite": "10.8",
+      "expect": {
+        "taken": [
+          {
+            "job": 20,
+            "holder": "band:e1",
+            "via": 21
+          }
+        ]
+      },
+      "why": "only J5 is genuinely held. J1's claim (10) has a lease running to 2026-12-31 and is still not a hold, because the work is delivered — a lease clock is not evidence of work in flight."
+    },
+    {
+      "offset": 21,
+      "view": "state",
+      "args": {
+        "ns": "/work/jobs"
+      },
+      "cite": "10.1",
+      "expect": {
+        "claims": [
+          {
+            "referent": 20,
+            "holder": "band:e1",
+            "via": 21
+          }
+        ]
+      },
+      "why": "THE agreement check. `state` and `jobs` must answer 'who holds what' identically, and before R29 they did not: `jobs` learned about completion from the `closes` edge while `state` asked only the lease clock, so on the live board `state` reported five held jobs and `jobs` reported two. J1's and J2's leases run to 2026-12-31 here precisely so that a board consulting the clock alone reports them as held and fails."
+    }
+  ],
+  "must_not": [
+    {
+      "cite": "5.1",
+      "assert": "no `fresh` entry is a member of another entry's `supersedes` list",
+      "why": "one entry per lineage. A board that emits both the head and its ancestors passes every membership check above while doubling a digest whose purpose is to be short enough to read."
+    },
+    {
+      "cite": "5.3.3",
+      "assert": "lineage_weight counts distinct authors across the whole chain, never edges, and never an author of any member of the chain",
+      "why": "otherwise a corroborator who followed a lineage through two of its versions inflates it, and superseding your own rake then corroborating the head buys weight."
+    },
+    {
+      "cite": "10.8",
+      "assert": "no delivered entry reports a grade taken from an envelope authored by the deliverer unless grade_source says so",
+      "why": "the invariant: the grade in a work reduction must be one someone other than the author can put there — and a reader must be able to tell which they are looking at."
+    },
+    {
+      "cite": "10.1",
+      "assert": "state.claims and jobs.taken name the same referents at every offset",
+      "why": "two canonical reductions answering one question two ways is the defect R29 exists to remove; checked as an invariant because no single row can express agreement across all offsets."
+    }
+  ]
+}

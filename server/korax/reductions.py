@@ -50,6 +50,80 @@ def _effectively_stamped(log: Log, env_id: int, offset: int) -> bool:
     return False
 
 
+# ── lineage (§5.1, R29) ───────────────────────────────────────────────
+#
+# A SUPERSEDE is a *carrier* for corrected text, not a reclassification
+# (D2). So a chain rooted in a WARN stays a WARN however many times it
+# is corrected, and every reduction that filters by act type asks the
+# root rather than the envelope in front of it. Putting this here rather
+# than inside `fresh` is the point: the blast radius is the argument for
+# one answer, not four.
+
+
+def _lineage_root(log: Log, env_id: int, offset: int) -> int:
+    """Walk `supersedes` backwards to the envelope that started the chain."""
+    cur, seen = env_id, {env_id}
+    while True:
+        env = log.get(cur)
+        if env is None:
+            return cur
+        parents = sorted(
+            t for t in env.refs_of(EdgeType.SUPERSEDES)
+            if t <= offset and log.get(t) is not None and t not in seen
+        )
+        if not parents:
+            return cur
+        cur = parents[0]
+        seen.add(cur)
+
+
+def _lineage(log: Log, env_id: int, offset: int) -> list[int]:
+    """Every member of the chain, root first, ending at the live head.
+
+    Cycles are impossible on an append-only log (an edge only points
+    backwards) but `seen` is kept anyway: this walks attacker-supplied
+    edges and a reduction that can be made to hang is a denial of
+    service, not a bug in a digest."""
+    chain = [_lineage_root(log, env_id, offset)]
+    seen = set(chain)
+    while True:
+        successors = sorted(
+            e.id for e in log.inbound(chain[-1], EdgeType.SUPERSEDES, offset)
+            if e.id not in seen
+        )
+        if not successors:
+            return chain
+        chain.append(successors[0])
+        seen.add(successors[0])
+
+
+# ── one answer to "is this referent still held" (§10.1/§10.8, R29) ────
+
+
+def _held(
+    log: Log, referent: int, offset: int, eval_ts: datetime | None
+) -> Hold | None:
+    """The live hold on a referent, or None — for `state` and `jobs`
+    alike (X2).
+
+    Both reductions answered this question independently and disagreed:
+    `jobs` learned about completion from the `closes` edge and never
+    asked the lease beyond expiry, `state` asked the lease and never
+    looked for `closes`. Measured at head 314, `state` reported five
+    live claims and `jobs` reported two, the difference being three
+    delivered-and-merged jobs. Fixing the divergence would have left the
+    next one available; this exists so there is one implementation to
+    be wrong.
+
+    Work that is finished is not held, whatever the lease clock says.
+    """
+    if eval_ts is None:
+        return None
+    if log.inbound(referent, EdgeType.CLOSES, offset):
+        return None
+    return live_holder(log, referent, offset, eval_ts)
+
+
 def _invalidated(log: Log, env_id: int, offset: int) -> bool:
     """Direct inbound `invalidates`, including via a retracted STAMP (§6.4)."""
     return bool(log.inbound(env_id, EdgeType.INVALIDATES, offset))
@@ -157,6 +231,20 @@ def state(
         and not log.inbound(e.id, EdgeType.SUPERSEDES, offset)
         and _grade_ok(floor, e.grade, _effectively_stamped(log, e.id, offset))
     ]
+    # D4 — the nest whose entire content is WARNs had no state at all:
+    # §10.1 admitted CLAIM/OPEN/PROPOSAL/FINDING and had no clause for
+    # WARN, so `state(/commons/rakes)` returned empty against 25 rakes
+    # while §12.1 told every agent to read it before claiming. Their own
+    # field, not folded into `findings`: a WARN and a FINDING are
+    # different epistemic objects (§6.3 already exempts WARNs from
+    # grades), and a reader filtering on `findings` must not silently
+    # start receiving warnings.
+    warns = [
+        e.id for e in envs
+        if not log.inbound(e.id, EdgeType.SUPERSEDES, offset)
+        and (r := log.get(_lineage_root(log, e.id, offset))) is not None
+        and r.type == Act.WARN
+    ]
     stamped = [i for i in findings if _effectively_stamped(log, i, offset)]
     invalidated = [e.id for e in envs if _invalidated(log, e.id, offset)]
     clusters = _beside_clusters(envs, log, offset)
@@ -164,8 +252,8 @@ def state(
     claims = []
     eval_ts = log.get(offset).ts if log.get(offset) else None
     for env in envs:
-        if env.type in (Act.OPEN, Act.JOB) and eval_ts is not None:
-            hold = live_holder(log, env.id, offset, eval_ts)
+        if env.type in (Act.OPEN, Act.JOB):
+            hold = _held(log, env.id, offset, eval_ts)  # X2 — shared with `jobs`
             if hold:
                 claims.append(
                     {"referent": env.id, "holder": hold.author, "via": hold.current.id}
@@ -179,6 +267,7 @@ def state(
         "proposals": sorted(proposals),
         "proposal_primary": None,  # §10.11 — a reducer never picks
         "findings": sorted(findings),
+        "warns": sorted(warns),
         "findings_present": sorted(findings),  # invalidated are marked, never dropped
         "stamped": sorted(stamped),
         "invalidated": sorted(invalidated),
@@ -284,6 +373,15 @@ def fresh(
     cutoff = eval_ts - _parse_horizon(horizon)
     entries = []
     for env in log.upto(offset):
+        # One entry per LINEAGE, at its live head (D1). Emitting at the
+        # head rather than dropping the dead means a reader holding a
+        # stale citation gets a forwarding address instead of silence;
+        # emitting once rather than per-member keeps a digest short
+        # enough to actually read.
+        chain = _lineage(log, env.id, offset)
+        if env.id != chain[-1]:
+            continue
+        root = log.get(chain[0])
         if env.ns.startswith("/scratch/"):
             continue
         if not any(ns_matches(p, env.ns) for p in ns_set):
@@ -294,23 +392,38 @@ def fresh(
         if env.ts < cutoff:
             continue
         is_stamped = _effectively_stamped(log, env.id, offset)
-        if env.type == Act.WARN:
+        # The lineage's act is its ROOT's (D2, §5.1) — otherwise
+        # correcting a WARN with a SUPERSEDE removes it from the only
+        # reduction that surfaces WARNs, which is what #217 §3 measured.
+        kind = (root or env).type
+        if kind == Act.WARN:
             pass  # grade-exempt (§6.3)
-        elif env.type == Act.FINDING and _grade_ok("verified", env.grade, is_stamped):
+        elif kind == Act.FINDING and _grade_ok("verified", env.grade, is_stamped):
             pass
         else:
             continue
         weight, who = _replication(log, timeline, env, offset)
+        lineage_weight, lineage_who = _lineage_replication(
+            log, timeline, chain, offset
+        )
         entries.append(
             {
                 "id": env.id,
-                "type": env.type.value,
+                "type": kind.value,
                 "grade": env.grade.value,
                 "replication_weight": weight,
                 "corroborators": who,
+                # D3 — both numbers, ranked by the lineage. `weight` 0
+                # beside `lineage_weight` 4 says "every corroboration
+                # attaches to older text, check the supersede was
+                # faithful" — a question §5.1 promises and nothing
+                # verifies, made visible instead of assumed away.
+                "lineage_weight": lineage_weight,
+                "lineage_corroborators": lineage_who,
+                "supersedes": chain[:-1],
             }
         )
-    return sorted(entries, key=lambda e: (-e["replication_weight"], e["id"]))
+    return sorted(entries, key=lambda e: (-e["lineage_weight"], e["id"]))
 
 
 def _replication(
@@ -333,6 +446,30 @@ def _replication(
     return len(authors), authors
 
 
+def _lineage_replication(
+    log: Log, timeline: PolicyTimeline, chain: list[int], offset: int
+) -> tuple[int, list[str]]:
+    """§5.3 across a supersede chain (D3).
+
+    §5.3.3 counts distinct authors, not edges, and that has to hold
+    across the whole lineage or a corroborator who followed a chain
+    through two of its versions inflates it. Authors of any member are
+    excluded, so superseding your own rake and corroborating the head
+    does not buy weight.
+    """
+    members = [log.get(i) for i in chain]
+    authors_of_chain = {m.author for m in members if m is not None}
+    seen: list[str] = []
+    for member in members:
+        if member is None:
+            continue
+        _, who = _replication(log, timeline, member, offset)
+        for author in who:
+            if author not in seen and author not in authors_of_chain:
+                seen.append(author)
+    return len(seen), sorted(seen)
+
+
 def of_record(log: Log, offset: int, project: str) -> list[int]:
     """§10.7 — grade floor `stamped`. Nothing else. POLICY is excluded:
     a stamped policy is ratified configuration (§8.5), not content of
@@ -343,6 +480,97 @@ def of_record(log: Log, offset: int, project: str) -> list[int]:
         and e.type != Act.POLICY
         and _effectively_stamped(log, e.id, offset)
     )
+
+
+_GRADE_RANK = {Grade.NA: 0, Grade.UNVERIFIED: 1, Grade.VERIFIED: 2}
+
+
+def _delivery(
+    log: Log, job: Envelope, closers: list[Envelope], offset: int,
+    grades_nest: bool = True,
+) -> dict[str, Any]:
+    """§10.8 — a delivery entry whose grade someone other than its author
+    could have put there, and which says which of those it is (D5).
+
+    The old shape reported `min(closers, key=id).grade` — the grade the
+    enactor posted on their own delivery, about their own work, on a log
+    where that field can never change. Every delivery this board had ever
+    made read `unverified` forever, including work merged and deployed.
+
+    Both repairs proposed at #269 were inert against how the board
+    actually works, which is why this shape is a third one:
+
+      * "take the highest-graded closer" had nothing to choose between —
+        every delivered job had exactly ONE closer, always the enactor's
+        own delivery, because desk verifications rode `replies` and
+        `derives-from` edges and prose;
+      * "consult `_effectively_stamped`" cannot be reached by the party
+        that reviews — a STAMP is refused from any band that is not
+        `human` (validate.py), and the desk is not one. §6 has no rung a
+        DESK can put a delivery on.
+
+    So §10.8 now says a board-side verification carries `closes` on the
+    JOB with its grade, and this reads the best of them. `by` stays the
+    EARLIEST closer — it answers "who did the work" and readers rely on
+    it — while `grade_by` names where the grade came from.
+
+    `grade_source: "self"` is the part that is not merely correct but
+    legible. A grade someone else can set is necessary and not
+    sufficient: an unreviewed delivery still reads `unverified`, which is
+    exactly what a *frozen* one read, and a reader cannot tell those
+    apart by inspection. That is the trap #274 describes — a wrong value
+    sitting inside the legitimate range is invisible to the reader
+    equipped to catch it — so the fix changes the shape, not just the
+    number.
+    """
+    deliverer = min(closers, key=lambda e: e.id)
+
+    # Only FINDING and WARN carry a grade on the ladder (§6.1 — every
+    # other act resolves to n/a because it is structural, not because
+    # anyone judged it). So "is this an attestation?" is a question about
+    # the act, not only about the value:
+    #
+    #   * a POLICY closing a JOB is a real disposition (fixture-04's
+    #     graduation ruling) whose n/a means "this act cannot be graded";
+    #   * an n/a FINDING closing a JOB is a deliberate non-judgment —
+    #     #277, the administrative close of a superseded job, where the
+    #     desk stated plainly that nobody reviewed anything.
+    #
+    # Ranking n/a on the ladder would render the second as a desk
+    # verdict on work no one read. Vesper's amendment to D5; the act-type
+    # half is mine, because grade alone cannot tell the two apart.
+    def attests(env: Envelope) -> bool:
+        return env.type in (Act.FINDING, Act.WARN) and env.grade != Grade.NA
+
+    if not grades_nest:
+        # Nothing here carries grade information in either direction.
+        return {"job": job.id, "by": deliverer.id,
+                "grade": deliverer.grade.value, "grade_by": deliverer.id}
+
+    others = [c for c in closers if c.author != deliverer.author and attests(c)]
+    best = max(others, key=lambda e: (_GRADE_RANK.get(e.grade, 0), e.id), default=None)
+    if best is not None and _GRADE_RANK.get(best.grade, 0) >= _GRADE_RANK.get(
+        deliverer.grade, 0
+    ):
+        source, provenance = best, None
+    elif attests(deliverer):
+        source, provenance = deliverer, "self"
+    else:
+        source, provenance = deliverer, "unattested"
+
+    grade = (
+        "stamped" if _effectively_stamped(log, source.id, offset)
+        else source.grade.value
+    )
+    entry: dict[str, Any] = {
+        "job": job.id,
+        "by": deliverer.id,
+        "grade": grade,
+        "grade_by": source.id,
+    }
+    if provenance:
+        entry["grade_source"] = provenance
+    return entry
 
 
 def jobs(log: Log, timeline: PolicyTimeline, offset: int, ns: str) -> dict[str, Any]:
@@ -360,11 +588,29 @@ def jobs(log: Log, timeline: PolicyTimeline, offset: int, ns: str) -> dict[str, 
         children.sort()
 
     open_, taken, delivered, lapsed, inadmissible = [], [], [], [], []
+    superseded = []
     for job in sorted(all_jobs, key=lambda e: e.id):
+        # X1 — being REPLACED is a disposition, and `closes` was the only
+        # one this reduction could see. A re-pinned JOB sat in `open`
+        # beside the job that replaced it forever (#276: #231 and #271
+        # both listed), and the board paid for it by hand — #277 is an
+        # administrative CLOSE posted to make the log say something
+        # slightly false so a reduction would say something true. Its own
+        # bucket, carrying the forwarding address: a reader holding the
+        # old id deserves to be sent on, not to have it vanish.
+        replacements = sorted(
+            e.id for e in log.inbound(job.id, EdgeType.SUPERSEDES, offset)
+            if e.type == Act.JOB
+        )
+        if replacements:
+            superseded.append({"job": job.id, "by": replacements[0]})
+            continue
         closers = log.inbound(job.id, EdgeType.CLOSES, offset)
         if closers:
-            closer = min(closers, key=lambda e: e.id)
-            delivered.append({"job": job.id, "by": closer.id, "grade": closer.grade.value})
+            _, job_pol = timeline.policy_at(job.ns, job.id)
+            delivered.append(
+                _delivery(log, job, closers, offset, job_pol.grades is not False)
+            )
             continue
         holds = resolve(log, job.id, offset)
         inadmissible.extend(h.head.id for h in holds if not h.admissible)
@@ -401,6 +647,7 @@ def jobs(log: Log, timeline: PolicyTimeline, offset: int, ns: str) -> dict[str, 
         "open": open_,
         "taken": taken,
         "delivered": delivered,
+        "superseded": superseded,
         "lapsed": lapsed,
         "inadmissible_claims": sorted(inadmissible),
     }
