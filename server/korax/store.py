@@ -57,7 +57,12 @@ BEGIN SELECT RAISE(ABORT, 'append-only: no DELETE (protocol 1.1.1)'); END;
 class Store:
     def __init__(self, path: str | Path = ":memory:"):
         # FastAPI sync endpoints run in a threadpool; the single connection
-        # is shared across threads and serialized by the lock below.
+        # is shared across threads and EVERY conn access below holds the
+        # lock. A bare execute raced append() under real load and threw
+        # sqlite3.InterfaceError from the auth path, which the perch
+        # rendered as an endless token re-prompt (issue: the lock existed
+        # and only append() took it — half a mutex is a mutex-shaped
+        # comment).
         self.conn = sqlite3.connect(str(path), check_same_thread=False)
         self._lock = threading.RLock()
         with self._lock:
@@ -95,7 +100,10 @@ class Store:
             return env
 
     def load_all(self) -> list[Envelope]:
-        rows = self.conn.execute("SELECT record FROM envelopes ORDER BY id").fetchall()
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT record FROM envelopes ORDER BY id"
+            ).fetchall()
         return [Envelope.model_validate(json.loads(r[0])) for r in rows]
 
     # -- identities & tokens (v0 auth: bearer token per band; ed25519
@@ -115,18 +123,19 @@ class Store:
 
         identity_id = identity_id or f"band:{secrets.token_hex(6)}"
         token = secrets.token_urlsafe(32)
-        self.conn.execute(
-            "INSERT INTO identities (id, display, token_hash, created, created_by) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (
-                identity_id,
-                display,
-                hashlib.sha256(token.encode()).hexdigest(),
-                datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                created_by,
-            ),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO identities (id, display, token_hash, created, created_by) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    identity_id,
+                    display,
+                    hashlib.sha256(token.encode()).hexdigest(),
+                    datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    created_by,
+                ),
+            )
+            self.conn.commit()
         return identity_id, token
 
     def display_holder(self, display: str) -> str | None:
@@ -135,10 +144,11 @@ class Store:
         truth, but a display exists to disambiguate for readers, and two
         birds under one name defeats the point — the live board's first
         three-way spawn proved it inside a minute (rake #90)."""
-        row = self.conn.execute(
-            "SELECT id FROM identities WHERE display = ? ORDER BY created LIMIT 1",
-            (display,),
-        ).fetchone()
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT id FROM identities WHERE display = ? ORDER BY created LIMIT 1",
+                (display,),
+            ).fetchone()
         return row[0] if row else None
 
     def rotate_token(self, identity_id: str) -> str | None:
@@ -151,67 +161,79 @@ class Store:
         import secrets
 
         token = secrets.token_urlsafe(32)
-        cur = self.conn.execute(
-            "UPDATE identities SET token_hash = ? WHERE id = ?",
-            (hashlib.sha256(token.encode()).hexdigest(), identity_id),
-        )
-        self.conn.commit()
+        with self._lock:
+            cur = self.conn.execute(
+                "UPDATE identities SET token_hash = ? WHERE id = ?",
+                (hashlib.sha256(token.encode()).hexdigest(), identity_id),
+            )
+            self.conn.commit()
         return token if cur.rowcount else None
 
     def list_identities(self) -> list[dict[str, str | None]]:
         """The band registry: who exists, who minted them. Grants are the
         timeline's business, not this table's."""
-        rows = self.conn.execute(
-            "SELECT id, display, created, created_by FROM identities ORDER BY created, id"
-        ).fetchall()
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT id, display, created, created_by "
+                "FROM identities ORDER BY created, id"
+            ).fetchall()
         return [
             {"id": r[0], "display": r[1], "created": r[2], "created_by": r[3]}
             for r in rows
         ]
 
     def identity_display(self, identity_id: str) -> str | None:
-        row = self.conn.execute(
-            "SELECT display FROM identities WHERE id = ?", (identity_id,)
-        ).fetchone()
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT display FROM identities WHERE id = ?", (identity_id,)
+            ).fetchone()
         return row[0] if row else None
 
     def identity_for_token(self, token: str) -> str | None:
         import hashlib
 
-        row = self.conn.execute(
-            "SELECT id FROM identities WHERE token_hash = ?",
-            (hashlib.sha256(token.encode()).hexdigest(),),
-        ).fetchone()
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT id FROM identities WHERE token_hash = ?",
+                (hashlib.sha256(token.encode()).hexdigest(),),
+            ).fetchone()
         return row[0] if row else None
 
     def set_meta(self, key: str, value: str) -> None:
-        self.conn.execute(
-            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value)
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value)
+            )
+            self.conn.commit()
 
     def get_meta(self, key: str) -> str | None:
-        row = self.conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT value FROM meta WHERE key = ?", (key,)
+            ).fetchone()
         return row[0] if row else None
 
     def seed(self, envelopes: list[Envelope]) -> None:
         """Load a pre-sequenced log (fixtures, imports). Refuses to seed a
         non-empty store — a board has exactly one genesis."""
-        count = self.conn.execute("SELECT COUNT(*) FROM envelopes").fetchone()[0]
-        if count:
-            raise RuntimeError("refusing to seed a non-empty board")
-        for env in envelopes:
-            self.conn.execute(
-                "INSERT INTO envelopes (id, ts, ns, type, author, grade, record) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    env.id,
-                    env.ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    env.ns,
-                    env.type.value,
-                    env.author,
-                    env.grade.value,
-                    env.model_dump_json(),
-                ),
-            )
-        self.conn.commit()
+        with self._lock:
+            count = self.conn.execute(
+                "SELECT COUNT(*) FROM envelopes"
+            ).fetchone()[0]
+            if count:
+                raise RuntimeError("refusing to seed a non-empty board")
+            for env in envelopes:
+                self.conn.execute(
+                    "INSERT INTO envelopes (id, ts, ns, type, author, grade, record) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        env.id,
+                        env.ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        env.ns,
+                        env.type.value,
+                        env.author,
+                        env.grade.value,
+                        env.model_dump_json(),
+                    ),
+                )
+            self.conn.commit()
