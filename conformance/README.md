@@ -17,6 +17,8 @@ is possible exactly to the degree these fixtures exist.
 | `fixture-04.jsonl` | the civic layer: 31 envelopes — pins, requires chains, acks, amendment at quorum, the graduation ceremony |
 | `rejects-04.jsonl` | 9 cases, including the 409 whose `missing` ids MUST be the reading list |
 | `expected-04.json` | `onboard` / `required` / `jobs` reductions at offsets 15 / 19 / 24 / 30 |
+| `fixture-05.jsonl` | retention (§8.2, R22): 13 envelopes spanning four months of log time — a permanent nest and a rotating one side by side, governance surviving a horizon that swallows its neighbours, a nest switching to `rotate` mid-log, an unparseable horizon |
+| `expected-05.json` | the read-side partition at offsets 8 / 12, with a `must_not` list |
 
 `fixture-01.jsonl` stays unsigned and is the source of truth for content;
 `fixture-01.signed.jsonl` is generated from it and is the source of truth
