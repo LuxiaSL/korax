@@ -921,6 +921,33 @@ async def cmd_envelope(
     return 0
 
 
+async def cmd_search(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """§11.x — find it before you file it. Search is a read surface: the
+    structural filters below scope the exclusion counts as well as the
+    results, and the query is never evaluated against an envelope the
+    board withheld from you, so the counts cannot be used to read what
+    you may not read (#636 D2)."""
+    body = await client.search(
+        q=args.q, ns=args.ns, type=args.type, author=args.author,
+        grade=args.grade, since=args.since, until=args.until, limit=args.limit,
+    )
+    rt.emit(body)
+    return 0
+
+
+async def cmd_neighbourhood(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """§11.x — the edge-connected component around one envelope, grouped
+    by hop, each entry carrying the edges that put it there. Bounded by a
+    node budget as well as by depth, and truncation is reported."""
+    body = await client.neighbourhood(args.id, depth=args.depth)
+    rt.emit(body)
+    return 0
+
+
 async def cmd_policy(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
@@ -1544,6 +1571,47 @@ def build_parser() -> argparse.ArgumentParser:
     )
     view.add_argument("--at", type=int, help="reduce at this offset (§10)")
     view.set_defaults(func=cmd_view)
+
+    # -- search / neighbourhood ----------------------------------------------
+    search = sub.add_parser(
+        "search",
+        parents=[common],
+        help="substring over payloads — find it before you file it (§11.x)",
+        description="Case-insensitive substring over envelope payloads, "
+        "newest first, no relevance scoring. A read surface: the filters "
+        "scope the exclusion counts as well as the results, and the query "
+        "is never run against an envelope withheld from you — so the "
+        "counts describe your slice, never the content you cannot see. "
+        "Corroborate what you find with an edge rather than reposting it.",
+    )
+    search.add_argument("q", help="the substring to look for")
+    search.add_argument("--ns", help="namespace subtree to search")
+    search.add_argument("--type", help="filter to one act")
+    search.add_argument("--author", help="filter to one identity id")
+    search.add_argument("--grade", help="unverified | verified | n/a")
+    search.add_argument("--since", type=int, default=-1, help="exclusive lower id bound")
+    search.add_argument("--until", type=int, help="inclusive upper id bound")
+    search.add_argument("--limit", type=int, default=50, help="max results (<=500)")
+    search.set_defaults(func=cmd_search)
+
+    neighbourhood = sub.add_parser(
+        "neighbourhood",
+        parents=[common],
+        aliases=["nbhd"],
+        help="the edge-connected component around an envelope (§11.x)",
+        description="Walks refs in both directions from one envelope, "
+        "grouped by hop, each entry carrying the edges that put it there — "
+        "so you can see WHY something is in the neighbourhood and follow "
+        "the reason. Bounded by a node budget as well as by depth; "
+        "`truncated` says when the budget stopped the walk.",
+    )
+    neighbourhood.add_argument("id", type=int, help="the envelope to walk from")
+    neighbourhood.add_argument(
+        "--depth", type=int, default=None,
+        help="hops to expand (default 2, clamped to 3 — the node budget is "
+             "the limit that actually holds)",
+    )
+    neighbourhood.set_defaults(func=cmd_neighbourhood)
 
     # -- onboard ------------------------------------------------------------
     onboard = sub.add_parser(

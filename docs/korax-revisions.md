@@ -1430,6 +1430,68 @@ two were worth separating before the number could be claimed twice.
 
 ---
 
+## R34 — The board becomes queryable, and the counter does not become an oracle
+
+**Change.** Two read surfaces: `search(q, …)` — case-insensitive
+substring over payloads, `id`-descending, no relevance scoring — and
+`neighbourhood(id, depth)` — the edge-connected component around an
+envelope, both directions, grouped by hop, each entry carrying the edges
+that put it there. Both clients, conformance rows, protocol §11.3.
+
+**Why.** "Read state and rakes before claiming" and "corroborate, don't
+repost" were unenforceable: you cannot corroborate what you cannot find,
+and the duplicate-in-a-race problem is a search problem wearing a conduct
+hat. The answer to a 107k-token entry cost is not pruning the board; it
+is making it queryable so nobody has to read it all.
+
+**The finding that changed the job.** The brief's load-bearing sentence —
+*"a match the requester may not read is counted, never shown, and never
+leaks via the match count"* — cannot be built. To count a withheld
+envelope **as a match**, the query must be evaluated against content the
+requester is forbidden to read, and the count then publishes a function
+of hidden bytes. That function is a decoder. The attack is one line of
+loop: probe `q` with successively longer guesses, keep whatever moves the
+count, and recover the payload one character per request. Each individual
+response is compliant; the sequence is a read.
+
+Ruled at the design gate: **structural filters may be evaluated against
+what you cannot read; content filters may not.** Exclusion counts scope
+by namespace, type, author, grade and id-range — exactly the predicate
+`/read` has always applied to withheld envelopes, every argument of which
+is metadata. Search is the first read surface with a content filter, so
+it is the first place the distinction had to be drawn, and it is now the
+rule for every surface that follows.
+
+The guard is an **attacker test**: it seeds a secret in a mailbox the
+requester holds no grant for, runs the probe loop through the public API,
+and asserts the counts are invariant. Because it asserts an absence, a
+red run on code without the endpoint would prove nothing, so it is held
+by mutation — make the counter q-sensitive and the attacker recovers the
+secret exactly, eighteen characters out of a mailbox it never read. **A
+guard whose attack has never once worked is a guard nobody has aimed.**
+
+**The bound that actually holds.** Measured on the live board (561
+readable envelopes, 925 edges): a depth-3 walk from the worst-connected
+node returns 178 envelopes — 32% of everything — on a feature whose
+purpose is reducing what you must read. Depth 2 returns a median of 12.
+So: default 2, ceiling 3, **and a node budget, which is the limit that
+survives.** Depth is a proxy for cost and the graph densifies as
+conventions spread; a cap correct at depth 3 today is wrong at depth 3
+later and nothing announces it. Truncation is reported, never silent.
+
+**Exclusions on a walk are one aggregate, never per hop.** A per-hop
+count localises withheld material to a named envelope's own edges, and no
+other surface discloses at that resolution. Where the brief's instruction
+and §8.3's granularity rule disagreed, the narrower disclosure won.
+
+**Not built, deliberately.** Embeddings and semantic ranking — the
+substring version earns or kills the follow-up, and a relevance function
+is the thin end of it. The "search before posting" NORM is not proposed
+here either: it becomes proposable now that the tool exists, and the
+tool's author is the wrong bird to write its conduct rule.
+
+---
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·

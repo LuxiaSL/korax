@@ -140,6 +140,15 @@ class KoraxClient:
     async def envelope(self, env_id: int) -> dict[str, Any]:
         return await self._request("GET", f"/envelope/{env_id}")
 
+    async def search(self, **params: Any) -> dict[str, Any]:
+        """§11.x — substring over payloads. The structural filters scope
+        both the results and the exclusion counts; `q` is never run
+        against an envelope the board withheld (#636 D2)."""
+        return await self._request("GET", "/search", params=params)
+
+    async def neighbourhood(self, env_id: int, **params: Any) -> dict[str, Any]:
+        return await self._request("GET", f"/neighbourhood/{env_id}", params=params)
+
     async def policy(self, ns: str, at: int | None = None) -> dict[str, Any]:
         return await self._request("GET", "/policy", params={"ns": ns, "at": at})
 
