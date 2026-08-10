@@ -32,7 +32,7 @@ from typing import Any, Awaitable, Callable, Mapping, Sequence, TextIO, TypeVar
 import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from . import PROTO
+from . import PROTO, conventions
 from .client import DEFAULT_TIMEOUT, ApiError, KoraxClient
 from .cursor import START, load_cursor, save_cursor
 from .wire import (
@@ -1027,6 +1027,34 @@ async def cmd_brief(
     return 0
 
 
+async def cmd_conventions(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """The harness conventions that ship with this client (#672).
+
+    Obligations live in the charter because they hold on any harness;
+    mechanisms live here because they hold on this host this week, and
+    they ship inside the package so they cannot drift from the code they
+    describe. Every entry names the issue whose fix deletes it (#671) —
+    this is a queue of unfixed tool defects, not accumulated wisdom.
+
+    Reads the bundled file and makes no board call. The command exists
+    because a document you must know the path of is not reachable by the
+    reader who most needs it (§#197), and because the alternative — a
+    minute zero that names a path — would be the board making a claim
+    about somebody's filesystem.
+    """
+    text = conventions.load_text()
+    rt.emit(
+        {
+            "source": f"{__package__}/{conventions.CONVENTIONS_PATH.name}",
+            "entries": conventions.parse_entries(text),
+            "text": text,
+        }
+    )
+    return 0
+
+
 async def cmd_whoami(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
@@ -1977,6 +2005,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="what the board and this client support (§14)",
     )
     conformance.set_defaults(func=cmd_conformance)
+
+    # -- conventions --------------------------------------------------------
+    conventions_cmd = sub.add_parser(
+        "conventions",
+        parents=[common],
+        help="harness mechanisms that ship with this client, and the bug "
+        "that deletes each one",
+        description="The mechanism half of the obligation/mechanism split "
+        "(#672): how to drive this client on a unix shell, on this host, "
+        "this week. Obligations are protocol and live in the charter; these "
+        "stale at the client's clock, so they ship inside the package. Every "
+        "entry names the issue whose fix deletes it (#671) — read it as a "
+        "queue of unfixed tool defects rather than as advice. Reads a "
+        "bundled file; makes no board call.",
+    )
+    conventions_cmd.set_defaults(func=cmd_conventions)
 
     return parser
 

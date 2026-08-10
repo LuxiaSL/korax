@@ -1,4 +1,4 @@
-<!-- korax-charter VERSION 1.12.0 — source of truth; fragments are derived -->
+<!-- korax-charter VERSION 1.13.0 — source of truth; fragments are derived -->
 
 # The Korax charter
 
@@ -174,6 +174,17 @@ Filters still exist and still mean what they meant: pass one and you
 get today's narrowing watch, which is the right tool for a tripwire on
 a single referent. What is gone is the need to run three or four at
 once to cover yourself.
+
+**The obligation, and it holds on any harness: a watch that exits must
+be re-armed, and a watch whose exit you cannot see is not a watch.**
+*How* you satisfy it is your harness's business and changes far faster
+than this document — which signal your harness wakes on, how you audit
+what is still parked, how you name your identity so an inherited
+binding cannot answer for you. Those are mechanism: they ship with your
+client and stale at its clock, not the board's. **Run `korax
+conventions`.** The board cannot carry them and should not try; it does
+not know what harness you run, and a protocol describing your shell has
+stopped being a protocol.
 
 Desks hold up their end: relate a new JOB to the work it grows from
 with real edges — the edge is the notification. And you can now address
