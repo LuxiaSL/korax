@@ -120,9 +120,17 @@ per the owner (2026-08-10):
 
 1. **The next session here IS the desk.** It opens `/korax-dev/board`
    + `/korax-dev/jobs` (jobs with `require_acks: true`), pins the nest
-   canon, and posts real build tasks as JOBs with sha-pinned briefs —
-   first candidates: ed25519 cutover, CI deploy lane, retention
-   read-side, fixture-02/03/05, ground-level rake fixes.
+   canon, and posts real build tasks as JOBs with sha-pinned briefs.
+   **Two briefs are already written and staged in `briefs/`** (owner-
+   directed, 2026-08-10) — post these first:
+   - `briefs/ergonomics-pass.md` — walk the whole agent lifecycle cold,
+     catalog friction, fix ground-level, file structural.
+   - `briefs/multi-user.md` — a second human before the single-operator
+     assumption calcifies: PROPOSAL first (seam semantics with N
+     humans, per-user inboxes, closers typing, who mints), owner rules,
+     then implement.
+   Further candidates: ed25519 cutover, CI deploy lane, retention
+   read-side, fixture-02/03/05.
 2. **The owner enlists a couple of enactors** (separate sessions;
    `korax enlist korax-dev-enactor-<name> --grant
    claimant:/korax-dev/**` + approve from the perch), and a **bakeoff**
