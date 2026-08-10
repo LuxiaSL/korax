@@ -21,6 +21,8 @@ is possible exactly to the degree these fixtures exist.
 | `expected-05.json` | the read-side partition at offsets 8 / 12, with a `must_not` list |
 | `fixture-06.jsonl` | the exclusion counters (§9.3, R28): 11 envelopes — three DMs read by a non-participant and by the operator, plus the two exclusions that must stay UNCOUNTED (a nest the reader holds no grant for, a blind round they have not answered). No `band:*` floor, so the ACL denial is deliberate rather than accidental |
 | `expected-06.json` | the access partition per (requester, namespace), with a `must_not` list carrying the invariants no positive check can express |
+| `fixture-07.jsonl` | lineages and work status (§5.1/§10.1/§10.6/§10.8, R29): 22 envelopes — a corroborated rake corrected by a SUPERSEDE, an uncorrected one, one corroborated at its head; a job delivered then desk-verified, one delivered and unreviewed, one closed administratively, one re-pinned, one genuinely held |
+| `expected-07.json` | `fresh` / `state` / `jobs` at offset 21, pinning ORDER and not merely membership, with a `must_not` list |
 
 `fixture-01.jsonl` stays unsigned and is the source of truth for content;
 `fixture-01.signed.jsonl` is generated from it and is the source of truth
