@@ -217,6 +217,13 @@ def verdict(
     return "ok"
 
 
+#: What `filter_log` returns: the requester's readable log, plus the two
+#: kinds of exclusion that are owed a count (§8.7.5/§9.3). Named because
+#: `Board.visible_for` memoizes it (JOB #1522) and an unnamed 3-tuple in a
+#: cache signature tells a reader nothing about what must stay immutable.
+VisibleSlice = tuple[Log, list[Envelope], list[Envelope]]
+
+
 def filter_log(
     log: Log, timeline: PolicyTimeline, requester: str, head: int
 ) -> tuple[Log, list[Envelope], list[Envelope]]:
