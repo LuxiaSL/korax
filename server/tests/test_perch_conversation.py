@@ -26,14 +26,12 @@ from korax.board import Board
 from korax.seed import seed_board
 from korax.store import Store
 
-PERCH = Path(__file__).resolve().parents[1] / "korax" / "perch.html"
+from perch_source import PERCH_DIR, markup as _markup, script as _script
 NODE = shutil.which("node")
 
 
 def script() -> str:
-    blocks = re.findall(r"<script[^>]*>(.*?)</script>", PERCH.read_text(), re.S)
-    assert blocks
-    return "\n".join(blocks)
+    return _script()
 
 
 def convo_source() -> str:
@@ -108,7 +106,7 @@ def test_the_thread_button_survives_beside_it() -> None:
     """#881 rules what a BROWSING view uses; it does not delete a narrower
     reduction that answers a narrower question honestly. Removing `thread`
     would be this job overreaching its own ruling."""
-    html = PERCH.read_text()
+    html = _markup()
     assert 'data-view="thread"' in html
     assert 'id="envConvo"' in html
 

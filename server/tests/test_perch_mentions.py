@@ -28,18 +28,16 @@ from pathlib import Path
 
 import pytest
 
-PERCH = Path(__file__).resolve().parents[1] / "korax" / "perch.html"
+from perch_source import PERCH_DIR, markup as _markup, script as _script
 NODE = shutil.which("node")
 
 
 def page() -> str:
-    return PERCH.read_text(encoding="utf-8")
+    return _markup()
 
 
 def script() -> str:
-    blocks = re.findall(r"<script[^>]*>(.*?)</script>", page(), re.S)
-    assert blocks, "the perch serves no script block"
-    return "\n".join(blocks)
+    return _script()
 
 
 # -- executed: the refusal, actually run ---------------------------------------

@@ -17,7 +17,7 @@ from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from . import PROTO
@@ -412,15 +412,42 @@ def create_app(board: Board) -> FastAPI:
         return out
 
     # -- the perch (operator's browser view) --------------------------------
+    #
+    # JOB #1389 (design #1385, endorsed #1387): a shell plus split static
+    # assets, still read from disk PER REQUEST — the property the mill's
+    # #1382 named decisive is kept: the served bytes ARE the deployed
+    # tree, so the gate can prove that what it tested is what the board
+    # serves, and merge stays the deploy. No build step, no artifact.
+
+    PERCH_DIR = Path(__file__).with_name("perch")
+    PERCH_MEDIA = {".css": "text/css", ".js": "text/javascript",
+                   ".html": "text/html"}
 
     @app.get("/", include_in_schema=False)
     def perch() -> HTMLResponse:
-        """One self-contained page, no build step, no external assets.
-        The page itself is public shell; every data call it makes rides
-        the same bearer token as any client (§9)."""
+        """The shell. Public like the monolith it replaces; every data
+        call it makes rides the same bearer token as any client (§9)."""
         return HTMLResponse(
-            (Path(__file__).with_name("perch.html")).read_text(encoding="utf-8")
+            (PERCH_DIR / "index.html").read_text(encoding="utf-8")
         )
+
+    @app.get("/perch/{asset_path:path}", include_in_schema=False)
+    def perch_asset(asset_path: str) -> Response:
+        """A perch asset, read from disk per request like the shell.
+
+        The traversal guard is resolve-then-containment, not string
+        hygiene: whatever `..`, encodings or symlinks produce, the
+        resolved path either sits under `perch/` or the answer is 404 —
+        the same fused absence/denial the board's read path uses, so
+        probing the filesystem through this route maps nothing (#1387
+        condition 1 requires this guard and its test in one commit).
+        """
+        base = PERCH_DIR.resolve()
+        target = (base / asset_path).resolve()
+        if not target.is_relative_to(base) or not target.is_file():
+            raise HTTPException(404, "no such asset")
+        media = PERCH_MEDIA.get(target.suffix, "application/octet-stream")
+        return Response(target.read_bytes(), media_type=media)
 
     # -- write ------------------------------------------------------------
 

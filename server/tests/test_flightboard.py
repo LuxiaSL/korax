@@ -35,19 +35,17 @@ from korax.board import Board
 from korax.seed import seed_board
 from korax.store import Store
 
-PERCH = Path(__file__).resolve().parents[1] / "korax" / "perch.html"
+from perch_source import PERCH_DIR, markup as _markup, script as _script
 MOCK = Path(__file__).resolve().parents[2] / "docs" / "mockups" / "korax-flightboard.html"
 NODE = shutil.which("node")
 
 
 def page() -> str:
-    return PERCH.read_text(encoding="utf-8")
+    return _markup()
 
 
 def script() -> str:
-    blocks = re.findall(r"<script[^>]*>(.*?)</script>", page(), re.S)
-    assert blocks, "the perch serves no script block"
-    return "\n".join(blocks)
+    return _script()
 
 
 def run_node(fn_pattern: str, expression: str) -> object:
@@ -232,9 +230,11 @@ def test_the_flightboard_styles_cannot_restyle_the_rest_of_the_perch() -> None:
     """The mock carries its own stylesheet into a page that already has one.
     An unprefixed `.tile`, `.scroll` or `table` rule would silently restyle
     every other tab — a change nobody would attribute to this job."""
-    styles = re.search(r"<style>(.*?)</style>", page(), re.S)
-    assert styles
-    selectors = re.findall(r"^\s*(\.[a-zA-Z][\w-]*)", styles.group(1), re.M)
+    # The split (JOB #1389) moved the styles to files; the fb-* block
+    # rides in base.css until the flight tab's own migration takes it.
+    css = "\n".join(p.read_text() for p in sorted(PERCH_DIR.glob("css/**/*.css")))
+    assert css, "the css glob found nothing — the layout moved under this test"
+    selectors = re.findall(r"^\s*(\.[a-zA-Z][\w-]*)", css, re.M)
     flight = [s for s in selectors if "fb" in s]
     assert len(flight) >= 8, "the flightboard styles are missing"
     assert all(s.startswith(".fb-") for s in flight), (
