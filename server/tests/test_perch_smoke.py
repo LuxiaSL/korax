@@ -1,0 +1,236 @@
+"""ISSUE #1597, JOB #1615 — a real browser clicks every tab.
+
+The R82-split bug (`postNsValue`, R90) was a called-but-undefined
+identifier: a runtime ReferenceError, invisible to `node --check` (proves
+syntax, not completeness), to the manifest test (proves every file ships),
+and to every other structural guard the perch has, because none of them
+ask whether a real JS engine can execute the shell's top-level script
+without throwing. Only a real browser executing the real page asks that
+question, so this test drives one — real headless Chrome over CDP, no
+simulated DOM, per the brief's ruling (a simulation can lie in exactly
+this dimension) and quill's #1431/#1491 prior art tonight (zero installs;
+Node 22 ships `WebSocket` and `fetch` built in).
+
+**What this does NOT reuse, and why.** The brief names
+`tools/seed_dev_board.py` (JOB #1363) as the seeder. That JOB is still
+unmerged at the mill's gate as this one is written — reusing it here
+would make two unrelated deliveries need to land in a specific order at
+the gate, which is exactly the coupling the cadence rule exists to avoid.
+This test seeds its own small, deterministic corpus instead: enough to
+light every tab non-empty, nothing shared with #1363's richer one.
+"""
+
+from __future__ import annotations
+
+import glob
+import json
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import pytest
+
+REPO = Path(__file__).resolve().parents[2]
+SERVER_DIR = REPO / "server"
+DRIVER = Path(__file__).with_name("perch_smoke_driver.js")
+
+CHROME = (shutil.which("google-chrome") or shutil.which("google-chrome-stable")
+          or shutil.which("chromium") or shutil.which("chromium-browser"))
+NODE = shutil.which("node")
+
+# **Verified on this host, not assumed** (#1422's lesson: CI's environment
+# is a measurement). I could not reach GitHub's ubuntu-latest runner from
+# here to confirm it ships Chrome — the skip below is the honest backstop
+# if it does not; whoever has CI access should run this once and, if it
+# is present, this guard is free to become a hard requirement instead of
+# a skip. Until then the brief's own fallback applies: the mill's gate
+# leg is what actually enforces this for perch deliveries.
+_SKIP_REASON = (
+    f"no headless Chrome found (checked google-chrome, chromium, "
+    f"chromium-browser)" if not CHROME else
+    "no `node` found" if not NODE else None
+)
+
+
+def _free_port() -> int:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+# Mirrors test_goodbye_signal.py's subprocess-server pattern (R83's
+# port=0-and-handoff shape): the child binds its own port and reports it
+# back through the info file, so there is no window in which a chosen
+# port could be taken by something else on a shared host.
+_SEED_AND_SERVE = """
+import socket, sys
+sys.path.insert(0, sys.argv[1])
+import uvicorn
+from korax import PROTO
+from korax.api import create_app
+from korax.board import Board
+from korax.seed import seed_board
+from korax.store import Store
+
+store = Store(":memory:")
+operator, op_tok = store.create_identity("operator")
+store.set_meta("genesis_identity", operator)
+board = Board(store)
+seed_board(board, operator)  # canon, rakes, commons policies — the baseline
+
+alice, alice_tok = store.create_identity("smoke-alice")
+bob, bob_tok = store.create_identity("smoke-bob")
+
+def post(author, ns, type_, payload, refs=None, grade="n/a", ext=None, pointer=None):
+    raw = {"proto": PROTO, "author": author, "ns": ns, "type": type_,
+           "grade": grade, "refs": refs or [], "payload": payload,
+           "ext": ext or {}}
+    if pointer:
+        raw["pointer"] = pointer
+    return board.append(author, raw)
+
+# a project nest wide enough to light flight/browse/nest without needing
+# any tab-side input — the defaults every one of them falls back to
+post(operator, "/korax-dev", "POLICY", {
+    "acts": ["NOTE", "FINDING", "JOB", "CLAIM", "OPEN", "PROPOSAL", "WARN",
+             "SUPERSEDE", "BESIDE", "HANDOVER", "ACK", "STAMP", "POLICY"],
+    "grades": True,
+    "retention": {"mode": "permanent"},
+    "view_floor": "unverified",
+    "grants": [
+        {"identity": operator, "ns": "/korax-dev/**", "band": "human"},
+        {"identity": alice, "ns": "/korax-dev/**", "band": "claimant"},
+        {"identity": bob, "ns": "/korax-dev/**", "band": "claimant"},
+    ],
+})
+
+# flight: one open, one taken, one delivered
+j1 = post(operator, "/korax-dev/jobs", "JOB", "smoke: open job — nothing here is real work",
+          pointer={"uri": "git:README.md@0000000", "sha256": "0" * 64, "bytes": 1,
+                   "media_type": "text/markdown"})
+j2 = post(operator, "/korax-dev/jobs", "JOB", "smoke: taken job",
+          pointer={"uri": "git:README.md@0000000", "sha256": "0" * 64, "bytes": 1,
+                   "media_type": "text/markdown"})
+post(alice, "/korax-dev/jobs", "CLAIM", "CLAIM — smoke job 2",
+     refs=[{"edge": "claims", "id": j2.id}], ext={"lease_until": "2030-01-01T00:00:00Z"})
+j3 = post(operator, "/korax-dev/jobs", "JOB", "smoke: delivered job",
+          pointer={"uri": "git:README.md@0000000", "sha256": "0" * 64, "bytes": 1,
+                   "media_type": "text/markdown"})
+post(bob, "/korax-dev/jobs", "FINDING", "smoke: delivered", grade="unverified",
+     refs=[{"edge": "closes", "id": j3.id}])
+
+# browse/ledger/nest content beyond the jobs above
+post(operator, "/korax-dev", "NOTE", "smoke: a note for browse and nest to find")
+
+# inbox: one open request, so the badge and the opens list both light
+post(alice, "/korax/inbox", "OPEN", "smoke: an ask for the operator")
+
+# feed, as the OPERATOR (the identity this browser session authenticates
+# as): a mention lights the mention lane, a DM lights mailbox.
+post(alice, "/korax-dev", "NOTE", "smoke: mentioning the operator",
+     ext={"korax": {"mentions": [operator]}})
+post(alice, "/dm/" + operator, "NOTE", "smoke: a DM for the feed's mailbox lane")
+
+probe_envelope_id = j1.id
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+sock.bind(("127.0.0.1", 0))
+port = sock.getsockname()[1]
+open(sys.argv[2], "w").write(
+    f"{operator}\\n{op_tok}\\n{port}\\n{probe_envelope_id}\\n")
+uvicorn.Server(uvicorn.Config(create_app(board), log_level="error")).run(
+    sockets=[sock])
+"""
+
+
+@pytest.mark.browser
+@pytest.mark.skipif(bool(_SKIP_REASON), reason=str(_SKIP_REASON))
+def test_every_tab_renders_without_console_errors(tmp_path) -> None:
+    script = tmp_path / "serve.py"
+    script.write_text(_SEED_AND_SERVE, encoding="utf-8")
+    info = tmp_path / "info.txt"
+    server = subprocess.Popen([sys.executable, str(script), str(SERVER_DIR), str(info)])
+    chrome_profile = tmp_path / "chrome-profile"
+    cdp_port = _free_port()
+    chrome = None
+    try:
+        for _ in range(80):
+            if info.exists():
+                break
+            time.sleep(0.25)
+        else:
+            pytest.skip("server did not start; not a statement about the smoke")
+        time.sleep(1.0)
+        operator, token, port, probe_id = info.read_text().splitlines()
+        origin = f"http://127.0.0.1:{port}"
+
+        chrome = subprocess.Popen([
+            CHROME, "--headless=new", "--disable-gpu", "--no-sandbox",
+            f"--remote-debugging-port={cdp_port}",
+            f"--user-data-dir={chrome_profile}", "about:blank",
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        import urllib.request
+        for _ in range(60):
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json/version",
+                                        timeout=1)
+                break
+            except Exception:
+                time.sleep(0.25)
+        else:
+            pytest.fail("headless Chrome did not answer its CDP port")
+
+        driver = subprocess.run(
+            [NODE, str(DRIVER), str(cdp_port), origin, token, probe_id],
+            capture_output=True, text=True, timeout=90,
+        )
+    finally:
+        if server.poll() is None:
+            server.kill()
+        if chrome is not None and chrome.poll() is None:
+            chrome.kill()
+
+    assert driver.stdout.strip(), (
+        f"driver produced no report — stderr:\n{driver.stderr}"
+    )
+    report = json.loads(driver.stdout.strip().splitlines()[-1])
+
+    assert not report["tabMismatch"], (
+        f"the driver's tab list has drifted from the shell's own nav — "
+        f"nav now serves {report['navTabs']}; update TABS in "
+        f"perch_smoke_driver.js to match before trusting this sweep"
+    )
+
+    # The general guard: no console error, no uncaught exception, anywhere,
+    # on any tab — the #1597 class's superset, not a known-identifier list.
+    assert not report["errors"], (
+        "console error(s) or uncaught exception(s) in a real browser:\n"
+        + "\n".join(f"  [{e['tab']}] {e['kind']}: {e['detail']}"
+                     for e in report["errors"])
+    )
+
+    # A tab that renders nothing exercises nothing (the brief's own words).
+    empty_tabs = [tab for tab, value in report["tabs"].items() if not value]
+    assert not empty_tabs, (
+        f"these tabs rendered empty against the seeded corpus: {empty_tabs} "
+        f"— either the seed script needs to feed them or the probe "
+        f"selector in perch_smoke_driver.js no longer matches the DOM"
+    )
+
+
+def test_the_tabs_glob_is_nonempty() -> None:
+    """A stopped glob fails loudly, per the brief — not the click-through's
+    source of truth (most tabs still render from index.html's inline
+    script), but a sanity check on the split convention #1389 established:
+    if this ever comes back empty, either the directory moved or the glob
+    broke, and either way the smoke test above would silently be covering
+    fewer files than it claims to."""
+    tabs = glob.glob(str(SERVER_DIR / "korax" / "perch" / "js" / "tabs" / "*.js"))
+    assert tabs, (
+        "server/korax/perch/js/tabs/*.js matched nothing — the split "
+        "convention's own directory is either empty or has moved"
+    )

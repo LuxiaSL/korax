@@ -4723,3 +4723,62 @@ every other test green — and appearance stays the screenshots' job.
 **Cost.** Perch-only: merge is the deploy, no restart, no WARN (R84's
 rule). Desktop above 640px is byte-identical rendering — every rule
 rides the media query.
+
+## R-NEXT — a real browser clicks every tab
+
+ISSUE #1597, JOB #1615. The R82 split's own bug (`postNsValue`, R90) was
+a called-but-undefined identifier — a runtime `ReferenceError`, invisible
+to `node --check` (proves syntax), the manifest test (proves every file
+ships) and R90's own narrow guard (proves three named helpers exist).
+None of them execute the page; only a real JS engine running the real
+script can ask "does this throw," and that needs a DOM. #1597 filed the
+class gap; this builds the harness.
+
+**Real headless Chrome over CDP, per the brief's ruling — not jsdom, not
+a stub.** A simulated DOM can lie in exactly the dimension this guard
+exists for. Zero installs: Node 22 ships `WebSocket` and `fetch`, the
+same combination quill's #1431/#1491 lane used by hand tonight.
+`server/tests/perch_smoke_driver.js` connects, clicks all eleven of the
+shell's own nav tabs (asserted against the live nav, not a hardcoded
+guess — a shell edit that adds or drops a tab fails this sweep loudly),
+drives the two tabs that need an explicit follow-up action the way a
+human gives it (`nest` needs a namespace and a click; `envelope` needs an
+id typed in), and records every `Runtime.exceptionThrown` and
+console-error tagged by whichever tab was open when it fired.
+`server/tests/test_perch_smoke.py` seeds a small deterministic board
+(its own, self-contained — `tools/seed_dev_board.py` from JOB #1363 is
+still unmerged, and coupling two unrelated deliveries' gate order to
+reuse it would cost more than duplicating a dozen lines of seeding),
+spawns a real server (the R83 port-handoff pattern), spawns the browser,
+runs the driver, and asserts: the nav list matches what the driver
+expects, zero console errors or exceptions anywhere, and every tab's
+primary render target is non-empty against the seeded corpus — a tab
+that renders nothing exercises nothing.
+
+**Canaried in the direction that proves the CLASS, not the one instance
+R90 already pins** (slate's condition on taking the issue, #1616):
+`fbFirstLine` (`js/render.js`), called from the Flight tab and not one of
+R90's three named helpers, renamed at its definition with call sites
+left standing. The sweep caught it precisely — `[flight] exception:
+ReferenceError: fbFirstLine is not defined`, naming the tab, the file,
+the line, and the call chain through `loadFlight`. Reverted, green again,
+tree clean.
+
+**Excluded from the bare suite run by default** (`addopts = "-m 'not
+browser'"` in `server/pyproject.toml`) — the browser test costs ~20s
+(a real server plus a real browser process) and every other delivery
+tonight should not pay it on every invocation. `pytest -m browser` is
+the explicit form; **mandatory in the mill's gate ritual for any
+delivery touching `perch/**`**, per the brief.
+
+**What I verified and what I could not.** Chrome and Node both answer
+correctly on this host — checked directly, not assumed. **Whether
+GitHub's `ubuntu-latest` runner ships Chrome I could not confirm from
+here** (#1422's lesson: CI's environment is a measurement, not an
+inference) — the test's own `skipif` is the honest backstop if it does
+not, and whoever next has CI access should run it once and, if Chrome is
+present, that is the moment to flip the guard from a soft skip to a hard
+requirement.
+
+**Cost.** Test-infrastructure only — no served-code change, no deploy
+leg, no restart owed.

@@ -27,3 +27,12 @@ packages = ["korax"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# ISSUE #1597 / JOB #1615 — the browser suite spawns a real server and a
+# real headless Chrome (~20s), so it is EXCLUDED from the bare run by
+# default: every other delivery tonight pays nothing for it. Run
+# `pytest -m browser` explicitly — mandatory in the mill's gate ritual for
+# any delivery touching perch/**, per the brief.
+addopts = "-m 'not browser'"
+markers = [
+    "browser: real-browser perch smoke test (needs Chrome + node); excluded from the default run, see addopts above",
+]
