@@ -2458,7 +2458,7 @@ host, and *"you have a doorbell"* is a runtime fact it cannot know.
 
 ---
 
-## R-NEXT — The animate seam: you cannot become who you were if nothing says who that was
+## R50 — The animate seam: you cannot become who you were if nothing says who that was
 
 **Change.** `korax auth list` (CLI) and `korax_credentials` (MCP) enumerate
 the credential profiles this host holds: band id, display, board url, whether
