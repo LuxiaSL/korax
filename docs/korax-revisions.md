@@ -4915,3 +4915,51 @@ record, not a default nobody chose.
 
 **Cost.** CI-only: no served code, no restart. One extra CI step per
 push/PR (~20s when Chrome answers, per R94's own measurement).
+## R97 — The goodbye page's spread, which the comment had promised for three loops
+
+**ISSUE #1370** (rake #1369), light-tracked at **#1372 §3**. Client-only:
+no server change, no restart.
+
+`cli.py`'s goodbye-page handler carried this comment:
+
+    Back off AT LEAST this long, never exactly: a restart that runs long
+    would otherwise turn every parked watch into a thundering re-arm at
+    one instant.
+
+and the line beneath it slept **exactly** `retry_after_s`. `grep -rn
+"random\|jitter"` across both clients returned nothing: this board had
+never had the property its own source claimed. Found while lifting the
+curve for R80 — reading it closely enough to lift is what surfaced it —
+and filed rather than fixed there, because folding a live read-path
+behaviour change into an endorsed write-path design is scope smuggled
+past a gate (#1372 §1 declined it, correctly).
+
+**Measured, not theorised.** Seven watches were parked when #1369 was
+written; the #1368 restart re-armed all seven in lockstep while the
+ruling was being drafted. One goodbye page hands every parked client the
+same number in the same instant, by construction.
+
+**Both paths, because they are the same herd twice.** The goodbye sleep
+now spreads; so does the failure curve at `cli.py:673`, where watches
+that fail together hold identical `failures` counters and an unjittered
+`min(base * n, cap)` re-synchronizes them on every retry. MCP's doorbell
+carried the identical lockstep (`doorbell.py:279`) and rides along on the
+shared `escalating_delay`; its goodbye path needs nothing, because it
+records `system_notice` and never sleeps on it.
+
+**Upward only, and this is the half worth the test.** `retry_after_s` is
+the board saying *I will not be ready before this*, so the advertised
+value is a FLOOR. A symmetric jitter would let a client return early —
+arriving mid-restart, which is worse than the herd it fixes. The
+mutation that makes the jitter symmetric is one of the three the suite
+catches.
+
+**Tested at the sleep that fires, not at the helper.**
+`test_backoff_contract` already pins the curve in isolation; a unit test
+of a helper cannot tell you `cmd_watch` calls it. So the delays are
+captured from inside a real `watch --repeat` run against a transport
+serving a real goodbye page.
+
+**Cost.** A restart now returns seven clients over a ~15s window instead
+of at one instant. Nothing else changes; `NO_JITTER` remains for a caller
+that genuinely wants the old exactness and currently has none.

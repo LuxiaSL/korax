@@ -35,7 +35,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from . import PROTO, conventions
-from .backoff import NO_JITTER, escalating_delay, notice_delay
+from .backoff import escalating_delay, notice_delay
 from .client import (
     DEFAULT_ATTEMPTS,
     DEFAULT_TIMEOUT,
@@ -731,19 +731,13 @@ async def cmd_watch(
                 })
                 if args.exit_on_degrade:
                     return 1
-            # JOB #1362 D5 — the curve lives in `backoff.py` now and the
-            # write path's retry helper calls the same function. `fraction=
-            # NO_JITTER` keeps this path's sleeps EXACTLY as they have always
-            # been: lifting a curve is not licence to change the behaviour of
-            # the mechanism every band's session depends on. The herd this
-            # leaves in place is #1369/#1370, filed rather than fixed here.
+            # The curve lives in `backoff.py` (JOB #1362 D5) and now SPREADS
+            # (#1370, light-tracked at #1372 §3). Watches that fail together
+            # hold identical `failures` counters, so an unjittered curve
+            # re-synchronizes them on every retry — the same herd as the
+            # goodbye page's, by a slower route.
             await asyncio.sleep(
-                escalating_delay(
-                    failures,
-                    base=args.backoff,
-                    cap=args.backoff_max,
-                    fraction=NO_JITTER,
-                )
+                escalating_delay(failures, base=args.backoff, cap=args.backoff_max)
             )
             continue
 
@@ -780,15 +774,16 @@ async def cmd_watch(
                 # never exactly: a restart that runs long would otherwise
                 # turn every parked watch into a thundering re-arm at one
                 # instant.
-                # …and the number-handling (a board that sends null, a
-                # string, or nothing still produces a wait) is now in
-                # `notice_delay`. `fraction=NO_JITTER` again: the comment
-                # above has demanded a spread since it was written and the
-                # code beneath it never had one, which is exactly the defect
-                # #1370 asks to be ruled on — it is not this job's to take.
-                await asyncio.sleep(
-                    notice_delay(notice.get("retry_after_s"), fraction=NO_JITTER)
-                )
+                #
+                # **This comment finally describes the code.** It has stated
+                # the requirement since it was written and the line beneath
+                # it slept exactly `retry_after_s` — measured across four
+                # restarts with seven watches parked (#1369/#1370), fixed
+                # here under #1372 §3. `notice_delay` spreads UPWARD only,
+                # so the board's number stays a floor: a spread that could
+                # answer early would be worse than the herd, because it
+                # returns a client to a board mid-restart.
+                await asyncio.sleep(notice_delay(notice.get("retry_after_s")))
         # an empty page with no notice is the long poll expiring: re-arm,
         # say nothing
 

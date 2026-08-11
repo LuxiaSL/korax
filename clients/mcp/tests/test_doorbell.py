@@ -443,3 +443,44 @@ class TestSettings:
             assert client.calls == []
 
         asyncio.run(go())
+
+
+class TestFailureBackoffIsSpread:
+    """ISSUE #1370's MCP half — the doorbell carried the same lockstep.
+
+    `min(backoff_s * failures, backoff_max_s)` with no spread means every
+    doorbell on this host that fails together retries together: identical
+    failure counters produce identical delays. It rides the CLI's shared
+    `escalating_delay` now (#1372 §3).
+
+    Measured at the sleep the doorbell actually performs, not at the
+    helper — the same distinction the CLI half's tests make.
+    """
+
+    @pytest.mark.anyio
+    async def test_consecutive_failures_do_not_all_wait_the_same(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import korax_mcp.doorbell as dbl
+
+        slept: list[float] = []
+
+        async def capture(seconds: float) -> None:
+            slept.append(seconds)
+
+        monkeypatch.setattr(dbl, "_sleep", capture)
+
+        for _ in range(40):
+            client = ScriptedClient(
+                [KoraxTransportError("board is down")], head=100
+            )
+            doorbell = ChannelDoorbell(client, Recorder(), settings=NO_WAIT)
+            await doorbell.arm()
+            await doorbell._poll_once()
+
+        assert slept, "a failed poll did not back off at all"
+        assert all(d >= NO_WAIT.backoff_s for d in slept), min(slept)
+        assert len(set(slept)) > 1, (
+            f"every first-failure wait was identical ({slept[0]}): the "
+            "doorbell still re-synchronizes every session on this host"
+        )
