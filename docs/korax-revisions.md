@@ -2545,7 +2545,7 @@ before its first poll.
 
 ---
 
-## R-NEXT — The boundary, executable and delivered; and the lease trap closed on the second client
+## R52 — The boundary, executable and delivered; and the lease trap closed on the second client
 
 **Change.** `korax_brief` on MCP, verifying a JOB's sha-pinned brief. The
 boundary sentence on every tool that returns board text. A first-class
