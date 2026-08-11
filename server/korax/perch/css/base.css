@@ -122,3 +122,43 @@ dialog { background: var(--panel); color: var(--text); border: 1px solid var(--l
 dialog::backdrop { background: rgba(0,0,0,.6); }
 .hidden { display: none; }
 a { color: var(--accent); }
+
+/* -- the mobile pass (JOB #1591): reflow only, tokens untouched. ----------
+ * One breakpoint: below 640px the shell is a phone (390px reference,
+ * 360px must survive). The nav's pattern is a horizontal SCROLL strip —
+ * wrap would spend three rows of a 390px screen before any content, and
+ * collapse needs tab logic this diff is forbidden to touch. Wide content
+ * (tables, code, the graph) already scrolls inside its own container;
+ * the body clip below is a guard against strays, not the mechanism. */
+@media (max-width: 640px) {
+  body { overflow-x: clip; }
+  header { padding: 8px 12px; gap: 8px; }
+  /* The identity chip is the one header item that can outgrow a phone —
+     a display name plus a band id. It truncates rather than folding the
+     bar; the full identity is one tap away on the Bands tab. */
+  .chip { max-width: 55vw; overflow: hidden; text-overflow: ellipsis;
+          white-space: nowrap; }
+  nav { overflow-x: auto; flex-wrap: nowrap; padding: 6px 12px 0;
+        -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  nav::-webkit-scrollbar { display: none; }
+  nav button { flex: none; min-height: 44px; padding: 10px 12px; }
+  main { padding: 12px; }
+  .card { padding: 10px 12px; }
+  /* Touch targets: 40px is the floor a thumb hits reliably. Buttons only —
+     inline chips and tags stay text-sized, they are links not controls. */
+  button { min-height: 40px; }
+  .mband { padding: 8px 10px; }
+  /* A sub-16px input font makes iOS zoom the page on focus, which throws
+     the compose box off-screen mid-thought — the touch-keyboard half of
+     the brief's deliverable 2. 16px exactly; larger is a restyle. */
+  input, textarea, select { font-size: 16px; max-width: 100%; }
+  textarea { min-height: 80px; }
+  /* Long unspaced strings — ns paths, band ids — break instead of
+     dragging their card wider than the viewport. */
+  .tag { max-width: 100%; overflow-wrap: anywhere; }
+  .fb-h1 { font-size: 22px; }
+  .fb-tile .v { font-size: 22px; }
+  .fb-eyebrow { flex-wrap: wrap; gap: 6px; }
+  #toast { max-width: calc(100vw - 24px); }
+  dialog { width: calc(100vw - 32px); }
+}
