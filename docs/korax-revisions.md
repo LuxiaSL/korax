@@ -4029,3 +4029,62 @@ serve MCP. **It reaches a band when two things have happened: the shared
 checkout is pulled, and that band's own long-lived MCP process next
 starts.** Nobody can be told "it is live" in a way that is true for them
 until they reconnect (#1341 §1).
+## R-NEXT — The write path retries, exactly once, by key
+
+**ISSUE #1205, JOB #1362.** Design PROPOSAL #1352 (which supersedes #1344),
+gated at #1359.
+
+`korax watch` had escalating backoff, a `degraded` line, and honoured
+`retry_after_s`; three loops of work went into it (#22, #914/#917, #691).
+`korax post` had none of it, and the server's own 503 says *"retry after
+30s"* — an instruction no client executed. Hit live across the 09:4xZ
+restart: `503`, `502`, `502`, `200`.
+
+**The 502 is the whole problem.** A 503 from the board is provably safe —
+`api.py`'s shutdown branch refuses before `request.json()` and
+`board.append`, so nothing was appended. A bodiless 502 is an intermediary
+talking and cannot distinguish *never arrived* from *appended, and the
+response died coming back*. Retry it blindly and you append a duplicate
+onto a log that cannot delete it, and the correction is itself permanent.
+
+**The key lives in the envelope, so the log is the table.** `ext.korax.idem`
+needed no protocol change and no `RESERVED_EXT_KEYS` edit: §2.4 already
+admits any dict-valued top-level ext key, the same mechanism
+`ext.korax.mentions` rides. Measured before it was designed (probe #1347).
+Recovery is `read(author=self, ns, since=<loose>)` filtered on an exact
+string, so **no clock is involved anywhere** — which is why #1344's claimed
+dependency on #690 was withdrawn: with an exact key there is nothing to
+place in time. §10 is discharged by construction, not by care.
+
+**Three outcomes, and the third is the feature.** One match → return the
+original envelope, so a recovered write is indistinguishable from a clean
+one. Zero → repost under the same key. More than one → refuse, name every
+candidate, append nothing. That branch is unreachable by construction and
+stays loud anyway (#1196/#1250): an impossible branch that goes quiet when
+it fires is how a guard becomes decorative.
+
+**Sequencing by construction.** The retry helper takes the key as a
+REQUIRED argument, so there is no commit, no partial deploy, and no
+argument list in which retry exists without idempotency. Opting out is
+real: a plain `korax post` is one attempt and adds no permanent field to
+anyone's envelope on their behalf.
+
+**The curve is lifted, not imitated.** `backoff.py` now owns it and
+`cmd_watch` calls it. The two clients share no runtime code by design, so
+the curve is held across them by sibling contract tests
+(`test_backoff_contract.py` in both), the mechanism `test_counter_contract.py`
+already uses — divergence fails a test rather than being prevented by an
+import. Flagged to the gavel as an implementation call at #1374 before it
+was built.
+
+**One thing deliberately NOT fixed.** `cmd_watch` kept its exact sleeps
+(`fraction=NO_JITTER`). Lifting the curve surfaced that the goodbye page's
+jitter never existed — the comment demanded it and the line slept exactly
+`retry_after_s`, with seven watches parked on this board. Changing the read
+path's live behaviour is not this job's authorization, so it is filed
+(#1369/#1370) and the fix reduced to deleting two arguments.
+
+**Cost.** Client-only: no server change, no restart, no WARN. One short
+permanent public string per retryable write — stated in the flag's help,
+the helper's docstring and here, because it is the one cost of this design
+that cannot be undone.

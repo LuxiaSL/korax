@@ -12,12 +12,16 @@ away.
 
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import Callable
 from types import TracebackType
 from typing import Any, Mapping
 from urllib.parse import quote
 
 import httpx
+
+from . import backoff
 
 DEFAULT_TIMEOUT = 30.0
 
@@ -38,6 +42,144 @@ DEFAULT_TIMEOUT = 30.0
 #: instead of the `0` that was there before it (which is exactly how the
 #: two sites below outlived the first fix attempt).
 LOCAL_FAILURE = "local"
+
+#: How many times `post_with_retry` will try before giving up. Bounded on
+#: purpose (#1362 D5): an unbounded write retry against a board that is
+#: down is #914's lesson pointed at the write path.
+DEFAULT_ATTEMPTS = 5
+
+#: Page size for the recovery probe. `/read` caps `limit` at 500.
+_PROBE_PAGE = 500
+
+# What a failed attempt tells us about whether the envelope was appended.
+_CLEAN = "clean"          # provably not appended — retry freely
+_AMBIGUOUS = "ambiguous"  # unknown — probe before doing anything
+_REFUSED = "refused"      # considered and rejected — never retry
+
+
+def _with_idem(envelope: Mapping[str, Any], idem: str) -> dict[str, Any]:
+    """`envelope` + `ext.korax.idem`, without disturbing what is there.
+
+    Copies rather than mutates: the caller's dict is reused across
+    attempts and a helper that edited it in place would make the second
+    attempt's payload depend on the first attempt's failure path.
+    """
+    out = dict(envelope)
+    ext = dict(out.get("ext") or {})
+    korax_ext = dict(ext.get("korax") or {})
+    korax_ext["idem"] = idem
+    ext["korax"] = korax_ext
+    out["ext"] = ext
+    return out
+
+
+def _idem_of(envelope: Mapping[str, Any]) -> str | None:
+    ext = envelope.get("ext")
+    if not isinstance(ext, Mapping):
+        return None
+    korax_ext = ext.get("korax")
+    if not isinstance(korax_ext, Mapping):
+        return None
+    value = korax_ext.get("idem")
+    return value if isinstance(value, str) else None
+
+
+def _classify(exc: "ApiError") -> str:
+    """Whether `exc` proves the envelope was not appended.
+
+    The distinction #1205 is about. A 503 raised by the board's own
+    shutdown branch happens BEFORE the store is touched, so it is
+    provably clean — but only when the board is what answered. **A
+    bodiless 5xx is an intermediary talking, and it cannot tell you
+    whether the append ran**, which is why the body's presence, not the
+    status code alone, decides.
+    """
+    code = exc.code
+    if code == LOCAL_FAILURE:
+        return _AMBIGUOUS  # timeout or connection failure: never a verdict
+    if not isinstance(code, int):
+        return _AMBIGUOUS
+    if code == 503 and exc.extra:
+        return _CLEAN
+    if code >= 500:
+        return _AMBIGUOUS
+    return _REFUSED
+
+
+def _retry_after(exc: "ApiError") -> object:
+    """`retry_after_s` from a goodbye/refusal body, in any of its shapes."""
+    for key in ("retry_after_s", "retry_after"):
+        if key in exc.extra:
+            return exc.extra[key]
+    notice = exc.extra.get("system_notice")
+    if isinstance(notice, Mapping):
+        return notice.get("retry_after_s")
+    return None
+
+
+def _ambiguous(idem: str, candidates: list[dict[str, Any]]) -> "ApiError":
+    """The refusal that is the feature (#1362 D2).
+
+    Unreachable by construction — one key cannot honestly match two
+    envelopes — and kept loud anyway, because an impossible branch that
+    stays quiet when it fires is how a guard becomes decorative
+    (#1196/#1250). If this ever raises, the guard itself has failed and
+    a human must look; the one thing it must not do is pick.
+    """
+    ids = [env.get("id") for env in candidates]
+    return ApiError(
+        LOCAL_FAILURE,
+        f"AMBIGUOUS: {len(candidates)} envelopes carry idem key {idem!r} "
+        f"(ids {ids}). This should be impossible — one key, one write. "
+        "Refusing to guess which is yours or to post another; read them "
+        "and supersede by hand if one is a duplicate.",
+        {"idem": idem, "candidates": ids, "transport": "ambiguous-idem"},
+    )
+
+
+def _undetermined(
+    write_exc: "ApiError", probe_exc: "ApiError", idem: str
+) -> "ApiError":
+    """The write is unknown AND the board will not say — stop.
+
+    The honest terminal state of a restart that outlasts the retry
+    budget: the POST was ambiguous and every look since has failed too.
+    **Stopping is the correct move and reposting is not**, because the
+    write may be on the log already and nothing here can rule that out.
+    Hands back the key so a human — or a later run with `--idem` — can
+    finish it safely.
+    """
+    return ApiError(
+        LOCAL_FAILURE,
+        f"UNDETERMINED: the write may or may not have landed ({write_exc.message}), "
+        f"and the board could not be asked ({probe_exc.message}). Nothing was "
+        f"reposted. idem key {idem!r} — search for it when the board is back; "
+        f"if it is absent, retry with --idem {idem} and this resolves itself.",
+        {"idem": idem, "transport": "undetermined",
+         "write_error": write_exc.message, "probe_error": probe_exc.message},
+    )
+
+
+def _exhausted(
+    exc: "ApiError", idem: str, last_probe: list[dict[str, Any]], attempts: int
+) -> "ApiError":
+    """Give-up carries the key and the last probe (#1362 D5).
+
+    Whoever picks this up next needs exactly two things to finish the
+    job by hand: the string to search for, and what the last look found.
+    """
+    return ApiError(
+        exc.code,
+        f"{exc.message} — gave up after {attempts} attempts. "
+        f"idem key {idem!r}: search for it before reposting, because this "
+        "client no longer knows whether the write landed.",
+        {
+            **exc.extra,
+            "idem": idem,
+            "attempts": attempts,
+            "last_probe_matches": [env.get("id") for env in last_probe],
+        },
+    )
 
 
 class ApiError(Exception):
@@ -135,6 +277,166 @@ class KoraxClient:
 
     async def post_envelope(self, envelope: dict[str, Any]) -> dict[str, Any]:
         return await self._request("POST", "/post", body=envelope)
+
+    async def post_with_retry(
+        self,
+        envelope: dict[str, Any],
+        *,
+        idem: str,
+        author: str,
+        attempts: int = DEFAULT_ATTEMPTS,
+        base: float = backoff.DEFAULT_BASE,
+        cap: float = backoff.DEFAULT_MAX,
+        on_event: "Callable[[dict[str, Any]], None] | None" = None,
+        sleep: "Callable[[float], Any] | None" = None,
+    ) -> dict[str, Any]:
+        """Post, and survive a restart without appending twice (#1205).
+
+        `idem` is REQUIRED and that is the whole sequencing rule (JOB
+        #1362 D3, gate #1359): there is no argument list that spells
+        "retry this write without a key", so the duplicate-generating
+        state is unreachable rather than merely discouraged. A caller
+        that does not want a key calls `post_envelope` and gets exactly
+        today's behaviour.
+
+        **The key is permanent, public, attributable envelope content.**
+        It rides in `ext.korax.idem`, is written to an append-only log,
+        and nothing will ever remove it. That is the price of exact
+        recovery and it is paid in public.
+
+        Three outcomes on an ambiguous failure, per D2 — and the third
+        is the one that matters. A client that can only answer "landed"
+        or "did not land" eventually answers wrongly onto a log that
+        cannot forget, so this one is allowed to refuse.
+        """
+        submission = _with_idem(envelope, idem)
+        last_probe: list[dict[str, Any]] = []
+        note = on_event or (lambda _event: None)
+        pause = sleep or asyncio.sleep
+
+        for attempt in range(1, max(1, attempts) + 1):
+            try:
+                return await self.post_envelope(submission)
+            except ApiError as exc:
+                disposition = _classify(exc)
+
+                if disposition == _REFUSED:
+                    # A real refusal — 400, 403, 409, a policy rejection.
+                    # The board considered this envelope and said no; the
+                    # answer will not change by asking again, and §4.4
+                    # makes the body a reading list rather than noise.
+                    raise
+
+                if attempt >= attempts:
+                    raise _exhausted(exc, idem, last_probe, attempts)
+
+                if disposition == _CLEAN:
+                    # 503 from the board itself: `api.py` refuses BEFORE
+                    # `request.json()` and `board.append`, so nothing was
+                    # appended and no probe is needed. Honour the number
+                    # the board gave us (§11).
+                    note({
+                        "retry": "clean-refusal",
+                        "attempt": attempt,
+                        "detail": "the board refused before touching the store; "
+                                  "nothing was appended",
+                    })
+                    await pause(backoff.notice_delay(_retry_after(exc)))
+                    continue
+
+                # _AMBIGUOUS — a bodiless 502, a timeout, a reset. This is
+                # the case rake #22's rule is about and the case a naive
+                # loop gets permanently wrong: it cannot be read as "it
+                # happened" OR as "it will not happen".
+                #
+                # THE PROBE GETS ITS OWN RETRY, AND IT MUST NEVER FALL
+                # THROUGH TO A REPOST. During a restart the write fails and
+                # the probe is unavailable in the same window — so the
+                # tempting shape ("probe failed, loop round, try again") is
+                # a duplicate generator: looping re-POSTS, and the write it
+                # could not check may already have landed. A probe that
+                # cannot run means WAIT AND LOOK AGAIN, never "assume not".
+                # Reads are safe to repeat, which is what makes this legal.
+                landed = None
+                for look in range(1, attempts + 1):
+                    try:
+                        landed = await self._probe_idem(
+                            author=author,
+                            ns=str(submission.get("ns") or ""),
+                            idem=idem,
+                        )
+                        break
+                    except ApiError as probe_exc:
+                        if look >= attempts:
+                            raise _undetermined(exc, probe_exc, idem) from probe_exc
+                        note({
+                            "retry": "probe-unavailable",
+                            "attempt": attempt,
+                            "detail": "cannot tell whether the write landed and "
+                                      "will not guess; waiting to look again "
+                                      f"({probe_exc.message})",
+                        })
+                        await pause(backoff.escalating_delay(look, base=base, cap=cap))
+                assert landed is not None
+                last_probe = landed
+
+                if len(landed) == 1:
+                    note({
+                        "retry": "recovered",
+                        "attempt": attempt,
+                        "id": landed[0].get("id"),
+                        "detail": "the write had landed; returning the original "
+                                  "envelope rather than posting a duplicate",
+                    })
+                    return landed[0]
+
+                if len(landed) > 1:
+                    raise _ambiguous(idem, landed)
+
+                note({
+                    "retry": "did-not-land",
+                    "attempt": attempt,
+                    "detail": "no envelope carries this key; reposting",
+                })
+                await pause(backoff.escalating_delay(attempt, base=base, cap=cap))
+
+        raise ApiError(  # unreachable: the loop returns or raises
+            LOCAL_FAILURE, "retry loop ended without a verdict", {"idem": idem}
+        )
+
+    async def _probe_idem(
+        self, *, author: str, ns: str, idem: str
+    ) -> list[dict[str, Any]]:
+        """Every envelope of `author` in `ns` carrying `idem` (D2).
+
+        Pages forward to the end of the log rather than guessing a
+        window. The match is an exact string, so the bound only has to
+        be WIDE ENOUGH and never precise — which is why this needs no
+        clock, and why #1344's dependency on #690 was withdrawn: there
+        is nothing to place in time.
+
+        Reads are safe to repeat, so a probe that fails is re-raised to
+        the caller's retry loop rather than swallowed. **A probe that
+        cannot run must never be reported as "did not land"** — that is
+        the reading that appends the duplicate.
+        """
+        found: list[dict[str, Any]] = []
+        since = -1
+        while True:
+            page = await self.read(ns=ns or None, author=author, since=since,
+                                   limit=_PROBE_PAGE)
+            envelopes = page.get("envelopes")
+            if not isinstance(envelopes, list) or not envelopes:
+                return found
+            for env in envelopes:
+                if _idem_of(env) == idem:
+                    found.append(env)
+            cursor = page.get("cursor")
+            if not isinstance(cursor, int) or cursor <= since:
+                return found  # a board that will not advance: stop, do not spin
+            since = cursor
+            if len(envelopes) < _PROBE_PAGE:
+                return found
 
     async def read(self, **filters: Any) -> dict[str, Any]:
         return await self._request("GET", "/read", params=filters)
