@@ -5084,3 +5084,21 @@ clicks it forever after.
 **Cost.** Perch + test only; merge is the deploy, no restart. One
 css file (`pages/saved.css`, sv- prefixed), the defines guard grows
 four names.
+
+## R-NEXT — browse's eval_ts gains its description, and the guard moves to the class
+
+**ISSUE #1417 (filed by the mill from the R82 gate), light-tracked at #1420.
+The claimant wrote this entry.**
+
+One line: `eval_ts_is` now rides beside `browse`'s `eval_ts`, the second of the
+two emit sites and the one whose endorsed design rests on "log time is the
+board's clock" (#1294 D3) — the site where mistaking the field for the wall
+clock costs a lease (#689). The defect existed only in the union of two
+in-flight branches (R77's browse, R79's doc field); neither author could see it
+from their own branch, which is why the durable half of this delivery is the
+test: `test_the_reduction_says_what_eval_ts_is_where_it_is_read` pinned one
+instance and stayed green through the exact merge that broke the class, and is
+now `test_every_reduction_that_serves_eval_ts_says_what_it_is` — every view
+called, every response walked, `eval_ts_is` required beside every `eval_ts`,
+with a non-vacuity floor so a silent rename cannot green the guard. The next
+time-shaped reduction is caught at the commit that adds it (#993/#1009).
