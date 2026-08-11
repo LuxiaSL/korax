@@ -1,0 +1,46 @@
+/* css/pages/feed.css — the feed tab (JOB #1406). Per #1385 D1 a tab's
+   rules live in its own page file; only tokens and shared classes come
+   from variables.css / base.css. */
+
+/* The lane chip answers "why am I seeing this", which is the one thing a
+   feed says that a nest listing cannot. Accent-bordered so it reads as
+   provenance rather than as another tag. */
+.fd-lane {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Unseen is deliberately louder than the lane chips: it is the only thing
+   on the card that decays as the human works. */
+.fd-new {
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.fd-why {
+  margin-top: 8px;
+  gap: 6px;
+}
+
+/* The mailbox note is a seal note, not an error: a withheld count is a
+   fact the board owes you, and styling it as a failure would teach the
+   reader to dismiss it. */
+.fd-mailbox {
+  margin-top: 6px;
+}
+
+/* The filtered read sits below the feed and must read as a separate tool,
+   not as more feed. */
+.fd-readsplit {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.fd-readsplit h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dim);
+}

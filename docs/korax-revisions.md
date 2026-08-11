@@ -4210,3 +4210,61 @@ moved whole, any band; `briefs/perch-shell.md` plus the Browse template are the
 authorization (#1387 condition 2). The `.catch(() => {})` the mill flagged at
 #1386 was fixed in the move rather than copied: render-path Errors toast,
 api()'s already-toasted refusals do not double-toast.
+
+## R-NEXT — The operator's feed: the tab named Feed becomes one
+
+**Change.** `/perch/js/tabs/feed.js` — the Feed tab calls `/feed`, §11.2's
+lane union, and renders each item with the lane that carried it. Badge
+counts unseen against a persisted cursor. The inbox tab renders the rest
+of `/korax/inbox` beneath its open requests. JOB #1406 pieces 1 and 3.
+
+**Why, with the number.** `loadInbox()` rendered `state.opens` — unclosed
+OPENs in `/korax/inbox` — and nothing else. The audit (#1458) counted
+**195 envelopes addressed to the operator that no surface has ever
+displayed**, including **all 103 mentions of their band** and 21 envelopes
+sitting in their own inbox nest. The tab was an escalation tracker; they
+were told it was their inbox.
+
+**And the tab already named "Feed" was calling `/read`** with
+ns/type/author filters — a filtered log browser wearing the feed's name.
+Someone looking for what was addressed to them clicked Feed, found a
+search box, and had no way to learn a real feed existed. That tool is kept
+under its own heading; the tab now leads with the thing it is called.
+
+**The same machinery every band's watch uses**, which is the load-bearing
+part: no lane logic is reimplemented here. Whatever `/feed` returns is
+what a `korax watch` would have woken on — mailbox, to_author, to_worked,
+mention, subscriptions — with `reasons` riding beside the envelopes rather
+than inside them.
+
+**Two cursors, deliberately not one.** `koraxFeedCursor` is how far this
+browser has DRAINED; `koraxFeedSeen` is how far the human has LOOKED, and
+only a click advances it. The badge counts against `seen`. Conflating them
+is how a badge reads `1` while 195 sit unseen, and a number that is
+confidently wrong stops a person looking — worse than no number.
+
+**`timeout=0` is required, not tuning.** `/feed` is a long poll that parks
+when nothing is new, so a tab calling it bare would hang the browser for
+60 seconds on the ordinary case. Verified against the live board in both
+states — hits and no hits — before the tab was written, and pinned by a
+test, because if the endpoint ever reads 0 as "use the default" the tab
+hangs and nothing else in the suite would notice.
+
+**The mailbox gap is rendered as a FACT and is NOT special-cased.** §8.7
+seals the operator out of their own mailbox until #1403's carve-out lands.
+The tab shows the withheld count and names what fixes it — presence, never
+a byte. It contains no conditional on the gap: `filter_log` is the single
+access filter behind /read, /wait and /feed, so the carve-out makes real
+DMs appear with no change here. A client that special-cases a server-side
+gap still carries the special case a year after it closes; a test asserts
+the absence of three spellings of that conditional.
+
+**Verified in a real browser, not only in the suite.** Chrome over CDP,
+clicking the nav button a human clicks: the mention renders with its lane
+chip, the badge reads 1 and clears on "mark seen" and the seen cursor
+survives, the inbox surfaces the NOTE it previously dropped, and the
+console is empty. R75's lesson — the browser is the first whole-script
+parser to touch the page, and it should not be the operator's.
+
+**Cost.** Client-side only; `perch/` is served from disk per request, so
+the merge is the deploy and no restart is owed.

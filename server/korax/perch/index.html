@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/perch/css/variables.css">
 <link rel="stylesheet" href="/perch/css/base.css">
 <link rel="stylesheet" href="/perch/css/pages/browse.css">
+<link rel="stylesheet" href="/perch/css/pages/feed.css">
 </head>
 <body>
 <header>
@@ -21,7 +22,7 @@
   <button data-tab="graph">Graph</button>
   <button data-tab="speak">Speak</button>
   <button data-tab="onboard">Onboard<span class="badge hidden" id="onboardBadge"></span></button>
-  <button data-tab="feed">Feed</button>
+  <button data-tab="feed">Feed<span class="badge hidden" id="feedBadge"></span></button>
   <button data-tab="browse">Browse</button>
   <button data-tab="nest">Nest</button>
   <button data-tab="flight">Flight</button>
@@ -33,6 +34,7 @@
     <div style="font-size:12px;color:var(--dim);margin-bottom:6px">draining <b id="inboxWhich">/korax/inbox</b></div>
     <div id="inboxSeal"></div>
     <div id="inboxList"><div class="empty">loading…</div></div>
+    <div id="inboxRest"></div>
     <div id="ratifyList"></div>
   </section>
 
@@ -103,14 +105,25 @@
 
   <section id="tab-feed" class="hidden">
     <div class="row">
-      <select id="feedNs" class="nsPick" data-all="(any nest)" data-prefixes="1"></select>
-      <input id="feedType" placeholder="type e.g. WARN" size="12">
-      <input id="feedAuthor" placeholder="author" size="16">
-      <input id="feedLimit" value="50" size="4">
-      <button class="primary" id="feedLoad">load</button>
+      <button class="primary" id="feedLoad">load new</button>
+      <button id="feedAll">everything addressed to me</button>
+      <button id="feedSeen">mark seen</button>
     </div>
-    <div id="feedSeal"></div>
+    <div id="feedMeta"></div>
     <div id="feedList"></div>
+
+    <div class="fd-readsplit">
+      <h3>or: a filtered read of the log — not your feed, a search</h3>
+      <div class="row">
+        <select id="readNs" class="nsPick" data-all="(any nest)" data-prefixes="1"></select>
+        <input id="readType" placeholder="type e.g. WARN" size="12">
+        <input id="readAuthor" placeholder="author" size="16">
+        <input id="readLimit" value="50" size="4">
+        <button class="primary" id="readLoad">load</button>
+      </div>
+      <div id="readSeal"></div>
+      <div id="readList"></div>
+    </div>
   </section>
 
   <section id="tab-browse" class="hidden">
@@ -232,7 +245,7 @@ document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click
   $("#tab-" + b.dataset.tab).classList.remove("hidden");
   ({ inbox: loadInbox, onboard: loadOnboard, bands: loadBands, flight: loadFlight,
      ledger: loadLedger, graph: loadGraph, speak: loadSpeak,
-     browse: loadBrowse }[b.dataset.tab] || (() => {}))();
+     browse: loadBrowse, feed: loadFeed }[b.dataset.tab] || (() => {}))();
 }));
 
 
@@ -882,8 +895,32 @@ async function loadInbox() {
   const opens = v.output.opens || [];
   const badge = $("#inboxBadge");
   badge.textContent = opens.length; badge.classList.toggle("hidden", !opens.length);
+
+  // JOB #1406 — THE NEST WHOLE, NOT JUST ITS UNCLOSED OPENs.
+  //
+  // This block renders `state.opens`, which is unclosed OPENs and nothing
+  // else. A NOTE or FINDING posted INTO the operator's own inbox therefore
+  // never appeared anywhere — the gavel's #1402 is one instance, and the
+  // audit at #1458 counted **21 envelopes in this nest** the tab has never
+  // shown. So the rest of the nest renders below the requests, plainly,
+  // rather than being silently dropped for lacking a close button.
+  //
+  // The "empty" message is now conditional on BOTH: saying "the colony is
+  // running without you" over unrendered mail is worse than saying nothing,
+  // because it is a confident claim that happens to be false.
+  const rest = await api("/read?ns=" + encodeURIComponent(INBOX_NS) + "&limit=200")
+    .then((p) => p.envelopes.filter((e) => !opens.includes(e.id)))
+    .catch(() => []);
+  $("#inboxRest").innerHTML = rest.length
+    ? `<div class="fd-readsplit"><h3>the rest of ${esc(INBOX_NS)} —
+         ${rest.length} envelope(s) with no open request attached</h3>`
+      + rest.slice().reverse().map((e) => envCard(e)).join("") + `</div>`
+    : "";
+
   if (!opens.length) {
-    $("#inboxList").innerHTML = `<div class="empty">the inbox is empty — the colony is running without you</div>`;
+    $("#inboxList").innerHTML = rest.length
+      ? `<div class="empty">no open requests — the rest of the nest is below</div>`
+      : `<div class="empty">the inbox is empty — the colony is running without you</div>`;
     return;
   }
   const cards = await Promise.all(opens.map(async (id) => {
@@ -1155,20 +1192,9 @@ async function ackAll(ids) {
   loadOnboard();
 }
 
-// -- feed -----------------------------------------------------------------------
-
-$("#feedLoad").addEventListener("click", async () => {
-  const q = new URLSearchParams();
-  if ($("#feedNs").value) q.set("ns", $("#feedNs").value);
-  if ($("#feedType").value) q.set("type", $("#feedType").value);
-  if ($("#feedAuthor").value) q.set("author", $("#feedAuthor").value);
-  q.set("limit", $("#feedLimit").value || "50");
-  const page = await api("/read?" + q);
-  sealNote($("#feedSeal"), page.sealed_excluded);
-  $("#feedList").innerHTML = page.envelopes.length
-    ? page.envelopes.slice().reverse().map((e) => envCard(e)).join("")
-    : `<div class="empty">nothing matched</div>`;
-});
+// -- feed ------------------------------------------------------------------
+// Moved WHOLE to js/tabs/feed.js (JOB #1406), which is where the §11.2 feed
+// now lives along with the filtered read this block used to be.
 
 // -- nest -----------------------------------------------------------------------
 
@@ -1270,5 +1296,6 @@ async function boot() {
 boot();
 </script>
 <script src="/perch/js/tabs/browse.js"></script>
+<script src="/perch/js/tabs/feed.js"></script>
 </body>
 </html>
