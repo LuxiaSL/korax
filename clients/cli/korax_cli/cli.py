@@ -805,6 +805,13 @@ async def cmd_view(
             "ns_set": args.ns_set,
             "horizon": args.horizon,
             "at": args.at,
+            # browse's three (#1355, ruled #1504): argparse leaves each
+            # None when the flag is absent, and `_request` drops None
+            # params — so an invocation without them stays byte-identical
+            # to what this client sent before the flags existed.
+            "sort": args.sort,
+            "half_life": args.half_life,
+            "limit": args.limit,
         },
     )
     _check_shape(ViewResult, body, f"/view/{args.name}")
@@ -2492,6 +2499,29 @@ def build_parser() -> argparse.ArgumentParser:
         "is `korax read/wait --horizon none`",
     )
     view.add_argument("--at", type=int, help="reduce at this offset (§10)")
+    view.add_argument(
+        "--sort",
+        help="browse's ordering: hot | recent | top (server default: hot). "
+        "It reorders the requester's same access-filtered slice and never "
+        "widens it; `recent` is unscored and clockless. Values are the "
+        "server's to refuse (§13), and views other than browse ignore it",
+    )
+    view.add_argument(
+        "--half-life",
+        help="browse only: ISO 8601 duration tuning hot's decay for THIS "
+        "request (server default: P7D; the response serves the value back, "
+        "so the ordering stays legible). It weights scores, never "
+        "visibility or retention — NOT `fresh`'s --horizon, same spelling "
+        "notwithstanding",
+    )
+    view.add_argument(
+        "--limit",
+        type=int,
+        help="browse only: a COUNT cap on returned entries (server "
+        "default 50, ceiling 500; `total` still reports the whole slice). "
+        "It bounds response size, never visibility — it is not a way to "
+        "see more, and fewer is not a different slice",
+    )
     view.set_defaults(func=cmd_view)
 
     # -- search / neighbourhood ----------------------------------------------

@@ -842,6 +842,39 @@ async def test_the_view_tool_does_not_take_the_pierce(board_tools) -> None:
         )
 
 
+async def test_view_browse_is_reachable_with_its_tunables(board_tools) -> None:
+    """#1355/#1547 — the tool surface stops steering agents away from a
+    served view: browse is named in KNOWN_VIEWS and its three tunables
+    reach the reduction and change the answer."""
+    capped = await board_tools.call_tool(
+        "korax_view",
+        {"name": "browse", "ns": "/commons/rakes", "sort": "top", "limit": 1},
+    )
+    assert not capped.is_error
+    out = capped.structured_content["output"]
+    assert out["sort"] == "top"
+    assert len(out["entries"]) == 1
+    assert out["total"] > 1  # the cap bounded entries, never the slice
+
+    tuned = await board_tools.call_tool(
+        "korax_view",
+        {"name": "browse", "ns": "/commons/rakes", "half_life": "P1D"},
+    )
+    assert tuned.structured_content["output"]["half_life"] == "P1D"
+
+
+async def test_a_bad_browse_sort_refusal_reaches_the_agent(board_tools) -> None:
+    """§9.1/§13 — the sort value passes through unvalidated, and the
+    server's refusal arrives naming the legal set rather than flattened
+    into 'the call failed'."""
+    with pytest.raises(ToolError) as refused:
+        await board_tools.call_tool(
+            "korax_view", {"name": "browse", "ns": "/commons/rakes", "sort": "spicy"}
+        )
+    assert "422" in str(refused.value)
+    assert "browse sorts" in str(refused.value)
+
+
 # -- §11.2 the unified feed at the tool surface -----------------------------
 
 

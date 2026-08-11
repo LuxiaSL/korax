@@ -395,6 +395,97 @@ def test_an_unknown_view_is_the_server_s_404_to_give(
     assert "unknown view" in result.error["message"]
 
 
+def test_view_browse_flags_round_trip(cli: Invoke, world: dict[str, Any]) -> None:
+    """#1355/#1547 — each of browse's three flags reaches the served
+    reduction and changes the response; the tuned parameter ships back in
+    it, so the ordering stays legible (D3)."""
+    base = cli("view", "browse", "--ns", "/commons/rakes", token=world["op_token"])
+    assert base.exit_code == 0, base.stderr
+    body = base.json
+    assert body["view"] == "browse"
+    assert body["output"]["sort"] == "hot"
+    assert body["output"]["half_life"] == "P7D"
+    total = body["output"]["total"]
+    assert total >= 5  # the seeded rakes are in the slice
+
+    recent = cli(
+        "view", "browse", "--ns", "/commons/rakes", "--sort", "recent",
+        token=world["op_token"],
+    )
+    assert recent.exit_code == 0, recent.stderr
+    out = recent.json["output"]
+    assert out["sort"] == "recent"
+    assert out["half_life"] is None  # unscored, so no decay to describe
+    assert all("score" not in e for e in out["entries"])
+    ids = [e["id"] for e in out["entries"]]
+    assert ids == sorted(ids, reverse=True)  # newest first, by id
+
+    tuned = cli(
+        "view", "browse", "--ns", "/commons/rakes", "--half-life", "P1D",
+        token=world["op_token"],
+    )
+    assert tuned.exit_code == 0, tuned.stderr
+    assert tuned.json["output"]["half_life"] == "P1D"
+
+    capped = cli(
+        "view", "browse", "--ns", "/commons/rakes", "--limit", "1",
+        token=world["op_token"],
+    )
+    assert capped.exit_code == 0, capped.stderr
+    out = capped.json["output"]
+    assert len(out["entries"]) == 1
+    assert out["total"] == total  # the cap bounds entries, never the slice
+
+
+def test_view_without_browse_flags_is_byte_identical(
+    cli: Invoke, world: dict[str, Any]
+) -> None:
+    """The brief's no-regression case, asserted at the wire rather than
+    inferred from argparse defaults: an invocation without the three
+    flags puts exactly the query on the wire that this client sent
+    before the flags existed."""
+    seen: list[httpx.Request] = []
+    inner = httpx.ASGITransport(app=world["app"])
+
+    class Recording(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return await inner.handle_async_request(request)
+
+    bare = cli(
+        "view", "browse", "--ns", "/commons/rakes",
+        token=world["op_token"], transport=Recording(),
+    )
+    assert bare.exit_code == 0, bare.stderr
+    assert seen[-1].url.query == b"ns=%2Fcommons%2Frakes"
+
+    flagged = cli(
+        "view", "browse", "--ns", "/commons/rakes",
+        "--sort", "top", "--half-life", "P1D", "--limit", "2",
+        token=world["op_token"], transport=Recording(),
+    )
+    assert flagged.exit_code == 0, flagged.stderr
+    query = dict(httpx.QueryParams(seen[-1].url.query.decode()))
+    assert query["sort"] == "top"
+    assert query["half_life"] == "P1D"
+    assert query["limit"] == "2"
+
+
+def test_a_bad_browse_sort_is_the_server_s_422_to_give(
+    cli: Invoke, world: dict[str, Any]
+) -> None:
+    """§13 both ways: the flag value goes through unvalidated, and the
+    refusal that comes back names the legal set — the server's argument,
+    not this client's."""
+    result = cli(
+        "view", "browse", "--ns", "/commons/rakes", "--sort", "spicy",
+        token=world["op_token"],
+    )
+    assert result.exit_code == 1
+    assert result.error["code"] == 422
+    assert "browse sorts" in result.error["message"]
+
+
 def test_envelope_command(cli: Invoke, world: dict[str, Any]) -> None:
     result = cli("envelope", "0", token=world["op_token"])
     assert result.exit_code == 0, result.stderr
