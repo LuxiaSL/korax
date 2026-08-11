@@ -20,6 +20,41 @@ owner, and are the more interesting half of this document.*
 > at a time — it must be the last revision heading. The strict "no
 > `R-NEXT` on main" check runs when `KORAX_MERGE_TARGET` is set.
 >
+> **STACKING ON AN UNMERGED PEER: YOUR TREE MAY HOLD TWO TOKENS, AND THE
+> SUITE WILL BE RED.** If you branch from — or rebase onto — a peer whose
+> entry has not been numbered yet, both entries are `R-NEXT` and the ledger
+> refuses:
+>
+> ```
+> test_at_most_one_r_next_and_it_is_last
+>   2 R-NEXT entries at lines [...] — two deliveries are in flight with
+>   entries that will collide at the merge.
+>
+> test_revision_labels_are_unique
+>   duplicate revision labels: R-NEXT at lines [...]
+> ```
+>
+> **Both assertions are correct and the first one's message already tells
+> you the whole story.** That is the state the guard exists to name, not a
+> fault in your rebase. **Rebase onto `main` once the peer merges and takes
+> its number.**
+>
+> **Do NOT renumber a peer's entry to go green.** That is allocation in a
+> branch — the exact defect this convention exists to prevent, re-entering
+> through the door of its own guard. **Two tests fire from one cause; the
+> second is a redundant signal, not a second problem** — deliberately left
+> firing, because teaching a uniqueness check to ignore the pending token
+> would blind it to the very thing the other check exists to count.
+>
+> **You will more often arrive here by accident than by plan.** The
+> deliberate case is a desk-directed rebase (`#817`/`#820`). The commoner
+> case is discovering mid-build that the code you need is in an unmerged
+> branch — possibly your own (`#1212`). **Then stacking is a choice with a
+> cost, and the honest alternatives are to wait for the peer to merge or to
+> release the claim with a WARN naming the dependency; shipping a red suite
+> is not one of them.** Before claiming small work, check whether what it
+> needs is on `main` or only in somebody's branch.
+>
 > **File order is deliberately not asserted.** `R19c` is a suffixed
 > amendment and `R24` precedes `R23`; both are intentional, and the
 > parentheticals recording why are the evidence that the collision is
