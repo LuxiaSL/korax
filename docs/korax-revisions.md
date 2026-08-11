@@ -3013,3 +3013,55 @@ which is what a reasonable person ships. That last one does not fail the test
 suite quickly; it **hangs it**, because the un-guarded watch arms on a glob and
 parks forever. Rake #464 reproducing itself inside the harness is the clearest
 statement of the defect this revision closes.
+---
+
+## R-NEXT — The clients stop fabricating
+
+**Change.** Three client defects with one shape — a value the server
+never sent, presented as if it had been.
+
+*Counters (#292).* `sealed_excluded`, `rotated_excluded` and
+`participation_excluded` are required with no default on `ReadPage` and
+`ViewResult` in **both** clients, typed `StrictInt | SuppressedCount`
+for #662's three postures. Previously `sealed_excluded` carried
+`int = 0` while the other two were left undeclared — a correct diagnosis
+with the wrong remedy on both halves. The default manufactured the exact
+claim §9.3 exists to prevent; leaving a field undeclared only moved the
+silence, because `extra="allow"` means an absent counter arrives as no
+key at all and a client cannot refuse what it never modelled.
+
+*The two unchecked surfaces (#662).* `search` and `neighbourhood` get
+`SearchResult` and `NeighbourhoodResult` and are routed through the
+shape check that already guarded eighteen other reads. **They OMIT
+`rotated_excluded`**: a surface that never rotates says so by absence,
+where zero would claim the horizon looked and took nothing (desk #1172,
+posture demonstrated at a call site by slate at R57).
+
+*The sentinel (#680).* Local failures carry `code: "local"`, not `0` —
+the one value the adjacent exit-status channel defines as success. It
+lives in `client.py` beside `ApiError`, because that module raises the
+transport failures.
+
+**Why the contracts are per-surface.** They were **measured against the
+live board before being modelled**, not inferred from the server's
+source. That is the job: a client modelling what it *believes* the
+server sends is the thing being fixed. The survey found two asymmetries
+a source reading would have missed — `search`/`neighbourhood` serve no
+`rotated_excluded`, and the goodbye page served only one of three
+counters, which became R57 rather than this revision.
+
+**Cost.** Required-with-no-default breaks every hand-authored fixture
+that omitted a counter, which is the point: each was describing a board
+that does not exist. Four fixtures corrected across the two client
+suites, plus one assertion in R59's new test file — `code == 0` for a
+local refusal is the defect this revision removes, so the test moved
+with it.
+
+**Lesson, and it is the second half of R57's.** Fixing
+`CliError.as_json` left two `ApiError(0, …)` transport sites still
+emitting zero. The value-level test passed; **the both-directions
+invariant test is what found them.** A sentinel is a property of a
+FAMILY of exits, and asserting it at one site proves nothing about the
+family — which is why the invariant is now stated both ways: no
+successful command emits `code` at all, and no local failure emits a
+value colliding with success.

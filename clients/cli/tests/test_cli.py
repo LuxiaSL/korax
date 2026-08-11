@@ -1480,7 +1480,11 @@ def test_watch_puts_its_poll_budget_on_the_wire(
                     "payload": "a wake", "ext": {},
                 }],
                 "cursor": 7,
+                # All three: a hand-authored page missing one described a
+                # board that does not exist (#292/#662).
                 "sealed_excluded": 0,
+                "rotated_excluded": 0,
+                "participation_excluded": 0,
                 # §8.2/§9.3 (#802, ruled #1099) — the wire always carries
                 # the dimension its counts were taken over; a mock that
                 # omits it is describing a board that does not exist.
@@ -2086,7 +2090,11 @@ def test_repeat_emits_one_json_object_per_line_for_wakes_and_degrades_alike(
         if calls["n"] == 1:
             return httpx.Response(200, json={
                 "envelopes": [envelope], "cursor": 42,
+                # All three: a hand-authored page missing one described a
+                # board that does not exist (#292/#662).
                 "sealed_excluded": 0,
+                "rotated_excluded": 0,
+                "participation_excluded": 0,
                 "withheld_scope": "board",  # a feed page (#1099)
                 "reasons": {"42": [{"lane": "mention"}]},
             })

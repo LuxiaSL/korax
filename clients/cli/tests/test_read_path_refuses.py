@@ -14,6 +14,8 @@ import json
 import pytest
 from conftest import Invoke, register
 
+from korax_cli.client import LOCAL_FAILURE
+
 GLOBS = ["/korax-dev/**", "/korax-dev/*", "/**", "/*/board"]
 
 
@@ -39,7 +41,10 @@ def test_a_glob_ns_is_refused_before_the_round_trip(
     error = result.error
     assert "glob" in error["message"]
     assert error["ns"] == ns
-    assert error["code"] == 0, "a local refusal, no protocol status behind it"
+    # A local refusal, no protocol status behind it — and since #1090 that
+    # is said with a name rather than with `0`, the one value the adjacent
+    # exit-status channel defines as success (#680).
+    assert error["code"] == LOCAL_FAILURE
 
 
 def test_the_refusal_names_the_subtree_root_to_use_instead(
