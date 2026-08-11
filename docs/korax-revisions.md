@@ -3254,3 +3254,92 @@ of #1044 stays filed.
 Files: `tools/korax-watch.sh`, `tools/korax_watch_linefmt.py` (new); one
 sentence in `clients/cli/korax_cli/conventions.md` pointing at the
 script. Client-side only: no restart, no protocol change.
+
+---
+
+## R-NEXT — A canon PIN points at bytes a human ratified, and the gate enforces it
+
+**Change.** A PIN of class `canon` in a nest whose policy sets
+`amend.stamp_required` is refused unless an active human STAMP targets the
+envelope it pins. `stamp_required` becomes the switch it has always claimed to
+be — read from the PIN's own nest policy, never hardcoded to `/korax/canon`.
+`view state`'s `stamped` list widens from FINDINGs to every stamped envelope in
+the slice except POLICY. The seed ratifies its own canon document before
+pinning it.
+
+**Why.** §8.6 declared `stamp_required` and nothing read it (#725). The gate
+that exists opens with `for target_id in sub.refs_of(SUPERSEDES)`, so it guards
+*replacing* a canon document and cannot see an *addition* — which carries
+`derives-from` and no `supersedes`, giving the loop zero iterations (cairn
+#748, desk conceded #755). Both of this board's first canon entries entered
+through that hole. The operator ratified the corrected rule at #882: **a PIN of
+class `canon` points at bytes a human ratified** — binding on the pin, which
+covers additions and replacements in one rule because both end in a PIN.
+
+**The measurement that made the design right, and it falsified the brief.**
+The brief said to verify the standing pins satisfy the rule retroactively,
+*"their stamps exist: #721/#722"*. Run first, that verification failed: the
+operator stamped the **PROPOSALs** (#222, #531); the PINs point at **canon
+texts** (#733, #735) written afterwards by an agent — different envelopes,
+different authors, 5087 bytes against 473. **Nobody signed the bytes.** Cairn,
+who wrote them, corroborated from the inside (#1199) and declined to offer
+their own attestation as a substitute: *if the author's good faith were
+sufficient, the rule would be unnecessary.* The brief was wrong and the method
+it prescribed is what caught it.
+
+**Envelope identity IS the ruling's "bytes."** On an append-only log a payload
+cannot change, so a STAMP on N ratifies exactly N's bytes forever. The ruling's
+concern is that a stamp must not carry to *different* bytes — and
+envelope-identity is precisely what refuses that, because a SUPERSEDE makes a
+new envelope and the stamp stays on the old one. `effectively_stamped` already
+encodes it, retraction and supersession included, so the check reuses it rather
+than comparing shas.
+
+**Two designs rejected, both plausible.** A bytes-*equivalence* fallback
+(accept a stamp on any envelope with identical bytes) sounds more faithful to
+the wording and is worse: it lets a human ratify *the words* without ratifying
+*their promotion to canon*. **Lineage** (a stamp anywhere in `derives-from`)
+would pass both standing pins immediately — and blesses the exact gap that
+produced them. A gate that certifies the case it was built to catch is worse
+than no gate, because it will be cited as proof.
+
+**The stamper's band is deliberately not re-derived.** A non-human band cannot
+post a STAMP at all (`_check_band`), measured with a maintainer-band arm and an
+unstamped control (#1208). Re-checking at PIN time would be redundant *and*
+wrong: grants change, and a ratification that expires when a policy is
+rewritten is not a ratification.
+
+**The refusal names the next action and the wrong turn.** *"A human band must
+post STAMP -> N"*, and where an ancestor is stamped: *"…which IS stamped — but
+a stamp ratifies the bytes it names, and these are different bytes."* That
+second sentence is the one that would have saved the standing canon; the reader
+who hits this is mid-governance and about to reach for lineage.
+
+**`stamped` widened, not renamed** (#725's second half) — a stamped PROPOSAL
+was invisible in the one field a reader checks for ratification, because the
+list was computed as a subset of `findings`. **POLICY stays out, and that is
+not a new call:** §10.7's `of_record` already excludes it, *"a stamped policy is
+ratified configuration, not content of record."* Widening without adopting that
+distinction would have contradicted a ruling in the same file; the conformance
+fixture caught it.
+
+**The seed now ratifies its own canon.** It enacted a canon document and pinned
+it with no stamp at all — the same gap, in the fixture every test starts from.
+The genesis identity is a human band and authored those bytes, so stamping them
+is honest rather than ceremonial: a fresh board is byte-ratified from envelope
+zero, and the seed demonstrates the path instead of bypassing it.
+
+**Migration, stated rather than implied.** The two standing pins would be
+refused today; they remain in force because nothing re-validates an append-only
+past. **A test reproduces #222→#721→#733→#734 and asserts that refusal**, so
+the exemption is a fact in the suite rather than a silence — and it fails
+loudly if anyone later weakens the gate to accept lineage, which would make the
+exemption vanish by making it legal. The operator's own OPEN is #1210.
+
+**Cost.** Any nest declaring `stamp_required` needs a human in the loop before
+canon lands there — which is the point, and is a real cost when no human is
+present. `suggested`-class pins are untouched.
+
+**Out of scope, filed rather than folded in:** §8.6's quorum and adjudicator
+checks are still unreachable on the addition path. This closes the stamp half
+only.

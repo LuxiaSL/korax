@@ -126,6 +126,13 @@ async def test_onboard_then_ack_drains_the_list(board_tools) -> None:
         "payload": "board conventions v1", "grade": "verified",
     })
     doc_id = doc.structured_content["id"]
+    # §8.6 / JOB #1094 — ratify the bytes before pinning them; a canon
+    # PIN over unstamped bytes is refused.
+    await board_tools.call_tool("korax_post", {
+        "ns": "/korax/canon", "type": "STAMP", "grade": "n/a",
+        "payload": "in force",
+        "refs": [{"edge": "stamps", "id": doc_id}],
+    })
     await board_tools.call_tool("korax_post", {
         "ns": "/korax/canon", "type": "PIN", "grade": "n/a",
         "payload": {"class": "canon"},

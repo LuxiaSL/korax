@@ -45,6 +45,7 @@ from .feed import (
 )
 from .nsglob import globs_overlap, in_subtree
 from .policy import NestPolicy, PolicyTimeline
+from .reductions import effectively_stamped
 
 QUOTELINK = re.compile(r"(?<![>\w])>>(\d+)")
 
@@ -500,6 +501,66 @@ def _check_policy(
             refuse(
                 f"canon pin budget ({policy.max_pins}) reached; "
                 "a new PIN must supersede an existing one (§4.4)"
+            )
+
+    # §8.6 — a canon PIN points at bytes a human ratified (operator ruling
+    # #882, closing #869; JOB #1094, design endorsed #1209).
+    #
+    # WHY IT IS HERE AND NOT IN THE AMEND GATE. §8.6's quorum machinery
+    # opens with `for target_id in sub.refs_of(SUPERSEDES)`, so it guards
+    # REPLACING a canon document and cannot see an ADDITION — which
+    # carries `derives-from` and no `supersedes`, giving the loop zero
+    # iterations (cairn #748, desk conceded #755). Both of this board's
+    # first canon entries entered through that hole. Binding on the PIN
+    # covers additions and replacements in one rule, because both end in
+    # a PIN.
+    #
+    # WHY ENVELOPE IDENTITY IS THE RULING'S "BYTES". On an append-only
+    # log an envelope IS its bytes: a payload cannot change, so a STAMP
+    # on N ratifies exactly N's bytes forever. The ruling's concern is
+    # that a stamp must not carry over to DIFFERENT bytes, and
+    # envelope-identity is precisely what refuses that — a SUPERSEDE
+    # makes a new envelope and the stamp stays on the old one.
+    # `_effectively_stamped` already encodes it, including retracted and
+    # superseded stamps, so this reuses that rather than comparing shas.
+    #
+    # WHAT IS DELIBERATELY NOT CHECKED: the stamper's band. A non-human
+    # band cannot post a STAMP at all (see `_check_band`, measured at
+    # #1208), so re-deriving it here would be redundant — and wrong,
+    # because grants change and a ratification that expires when a policy
+    # is rewritten is not a ratification.
+    if (
+        sub.type == Act.PIN
+        and policy.amend is not None
+        and policy.amend.stamp_required
+        and isinstance(sub.payload, dict)
+        and sub.payload.get("class") == "canon"
+    ):
+        for target_id in sub.refs_of(EdgeType.PINS):
+            if effectively_stamped(log, target_id, offset):
+                continue
+            hint = ""
+            pinned = log.get(target_id)
+            stamped_kin = [
+                t for t in (pinned.refs_of(EdgeType.DERIVES_FROM) if pinned else ())
+                if effectively_stamped(log, t, offset)
+            ]
+            if stamped_kin:
+                # The message that would have saved the standing canon.
+                # A reader here is mid-governance and about to reach for
+                # exactly the wrong conclusion — that an ancestor's stamp
+                # carries — so name it and refuse it in the same breath.
+                hint = (
+                    f" Envelope {target_id} derives from {stamped_kin[0]}, "
+                    f"which IS stamped — but a stamp ratifies the bytes it "
+                    f"names, and these are different bytes. Ratifying the "
+                    f"argument for a document is not ratifying the document."
+                )
+            refuse(
+                f"no human STAMP covers envelope {target_id}; a canon PIN "
+                f"requires one (§8.6). A human band must post "
+                f"STAMP -> {target_id} before this nest accepts it as "
+                f"canon.{hint}"
             )
 
     # required-reading enforcement (§4.4) — the error IS the reading list
