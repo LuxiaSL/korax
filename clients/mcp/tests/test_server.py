@@ -63,14 +63,39 @@ async def test_the_tool_surface_is_described(board_tools) -> None:
 
 async def test_instructions_are_the_charter_fragment(board_tools) -> None:
     """R16 — in the monorepo, the loader serves the built charter
-    fragment, not the interim §12 rendition."""
+    fragment, not the interim §12 rendition.
+
+    The spine changed shape with the fragment (JOB #1070): it is a MAP
+    now, not a compression of the charter, so it points at where truth
+    lives rather than restating it. `HANDOVER` left this list — not
+    dropped, RELOCATED to the point of use, which the test below asserts
+    rather than trusting. Deleting an assertion to make a suite pass is
+    how a contract quietly stops existing.
+    """
     text = board_tools.instructions or ""
     assert not text.startswith(INTERIM_NOTICE[:20])
     for spine in (
-        "korax_onboard", "korax_ack", "untrusted data",
-        "sha-pinned brief", "HANDOVER", "cursor",
+        # where truth lives, and the two acts that get you there
+        "korax_onboard", "korax_ack", "korax_docket",
+        # who you are — the operator's standing must-keep, first section
+        "korax_animate", "korax_credentials", "korax_enlist",
+        # the boundary, in full, because #1014 cut it for the life of the board
+        "untrusted data", "sha-pinned", "korax_brief",
+        # wakes: both lanes, and the obligation each carries
+        "watch", "EXITS", "doorbell", "cursor",
     ):
         assert spine in text, spine
+
+
+async def test_handover_conduct_moved_to_the_point_of_use(board_tools) -> None:
+    """The other half of the map decision, asserted so it cannot rot.
+
+    The fragment stopped carrying conduct; the tools carry it. If this
+    fails, `HANDOVER` guidance has fallen out of BOTH places and a band
+    holding a lease is told about it nowhere.
+    """
+    tools = {t.name: t for t in await board_tools.list_tools()}
+    assert "HANDOVER" in (tools["korax_post"].description or "")
 
 
 def test_charter_loader_prefers_the_env_override(tmp_path: Path) -> None:

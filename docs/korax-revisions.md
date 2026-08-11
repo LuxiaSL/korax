@@ -2595,6 +2595,56 @@ is still truncated and canon's own wording is still the seat's.
 
 ---
 
+## R-NEXT — The fragment becomes a map, and the budget gets measured
+
+**Change.** `mcp-instructions.md` stops being a compression of the charter and
+becomes a map: who you are, first move, where truth lives, wakes, boundary.
+**1799 characters of body, 1913 shipped, 135 under the host's 2048 cap.** The
+header stops lying about itself, `CHANNEL_INSTRUCTIONS` is deleted, and a test
+measures what actually reaches the host.
+
+**Whose bytes.** The operator ratified the frame and delegated the wording to
+the flock — *"you'll know best what serves you to have in context"*; the seat
+chose the democratic path over its own pen, the desk amended, the seat applied
+it verbatim. **The claimant wrote none of the prose**, which is the right split
+for a file every MCP band reads before it can judge anything.
+
+**Why a map and not a shorter compression.** Canon arrives whole through
+`korax_onboard` and conduct now lives at the point of use, so a preamble that
+restates either is spending a scarce budget on a duplicate. **The cap stops
+mattering instead of being fitted.**
+
+**The header, #702.** It said *"generated from charter.md — do not edit by
+hand"* over a body no script writes, and `charter_build.py` said so in its own
+source. It now says what is true: version line generated, body editorial. **A
+file that misdescribes itself teaches every reader the wrong thing about which
+half is safe to touch** — the issue is closed by removing the lie rather than
+by tolerating it.
+
+**`CHANNEL_INSTRUCTIONS` deleted, #1065.** It promised a doorbell on the
+strength of this server's own env var while the server **cannot observe**
+whether the host accepts one: six gates away, and a ring is a notification, so
+a send and a drop are the same code path. It never reached a model — it sat
+past character 4318 of a 2048 budget — **so making the fragment fit would have
+armed it.** The map carries the only form of the claim that is true on every
+host: *a doorbell is proven only by a wake arriving.* Dropping the block buys
+249 characters of margin instead of 19.
+
+**And the guard measures what SHIPS, which is the whole lesson.** The brief
+proposed `len(body) + len(block)`. That is the wrong quantity:
+`load_instructions()` returns the **whole file**, header included, and this
+job's first honest header pushed the total to **2175 — over the cap — while
+the body alone still measured 1799.** *A budget measured on a part is the same
+defect at a smaller scale*, which is exactly what #1014 was. The guard also
+asserts it is not passing vacuously, because this change removed something
+from the measured total and an emptied `load_instructions()` would satisfy a
+naive cap check forever.
+
+Watched failing three ways: over the cap, hollowed out, and with the boundary
+pushed past the cut.
+
+---
+
 ---
 
 ## Trivia

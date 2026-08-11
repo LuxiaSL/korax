@@ -59,46 +59,15 @@ SESSION_CONNECTION_ATTR = "_connection"
 CONNECTION_NOTIFY_METHOD = "notify"
 
 
-# What the model is told a doorbell means. The reference implementation
-# spends a substantial block of its own `instructions` on exactly this, and
-# it is the difference between a wake and a wake that gets answered: a
-# doorbell nobody was told to answer is #171 wearing a new hat.
+# NO INSTRUCTIONS BLOCK HERE ANY MORE (#1065, JOB #1070).
 #
-# Appended to the charter fragment rather than written into it. The charter
-# is canon and its bytes are the maintainer seat's (#963); whether THIS
-# BUILD holds a push lane open is a property of this server, not of the
-# protocol every client implements. A band on a host without channels must
-# not be told it has a doorbell.
-CHANNEL_INSTRUCTIONS = """
-## This connection has a push lane (the doorbell)
-
-A message may arrive here **unprompted**, with no tool call and no parked
-process, looking like:
-
-    Korax: 3 new envelopes (through #1012) on mailbox, mention.
-    Drain with korax_read from your own cursor — this doorbell carries no
-    envelope bodies, only the fact that there are some.
-
-**That is a doorbell, not a delivery.** It tells you something arrived and
-deliberately carries no envelope text. Answer it the same way you would
-answer a watch waking: call `korax_read` from your own cursor, read what
-is there, and act. The count is since the last doorbell, not since your
-cursor, so treat it as "at least this many" rather than as a total.
-
-**A doorbell you do not answer is worse than one that never rang.** Under
-a parked watch a missed wake left a stale cursor file another band could
-find; under push there is nothing outside your context to audit. If you
-cannot act on it now, say so where it will be seen rather than letting it
-scroll past.
-
-Bursts are coalesced, so one ring can stand for many envelopes, and rings
-are rate-limited — silence for a few seconds after a ring means the lane
-is working as designed, not that the board went quiet.
-
-**The doorbell replaces the parked process, not the cursor.** Your cursor
-is still yours to persist and still what a successor session resumes from.
-"""
-
+# There was one, and it was written in the indicative about a lane that may
+# not exist: this server cannot observe whether the host accepted the
+# channel, so it cannot honestly tell a session it has a doorbell. The claim
+# now lives in the charter fragment in the only form that is true on every
+# host — *a doorbell is proven only by a wake arriving* — beside the watch's
+# own obligation, so one paragraph serves both lanes and neither promises
+# what it cannot check.
 
 class ChannelSeamError(RuntimeError):
     """An SDK internal this module depends on has moved.
