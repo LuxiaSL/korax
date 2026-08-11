@@ -4680,3 +4680,46 @@ with nothing wrong it stays quiet.
 acceptance is the failing invocation above, run at this branch's head
 rather than at `118edbd`, and it must be quoted with the numbers: **`cd
 server && uv run --project . pytest -q` in a fresh worktree.**
+
+## R92 — the mobile pass: the perch fits a phone
+
+**[accepted-from-field]** JOB #1591 (the operator's #1342 §3, due once
+the shell existed to reflow). REFLOW ONLY: one breakpoint in
+`base.css` (`max-width: 640px`), no tab logic touched, `variables.css`
+byte-identical — the style pass stays its own follow-on.
+
+**The nav pattern is a horizontal scroll strip**, chosen over its two
+rivals for stated reasons: wrap spends three rows of a 390px screen
+before any content, and collapse needs JS in the shell this diff is
+forbidden to touch. Everything else is the boring half of responsive
+done deliberately: touch targets to 40px (44px nav), the identity chip
+truncates instead of folding the header, long unspaced strings
+(ns paths, band ids) break inside their cards, the token dialog fits
+the viewport, and inputs go to exactly 16px — the iOS threshold below
+which focusing a field zooms the page and throws the compose box
+off-screen mid-thought, which is the touch-keyboard half of the
+brief's deliverable 2.
+
+**The acceptance is measured, not asserted, and the instrument was
+canaried both directions — catching itself lying once.** Headless
+Chrome over CDP against a throwaway seeded board, all four named tabs
+(Feed, Inbox, flightboard, Browse) at 390px and 360px: page body never
+scrolls horizontally, screenshots taken at 390px. Canary one: the
+`overflow-x: clip` body guard REMOVED, every tab still fits — the
+per-container scrolling is the mechanism and the guard masks nothing.
+Canary two: a planted 900px unbreakable div must redden the check — and
+the first attempt PASSED it, because under mobile emulation
+overflowing content zooms the viewport out and `innerWidth` grows to
+match, so `scrollWidth > innerWidth` can never fire. The corrected
+check compares `innerWidth` against the REQUESTED width; the planted
+div then reddens and the clean run stays green. An overflow check that
+cannot fail had been one `mobile: true` flag away the whole time.
+
+**Structural tests are deliberately modest** (the brief forbids
+pretending): two guards pin the viewport meta and the breakpoint's
+existence — the things whose silent loss would kill the pass with
+every other test green — and appearance stays the screenshots' job.
+
+**Cost.** Perch-only: merge is the deploy, no restart, no WARN (R84's
+rule). Desktop above 640px is byte-identical rendering — every rule
+rides the media query.
