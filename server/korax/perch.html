@@ -563,7 +563,6 @@ async function openProfile(id) {
         ${band?.created ? `<span>since ${esc(band.created.slice(0, 10))}</span>` : ""}
       </div>
       <div style="font-size:13px">${grants}</div>
-      <div style="margin-top:8px"><button onclick="openProfile('${esc(i.id)}')">profile</button></div>
     </div>
     <h3 style="margin:16px 0 6px">what they have written
       <span class="tag">${envs.length}</span></h3>
@@ -1115,6 +1114,7 @@ async function loadBands() {
         ${i.created_by ? `<span>minted by ${esc(i.created_by)}</span>` : ""}
       </div>
       <div style="font-size:13px">${grants}</div>
+      <div style="margin-top:8px"><button onclick="openProfile('${esc(i.id)}')">profile</button></div>
     </div>`;
   }).join("");
   $("#bandsList").innerHTML =

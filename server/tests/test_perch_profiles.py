@@ -103,3 +103,55 @@ def test_leaving_a_profile_restores_the_list(world: dict) -> None:
     src = script()
     assert 'onclick="loadBands()"' in src
     assert 'const pane = $("#bandProfile");' in src
+
+
+def test_the_profile_button_lives_where_its_variable_is_bound() -> None:
+    """**The defect the desk caught at #1301, and the test that would have.**
+
+    The `profile` button interpolates `i.id` — the identity being mapped in
+    `loadBands`. A positional edit put it inside `openProfile` instead, where
+    `i` is unbound: evaluating the template throws `ReferenceError`, the
+    innerHTML assignment never happens, and the profile renders as nothing.
+
+    **No browser in this suite, so an unbound identifier in a template literal
+    is invisible to every other test here.** The suites were green. This pins
+    the binding by location, which is the cheapest thing that could have
+    caught it.
+    """
+    src = script()
+    profile_fn = src.split("async function openProfile(id)")[1].split("\n}")[0]
+    assert "i.id" not in profile_fn and "i.display" not in profile_fn, (
+        "openProfile references `i`, which is bound only inside loadBands' "
+        "identity map — evaluating this throws and the pane stays empty"
+    )
+    bands_fn = src.split("async function loadBands()")[1].split("\n}")[0]
+    assert "openProfile('${esc(i.id)}')" in bands_fn, (
+        "the profile button is not in loadBands' card, so either it moved "
+        "again or the band list has no way into a profile"
+    )
+
+
+def test_every_interpolation_in_the_profile_view_is_a_bound_name() -> None:
+    """The general form of the above, as far as a string check honestly goes.
+
+    Every `${...}` in `openProfile`'s template may only reference names the
+    function actually binds. This cannot catch a typo'd property, but it
+    catches the whole class the desk found: a fragment pasted from a scope it
+    does not live in.
+    """
+    src = script()
+    body = src.split("async function openProfile(id)")[1].split("\n}\n")[0]
+    # locals + helpers this file defines, plus the JS globals a template may
+    # legitimately call. `encodeURIComponent` is one and tripped the first
+    # draft — a too-narrow allowlist reports correct code as a defect, which
+    # is the opposite failure and just as expensive to chase.
+    bound = {"id", "band", "page", "envs", "grants", "esc", "who", "fbWithheld",
+             "fbFirstLine", "openEnvelope", "loadBands", "REG", "api", "$",
+             "registry", "e", "g", "a", "b",
+             "encodeURIComponent", "JSON", "String", "Object", "Array"}
+    import re as _re
+    names = set(_re.findall(r"\$\{\s*([A-Za-z_][A-Za-z0-9_]*)", body))
+    unbound = names - bound
+    assert not unbound, (
+        f"interpolations reference names openProfile does not bind: {sorted(unbound)}"
+    )
