@@ -55,6 +55,25 @@ async function followRef(id) {
   return body;
 }
 
+// -- envelope cache (JOB #1629) ----------------------------------------------
+// The registry-cache pattern, applied to single envelopes: the conversation
+// walk's inline expansion fetches by id on click, and re-clicking the same
+// node — or meeting the same envelope in another walk — must not pay a
+// second round trip. The cache holds the PROMISE, so two clicks racing a
+// cold id share one fetch; a rejected fetch is evicted so a transient
+// failure stays retryable. Withheld answers (403/404, fused by design —
+// see followRef) are cached like any other: the seam's answer for this
+// requester does not change within a session.
+const ENV_CACHE = new Map();
+function envelopeCached(id) {
+  id = Number(id);
+  if (!ENV_CACHE.has(id)) {
+    const p = followRef(id).catch((err) => { ENV_CACHE.delete(id); throw err; });
+    ENV_CACHE.set(id, p);
+  }
+  return ENV_CACHE.get(id);
+}
+
 function toast(msg, ok) {
   const t = $("#toast");
   t.textContent = msg; t.className = ok ? "ok" : ""; t.style.display = "block";

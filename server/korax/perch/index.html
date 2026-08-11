@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="/perch/css/base.css">
 <link rel="stylesheet" href="/perch/css/pages/browse.css">
 <link rel="stylesheet" href="/perch/css/pages/feed.css">
+<link rel="stylesheet" href="/perch/css/pages/thread.css">
 </head>
 <body>
 <header>
@@ -267,6 +268,59 @@ function fbHopLabel(n) {
   return n === 0 ? "the envelope" : n === 1 ? "one hop" : `${n} hops`;
 }
 
+// -- inline expansion (JOB #1629) --------------------------------------------
+//
+// The operator's ask, verbatim shape: clicking a walk node opens that
+// envelope's full card DIRECTLY BENEATH the node row — thread reading
+// instead of round-tripping the id through the fetch box and losing the
+// walk. The #id chip keeps its jump (a different, still-wanted gesture);
+// the ▸ toggle is the new one. Expansion ADDS depth and never replaces
+// context: the hop grouping, edge labels and withheld counters around the
+// card do not move.
+//
+// **Inline depth is 1, and the cap is VISIBLE** (the counters' own
+// convention: a bound the reader cannot see is a bound they will read as
+// an absence). Each expanded card carries a `conversation` button that
+// re-roots the walk on that envelope — recursion by re-rooting, so the
+// walk on screen is always ONE reduction's answer rather than a client-
+// assembled tree no reduction ever served.
+//
+// §9.3: `envelopeCached` rides followRef, so a ref across the seam
+// renders as the withheld chip — the same vocabulary as everywhere else —
+// and absent-vs-denied stays fused exactly as the server fuses it.
+async function toggleThreadNode(id, btn) {
+  const pane = $("#ti-" + id);
+  if (!pane) return;
+  if (!pane.classList.contains("hidden")) {
+    pane.classList.add("hidden");
+    btn.setAttribute("aria-expanded", "false");
+    btn.textContent = "▸ open";
+    return;
+  }
+  pane.classList.remove("hidden");
+  btn.setAttribute("aria-expanded", "true");
+  btn.textContent = "▾ close";
+  if (pane.dataset.loaded) return;
+  pane.innerHTML = `<div class="empty">fetching #${esc(String(id))}…</div>`;
+  try {
+    const e = await envelopeCached(id);
+    await registry();
+    pane.innerHTML = e.withheld
+      ? withheldChip(id)
+      : envCard(e, `<div class="meta" style="margin-top:8px">
+          <button onclick="$('#envId').value=${id}; openEnvelope(${id}); loadConversation();">conversation</button>
+          <span style="color:var(--dim);font-size:12px">inline depth is 1 —
+          “conversation” re-roots the walk here to go deeper</span>
+        </div>`);
+    pane.dataset.loaded = "1";
+  } catch (err) {
+    // followRef already toasted the refusal; the pane says what happened
+    // and stays un-cached so the next open retries.
+    pane.innerHTML = `<div class="empty">could not fetch #${esc(String(id))} —
+      a real failure (not a seam refusal; those render as withheld)</div>`;
+  }
+}
+
 async function loadConversation() {
   const id = $("#envId").value.trim();
   if (id === "") return;
@@ -282,12 +336,15 @@ async function loadConversation() {
       <span class="tag">${nodes.length}</span></h4>` + (nodes.length
       ? nodes.map((n) => `<div class="card">
           <div class="meta">
+            <button class="ti-toggle" aria-expanded="false"
+              onclick="toggleThreadNode(${n.id}, this)">▸ open</button>
             <span class="tag id" onclick="openEnvelope(${n.id})">#${n.id}</span>
             <span class="tag act">${esc(n.type)}</span>
             <span class="tag">${esc(n.ns)}</span>
             ${who(n.author)}
             <span class="edge">${esc((n.edges || []).join(" "))}</span>
-          </div></div>`).join("")
+          </div>
+          <div class="ti-inline hidden" id="ti-${n.id}"></div></div>`).join("")
       : `<div class="fb-empty">nothing at this distance</div>`);
   }).join("");
 
