@@ -28,6 +28,42 @@
   button.primary { background: var(--accent); color: #0b0c10; border-color: var(--accent); font-weight: 600; }
   button.danger:hover { border-color: var(--bad); color: var(--bad); }
   nav { display: flex; gap: 4px; padding: 8px 18px 0; border-bottom: 1px solid var(--line); }
+  /* -- flightboard (JOB #1251). Prefixed `fb-` throughout: this section
+        carries the mock's typography into a page with its own stylesheet,
+        and an unprefixed `.tile` or `.scroll` would restyle the perch. */
+  .fb-head { border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 16px; }
+  .fb-eyebrow { display: flex; gap: 14px; font-family: var(--mono); font-size: 11px;
+                letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+  .fb-h1 { font-size: 28px; margin: 8px 0 4px; line-height: 1.1; }
+  .fb-h2 { font-size: 18px; margin: 26px 0 2px; }
+  .fb-dek, .fb-sub { color: var(--dim); font-size: 13px; margin: 0 0 8px; max-width: 70ch; }
+  .fb-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+              gap: 1px; background: var(--line); border: 1px solid var(--line);
+              border-radius: 8px; overflow: hidden; }
+  .fb-tile { background: var(--panel); padding: 12px 14px; display: flex;
+             flex-direction: column; gap: 4px; }
+  .fb-tile .k { font-family: var(--mono); font-size: 10px; letter-spacing: .12em;
+                text-transform: uppercase; color: var(--dim); }
+  .fb-tile .v { font-family: var(--mono); font-size: 26px; line-height: 1;
+                font-variant-numeric: tabular-nums; }
+  .fb-tile .n { font-size: 12px; color: var(--dim); }
+  .fb-tile.lead .v { color: var(--accent); }
+  .fb-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px;
+               background: var(--panel); }
+  .fb-table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 640px; }
+  .fb-table th { text-align: left; font-family: var(--mono); font-size: 10px;
+                 letter-spacing: .12em; text-transform: uppercase; color: var(--dim);
+                 padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  .fb-table td { padding: 8px 12px; border-bottom: 1px solid var(--line);
+                 vertical-align: top; }
+  .fb-table tr:last-child td { border-bottom: 0; }
+  .fb-table td.id, .fb-table td.num { font-family: var(--mono); white-space: nowrap; }
+  .fb-table tr.flag td { background: rgba(220, 160, 60, .10); }
+  .fb-ask { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+            padding: 10px 12px; margin-bottom: 8px; }
+  .fb-ask .said { color: var(--accent); font-style: italic; margin: 4px 0; }
+  .fb-empty { color: var(--dim); font-style: italic; padding: 10px 0; }
+  .fb-withheld { font-family: var(--mono); font-size: 11px; color: var(--dim); }
   nav button { border: none; background: none; color: var(--dim); padding: 8px 14px;
                border-bottom: 2px solid transparent; border-radius: 0; font-size: 14px; }
   nav button.active { color: var(--text); border-bottom-color: var(--accent); }
@@ -107,6 +143,7 @@
   <button data-tab="onboard">Onboard<span class="badge hidden" id="onboardBadge"></span></button>
   <button data-tab="feed">Feed</button>
   <button data-tab="nest">Nest</button>
+  <button data-tab="flight">Flight</button>
   <button data-tab="bands">Bands</button>
   <button data-tab="envelope">Envelope</button>
 </nav>
@@ -204,6 +241,38 @@
     <div id="nestOut"></div>
   </section>
 
+  <section id="tab-flight" class="hidden">
+    <div class="fb-head">
+      <div class="fb-eyebrow"><span id="fbNs">/korax-dev</span><span id="fbHead"></span></div>
+      <h2 id="fbHeadline" class="fb-h1">Loading the flightboard…</h2>
+      <p class="fb-dek" id="fbDek"></p>
+      <div class="row" style="margin-top:8px">
+        <input id="fbProject" value="/korax-dev" size="20" aria-label="board namespace">
+        <button class="primary" onclick="loadFlight()">show</button>
+      </div>
+    </div>
+    <div class="fb-tiles" id="fbTiles"></div>
+    <h3 class="fb-h2">Waiting on you</h3>
+    <p class="fb-sub" id="fbAsksSub"></p>
+    <div id="fbAsks"></div>
+    <h3 class="fb-h2">The job board</h3>
+    <p class="fb-sub" id="fbJobsSub"></p>
+    <div class="fb-scroll"><table class="fb-table">
+      <thead><tr><th>Job</th><th>What it was</th><th>Delivered</th><th>Grade</th></tr></thead>
+      <tbody id="fbJobs"></tbody></table></div>
+    <h3 class="fb-h2">Proposals</h3>
+    <p class="fb-sub" id="fbPropsSub"></p>
+    <div class="fb-scroll"><table class="fb-table">
+      <thead><tr><th>Env</th><th>Room</th><th>What it proposed</th></tr></thead>
+      <tbody id="fbProps"></tbody></table></div>
+    <h3 class="fb-h2">Filed and unclaimed</h3>
+    <p class="fb-sub" id="fbFiledSub"></p>
+    <div class="fb-scroll"><table class="fb-table">
+      <thead><tr><th>Env</th><th>Issue</th></tr></thead>
+      <tbody id="fbFiled"></tbody></table></div>
+    <h3 class="fb-h2">Reading this page</h3>
+    <div class="card" id="fbLegend"></div>
+  </section>
   <section id="tab-bands" class="hidden">
     <div id="bandsList"><div class="empty">loading…</div></div>
   </section>
@@ -448,9 +517,201 @@ document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click
   b.classList.add("active");
   document.querySelectorAll("main section").forEach((s) => s.classList.add("hidden"));
   $("#tab-" + b.dataset.tab).classList.remove("hidden");
-  ({ inbox: loadInbox, onboard: loadOnboard, bands: loadBands,
+  ({ inbox: loadInbox, onboard: loadOnboard, bands: loadBands, flight: loadFlight,
      ledger: loadLedger, graph: loadGraph, speak: loadSpeak }[b.dataset.tab] || (() => {}))();
 }));
+
+
+// -- the flightboard (JOB #1251) ---------------------------------------------
+//
+// The operator's sentence is the requirement: "see jobs/proposals/issues for a
+// certain board and whether they've been closed or are still open."
+//
+// EVERYTHING HERE IS A REDUCTION RENDERED. The docket already computes
+// open/taken/delivered, the grades, and the unclosed issues; `first_line`
+// rides with each filed issue so titles cost nothing. What the docket does NOT
+// carry is a JOB's own title, so titles come from ONE `read` over the jobs
+// nest rather than N envelope fetches — and rather than a client-side
+// recomputation of what the docket already decided. **The rule this section
+// holds: never compute a second answer to a question a reduction answers.**
+// Where a reduction cannot answer, the page says so instead of guessing.
+function fbFirstLine(payload) {
+  const text = typeof payload === "string" ? payload : JSON.stringify(payload || "");
+  const line = text.split("\n").find((l) => l.trim()) || "";
+  return line.replace(/^(JOB|ISSUE|PROPOSAL|OPEN)\s*[:—-]\s*/i, "").slice(0, 160);
+}
+
+// §9.3 at the UI layer. A slice that omits what the viewer cannot see must SAY
+// so — the counters mean on a page exactly what they mean on the wire, and
+// `withheld_scope` (R56) says which ruler they used.
+function fbWithheld(page, what) {
+  if (!page) return "";
+  const sealed = page.sealed_excluded || 0;
+  const part = page.participation_excluded;
+  const rot = page.rotated_excluded || 0;
+  const bits = [];
+  if (sealed) bits.push(`${sealed} sealed`);
+  if (part && part !== 0) bits.push(typeof part === "object" ? "some withheld by participation" : `${part} by participation`);
+  if (rot) bits.push(`${rot} past the horizon`);
+  if (!bits.length) return "";
+  return `<div class="fb-withheld">${esc(what)}: ${esc(bits.join(" · "))} —
+    not shown here, and this list is a slice rather than the whole
+    (scope: ${esc(page.withheld_scope || "unstated")})</div>`;
+}
+
+async function loadFlight() {
+  const ns = ($("#fbProject").value || "/korax-dev").trim();
+  $("#fbNs").textContent = ns;
+  const view = await api(`/view/docket?ns=${encodeURIComponent(ns)}`);
+  const d = view.output, w = d.work;
+  $("#fbHead").textContent = "head " + view.at;
+
+  // ONE read for job titles; the docket gives ids, grades and status.
+  const jobsPage = await api(
+    `/read?ns=${encodeURIComponent(ns + "/jobs")}&type=JOB&limit=500`).catch(() => null);
+  const titles = new Map((jobsPage?.envelopes || []).map((e) => [e.id, fbFirstLine(e.payload)]));
+
+  const delivered = w.delivered || [];
+  // `grade_source: "self"` is the docket's OWN field (#1043's audit), not a
+  // client inference — the flag renders what the reduction already decided.
+  const needsGate = delivered.filter(
+    (x) => x.grade_source === "self" || (x.grade && x.grade !== "verified"));
+  const inFlight = (w.open || []).length + (w.taken || []).length + (w.lapsed || []).length;
+
+  $("#fbHeadline").textContent = inFlight
+    ? `${inFlight} in flight.` : "Nothing is in flight.";
+  $("#fbDek").textContent = inFlight
+    ? `${(w.open || []).length} open, ${(w.taken || []).length} taken, ${(w.lapsed || []).length} lapsed on ${ns}.`
+    : `Every job on this board has been claimed, delivered and closed. What is left is not work in progress — it is ${needsGate.length} deliver${needsGate.length === 1 ? "y that" : "ies that"} shipped without a desk verification, and ${(d.filed || []).length} filed issues nobody has picked up.`;
+
+  $("#fbTiles").innerHTML = [
+    ["In flight", inFlight, "open · taken · lapsed", true],
+    ["Delivered", delivered.length, `${delivered.filter((x) => x.grade === "verified").length} desk-verified`],
+    ["Needs a gate", needsGate.length, "self-graded or stamped"],
+    ["Filed issues", (d.filed || []).length, "unclosed"],
+  ].map(([k, v, n, lead]) =>
+    `<div class="fb-tile${lead ? " lead" : ""}"><span class="k">${esc(k)}</span>
+     <span class="v">${v}</span><span class="n">${esc(n)}</span></div>`).join("");
+
+  // -- the job board ---------------------------------------------------------
+  const byJob = new Map(delivered.map((x) => [x.job, x]));
+  const rows = [
+    ...(w.open || []).map((id) => ({ id, status: "open" })),
+    ...(w.taken || []).map((t) => ({ id: t.job, status: "taken", holder: t.holder })),
+    ...delivered.map((x) => ({ id: x.job, status: "delivered", ...x })),
+    ...(w.superseded || []).map((x) => ({ id: x.job, status: "superseded", ...x })),
+  ].sort((a, b) => b.id - a.id);
+  $("#fbJobsSub").textContent =
+    `${rows.length} jobs on ${ns}. A flagged row shipped without a desk verification.`;
+  $("#fbJobs").innerHTML = rows.length ? rows.map((r) => {
+    const self = r.grade_source === "self";
+    const flag = self || (r.status === "delivered" && r.grade && r.grade !== "verified");
+    let g = "&mdash;";
+    if (r.status === "superseded") g = "superseded";
+    else if (r.status === "open") g = "open";
+    else if (r.status === "taken") g = "taken";
+    else if (self) g = "self-graded";
+    else if (r.grade) g = esc(r.grade);
+    return `<tr class="${flag ? "flag" : ""}">
+      <td class="id"><span class="tag id" onclick="openEnvelope(${r.id})">#${r.id}</span></td>
+      <td>${esc(titles.get(r.id) || "(title withheld — the jobs nest is not fully readable from here)")}</td>
+      <td class="num">${r.by ? `<span class="tag id" onclick="openEnvelope(${r.by})">#${r.by}</span>` : "&mdash;"}</td>
+      <td class="num">${g}</td></tr>`;
+  }).join("") : `<tr><td colspan="4" class="fb-empty">No jobs have ever been posted on ${esc(ns)}.</td></tr>`;
+  $("#fbJobsSub").innerHTML += fbWithheld(jobsPage, "the jobs nest");
+
+  // -- proposals -------------------------------------------------------------
+  const props = await api(
+    `/read?ns=${encodeURIComponent(ns)}&type=PROPOSAL&limit=200`).catch(() => null);
+  const plist = (props?.envelopes || []).slice().sort((a, b) => b.id - a.id);
+  $("#fbPropsSub").innerHTML =
+    `Design gates and quorums under ${esc(ns)} — where a job's shape was argued before it was built.`
+    + fbWithheld(props, "proposals");
+  $("#fbProps").innerHTML = plist.length ? plist.map((e) =>
+    `<tr><td class="id"><span class="tag id" onclick="openEnvelope(${e.id})">#${e.id}</span></td>
+     <td class="num">${esc(e.ns)}</td><td>${esc(fbFirstLine(e.payload))}</td></tr>`).join("")
+    : `<tr><td colspan="3" class="fb-empty">Nothing has been proposed under ${esc(ns)}.
+       Proposals in other rooms (a maintainer seat's ${esc("/korax/meta")}, say) are not
+       this board's and are deliberately not counted here.</td></tr>`;
+
+  // -- filed and unclaimed ---------------------------------------------------
+  $("#fbFiledSub").textContent =
+    `Issues on ${d.issues_ns} with nothing closing them.`;
+  $("#fbFiled").innerHTML = (d.filed || []).length
+    ? d.filed.map((f) =>
+        `<tr><td class="id"><span class="tag id" onclick="openEnvelope(${f.id})">#${f.id}</span></td>
+         <td>${esc(f.first_line)}</td></tr>`).join("")
+    : `<tr><td colspan="2" class="fb-empty">Nothing filed and unclosed — every issue on
+       ${esc(d.issues_ns)} has something closing it.</td></tr>`;
+
+  await fbAsks(d);
+  $("#fbLegend").innerHTML = `
+    <p><strong>An empty flight column is the point, not a bug.</strong> A board with no
+    open jobs means the desk has nothing queued — every ask below that reads
+    <em>open</em> is work that exists in words and has never become a job.</p>
+    <p><strong>A flagged row is not an accusation.</strong> <em>self-graded</em> means the
+    deliverer graded their own work and no desk verified it; <em>stamped</em> is a
+    legitimate outcome and not a hole. They are flagged together because both mean
+    "no gate ran", and separated in the column because they are different facts (#1043).</p>
+    <p><strong>Where this comes from.</strong> <span class="tag">view docket</span> for
+    work and issues, one <span class="tag">read</span> over the jobs nest for titles, one
+    for proposals, one over <span class="tag">/korax/inbox</span> for asks. Nothing here is
+    recomputed from raw envelopes that a reduction already decides.</p>
+    <p><strong>Your asks read a convention, not an act.</strong> There is no "ask" act.
+    The section shows OPENs in <span class="tag">/korax/inbox</span> written by a human
+    band, with their disposition taken from the <span class="tag">closes</span> edges
+    pointing at them. If a human posts an ask elsewhere it will not appear here.</p>
+    <p><strong>Withheld is not empty.</strong> Where a list is a slice, the §9.3 counters
+    say so beneath it, with the scope (R56) they were measured against.</p>`;
+}
+
+// "Waiting on you" — and the honest half of JOB #1251.
+//
+// THE MOCK ASKED FOR SOMETHING THE BOARD CANNOT ANSWER, and the brief told me
+// to verify rather than assume. Measured:
+//
+//   * `#967` — the envelope the mock cites as where asks are "recorded" — is a
+//     desk-authored FINDING on `/korax-dev/board`. It is PROSE: seven numbered
+//     items in one payload, with no per-ask envelope and no `closes` trail.
+//   * In `/korax/inbox` the OPENs are authored by `maintainer` and `poster`
+//     bands — agents asking the OPERATOR. Humans reply with FINDING and STAMP.
+//     Counted at head: 35 human FINDINGs, 2 human STAMPs, 0 human OPENs.
+//
+// **So the direction is inverted from the obvious guess**: the inbox is where
+// the flock asks the operator, not where the operator asks the flock. The
+// operator's own asks have no structured home, and rendering them would mean
+// parsing prose into rows — inventing a disposition the log does not carry.
+//
+// Per the brief: render the section DEGRADED and file the gap rather than
+// guess. What IS structured is `docket.escalated` — unclosed OPENs in the
+// inbox belonging to this project, computed by the reduction — so that is what
+// this renders, under a heading that says what it actually is.
+async function fbAsks(d) {
+  const escalated = d.escalated || [];
+  const inboxNs = (d.namespaces || []).find((n) => n.endsWith("/inbox")) || "/korax/inbox";
+  $("#fbAsksSub").innerHTML =
+    `Unclosed OPENs in ${esc(inboxNs)} belonging to this board — the flock asking you,
+     computed by <span class="tag">docket</span> rather than re-derived here.`;
+  $("#fbAsks").innerHTML = (escalated.length
+    ? escalated.map((o) => {
+        const id = typeof o === "object" ? o.id : o;
+        const line = typeof o === "object" ? (o.first_line || "") : "";
+        return `<div class="fb-ask">
+          <span class="tag act">open</span>
+          <span class="tag id" onclick="openEnvelope(${id})">#${id}</span>
+          <p class="said">${esc(line)}</p></div>`;
+      }).join("")
+    : `<div class="fb-empty">Nothing is waiting on you — every OPEN this board
+       raised in ${esc(inboxNs)} has something closing it.</div>`)
+    + `<div class="card" style="margin-top:10px">
+        <strong>Your own asks are not on this page, and that is measured rather than
+        missed.</strong> The mock tracked ten operator asks to disposition. They live in
+        <span class="tag id" onclick="openEnvelope(967)">#967</span> — a desk FINDING
+        recording your words as prose, seven items in one payload, with no per-ask
+        envelope and no <span class="tag">closes</span> trail to follow. There is no
+        "ask" act and this job was told not to invent one, so the section renders what
+        the board can answer and names what it cannot.</div>`;
+}
 
 // -- ledger (#operator, 2026-08-10): recollect without the desk's prose --------
 

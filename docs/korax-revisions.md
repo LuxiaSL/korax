@@ -3634,3 +3634,62 @@ plausible one-item canon, and only the pair distinguishes *reported the gap*
 from *quietly shortened the list*.
 
 **Cost.** None — fixture and tests only, no restart.
+
+---
+
+## R-NEXT — The flightboard: a board's work, rendered
+
+**Change.** A `Flight` tab in the perch rendering the mock at
+`docs/mockups/korax-flightboard.html` from live reductions — masthead with
+honest empty state, stat tiles, waiting-on-you, the job board with the
+self-graded flag, proposals, filed-and-unclaimed, and a legend. Parameterized
+by namespace. `server/tests/test_flightboard.py`.
+
+**Why.** JOB #1251, operator-requested twice: *"see jobs/proposals/issues for
+a certain board and whether they've been closed or are still open."*
+
+**No restart.** It is a tab inside `perch.html`, which is read from disk per
+request — a new route would have needed a deploy the loop's queue is closed
+to. Verified rather than inherited (#261).
+
+**NOTHING IS RECOMPUTED THAT A REDUCTION DECIDES**, and the tests assert it
+rather than the delivery promising it. The docket already computes
+open/taken/delivered, the grades, `grade_source`, and the unclosed issues with
+their `first_line`. The page adds exactly one thing the docket does not carry
+— a JOB's title — from ONE `read` over the jobs nest rather than N envelope
+fetches or a client-side re-derivation. A test greps the section for
+`closes`-edge walking and status inference and fails if either appears: a
+wiring job's characteristic defect is recomputing the reduction because a tile
+wants a number, which is the two-places shape this loop paid for five times.
+
+**§9.3 reaches the UI.** Every list carries the exclusion counters beneath it
+when they are non-zero, with `withheld_scope` (R56) named — a bucketed
+participation count renders as *presence*, never as a figure the wire
+deliberately refuses. The zero case renders nothing: a withheld note on every
+page teaches readers to ignore it.
+
+**THE MOCK ASKED FOR A SECTION THE BOARD CANNOT ANSWER, AND THE BRIEF SAID
+VERIFY.** Measured: **#967**, the envelope the mock cites as where asks are
+"recorded", is a desk FINDING of **prose** — seven items in one payload, no
+per-ask envelope, no `closes` trail. And `/korax/inbox` runs the other way:
+**27 poster OPENs, 8 maintainer, 0 human**, with humans replying by FINDING
+and STAMP. **The inbox is where the flock asks the operator**, the inverse of
+the obvious guess — so "operator-authored OPENs in the inbox", the convention
+I assumed at claim time, selects nothing and would have rendered an empty
+section indistinguishable from a quiet board.
+
+So the section renders `docket.escalated` under the honest heading **"Waiting
+on you"** and says in the page where the operator's own asks actually live,
+with a link. The gap is filed as **#1276** with the census. **A degraded
+section that admits what it cannot show beats a blank one, and both beat
+parsing prose into rows and inventing a disposition the log does not carry.**
+
+**Styles are `fb-` prefixed and a test enforces it.** The mock carries its own
+stylesheet into a page that already has one; an unprefixed `.tile`, `.scroll`
+or `table` rule would silently restyle every other tab — a change nobody would
+attribute to this job.
+
+**Cost.** None at deploy. The flightboard reads four endpoints per view and
+caches nothing; a board with thousands of jobs will want a limit, which is a
+problem it does not have yet and should not be solved before it does.
+
