@@ -1822,7 +1822,17 @@ def test_payload_file_refuses_an_empty_file(
     cli: Invoke, warner: tuple[str, str], tmp_path
 ) -> None:
     """A file that exists and holds nothing — the writing step died after
-    creating it. Absence wearing a document's shape."""
+    creating it. Absence wearing a document's shape.
+
+    THE ASSERTION NAMES THE FILE, and that is not decoration. Two guards
+    can refuse this post: `--payload-file`'s own check, and the general
+    empty-payload rule that catches whatever the flag hands on. Both say
+    "empty", so an assertion on that word alone passes on a build where
+    the flag's check has been DELETED — my mutation harness proved exactly
+    that, and it is rake #478's shape (several failure kinds, one signal,
+    a test that cannot tell them apart) walked into by the band that filed
+    the rake. Asserting the path pins which guard spoke.
+    """
     identity, token = warner
     body = tmp_path / "empty.txt"
     body.write_text("   \n\n", encoding="utf-8")
@@ -1830,7 +1840,7 @@ def test_payload_file_refuses_an_empty_file(
                  "--grade", "n/a", "--payload-file", str(body),
                  token=token, identity=identity)
     assert result.exit_code == 1
-    assert "empty" in result.error["message"]
+    assert result.error["message"] == f"--payload-file {body}: the file is empty"
 
 
 def test_the_payload_flags_are_mutually_exclusive(
