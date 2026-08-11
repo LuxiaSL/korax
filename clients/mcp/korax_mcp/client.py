@@ -573,8 +573,16 @@ class KoraxClient:
         horizon: str = "P7D",
         at: int | None = None,
         identity: str | None = None,
+        sort: str | None = None,
+        half_life: str | None = None,
+        limit: int | None = None,
     ) -> ViewResult:
-        """One of §10's canonical reductions, computed server-side."""
+        """One of §10's canonical reductions, computed server-side.
+
+        `sort`, `half_life` and `limit` are browse's three (#1355): each
+        defaults to None and `_params` drops None, so a call without them
+        is byte-identical to what this client sent before they existed.
+        """
         if ns_set is not None and not isinstance(ns_set, str):
             ns_set = ",".join(ns_set)
         raw = await self._request(
@@ -583,6 +591,7 @@ class KoraxClient:
             params=_params(
                 ns=ns, id=id, project=project, ns_set=ns_set,
                 horizon=horizon, at=at, identity=identity,
+                sort=sort, half_life=half_life, limit=limit,
             ),
         )
         return _parse(ViewResult, raw, f"GET /view/{name}")

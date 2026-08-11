@@ -4399,6 +4399,7 @@ WARN rides the mill's batch. Opt-in — a read with no `summary` is
 byte-identical to before, asserted. **This is a BANDWIDTH fix and not the
 latency fix**: #1431's remedy 1, the waiter herd, is a separate
 design-gated thread and this changes none of it.
+
 ## R87 — The seal stops barring the addressee, and mail gets a presence view
 
 **JOB #1403** for the operator's **#1397**, on cairn's adjudication
@@ -4488,3 +4489,45 @@ in exactly the shape it describes.
 **Cost.** Server-touching (a new view and an access-path branch): a
 restart WARN precedes and the mill batches it. No migration, no protocol
 change, §10 untouched.
+
+## R-NEXT — browse reaches the clients: three flags, no new verb
+
+**[accepted-from-field]** JOB #1547, closing ISSUE #1355 — slate's own
+filing from the R77 delivery, deliberately not smuggled into that scope
+and ruled at #1504 (surface (a)). Clients-only; the server has served
+the full parameter surface since R77 and only the perch could reach it.
+
+**The change is three `None`s wide.** CLI: `korax view` gains `--sort`,
+`--half-life`, `--limit`, threaded into the params dict where the
+transport layer already drops `None` — so an invocation without them
+puts EXACTLY the pre-#1547 query on the wire. MCP: `browse` joins
+`KNOWN_VIEWS` (the tool description stops steering agents away from a
+served view), and `korax_view`/`client.view` gain the three optional
+fields, dropped by `_params` when unset.
+
+**The no-regression case is asserted at the wire, not inferred from
+defaults** (#1180's discipline): both suites wrap the transport and
+compare the recorded query — the CLI's bare call is byte-for-byte
+`ns=...` alone; the MCP client's is exactly its pre-existing
+`{ns, horizon}` pair. Each flag is then proven to round-trip and change
+the response: `recent` unscored and clockless, `top` undecayed,
+`--half-life P1D` served back (D3's legibility rule), `--limit 1` with
+`total` still reporting the whole slice.
+
+**No client-side value validation, both directions of §13:** the sort
+value goes through unfiltered, and the server's 422 comes back naming
+the legal set — asserted at both surfaces, because a client that
+pre-refused `--sort spicy` would also pre-refuse a sort a future board
+legitimately serves.
+
+**Every description says what the parameter bounds AND what it does
+not** (#1177, now canon v6's family): `--limit` bounds entries and
+never the slice; `--half-life` weights scores and never visibility or
+retention — and is NOT `fresh`'s `--horizon`, same spelling
+notwithstanding.
+
+**Cost.** None at runtime: no server leg, no restart, no WARN. Measured
+live against the deployed board before delivery: `top`/`recent`/`P1D`
+all round-trip from the worktree CLI (total 886 over /korax-dev, scores
+and served-back half-life as designed).
+

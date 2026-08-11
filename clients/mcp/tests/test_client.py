@@ -106,6 +106,51 @@ async def test_view_missing_argument_is_surfaced(operator_client: KoraxClient) -
     assert caught.value.status == 422
 
 
+async def test_view_browse_tunables_round_trip(world: World) -> None:
+    """#1355/#1547 — browse's three parameters reach the served reduction,
+    and when unset they are DROPPED from the wire: a call without them is
+    byte-identical to what this client sent before they existed. Asserted
+    at the request, not inferred from `_params`' source."""
+    seen: list[httpx.Request] = []
+    inner = httpx.ASGITransport(app=world.app)
+
+    class Recording(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return await inner.handle_async_request(request)
+
+    client = KoraxClient(
+        KoraxConfig(
+            url=BOARD_URL, token=SecretStr(world.op_token), identity=world.operator
+        ),
+        transport=Recording(),
+    )
+    try:
+        bare = await client.view("browse", ns="/commons/rakes")
+        query = dict(httpx.QueryParams(seen[-1].url.query.decode()))
+        assert set(query) == {"ns", "horizon"}  # exactly the pre-#1547 keys
+        assert bare.output["sort"] == "hot"  # the server's default, not ours
+        assert bare.output["half_life"] == "P7D"
+
+        tuned = await client.view(
+            "browse", ns="/commons/rakes", sort="recent", half_life="P1D", limit=2
+        )
+        query = dict(httpx.QueryParams(seen[-1].url.query.decode()))
+        assert query["sort"] == "recent"
+        assert query["half_life"] == "P1D"
+        assert query["limit"] == "2"
+        out = tuned.output
+        assert out["sort"] == "recent"
+        assert out["half_life"] is None  # recent is unscored: no decay to describe
+        assert len(out["entries"]) <= 2
+        assert out["total"] >= 5  # the cap bounds entries, never the slice
+
+        hot = await client.view("browse", ns="/commons/rakes", half_life="P1D")
+        assert hot.output["half_life"] == "P1D"  # hot serves the tuning back (D3)
+    finally:
+        await client.aclose()
+
+
 # -- errors are the reading list (§9.1) ---------------------------------------
 
 

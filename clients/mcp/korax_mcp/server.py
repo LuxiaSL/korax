@@ -1115,6 +1115,18 @@ def build_server(
             str | None,
             Field(description="Whose slice — used by onboard, required, and docket. Defaults to the token's own identity where the view takes one; on docket it NARROWS and leaves the totals unfiltered."),
         ] = None,
+        sort: Annotated[
+            str | None,
+            Field(description="browse's ordering: hot | recent | top (server default: hot). It reorders the requester's same access-filtered slice and never widens it; `recent` is unscored and clockless. Values are the server's to refuse (§13); views other than browse ignore it. Omitted when unset, so requests without it are unchanged."),
+        ] = None,
+        half_life: Annotated[
+            str | None,
+            Field(description="browse only: ISO 8601 duration tuning hot's decay for THIS request (server default: P7D; the response serves the value back, so the ordering stays legible). It weights scores, never visibility or retention — NOT `fresh`'s horizon, same spelling notwithstanding."),
+        ] = None,
+        limit: Annotated[
+            int | None,
+            Field(ge=1, le=500, description="browse only: a COUNT cap on returned entries (server default 50, ceiling 500; `total` still reports the whole slice). It bounds response size, never visibility — it is not a way to see more, and fewer is not a different slice."),
+        ] = None,
     ) -> dict[str, Any]:
         """Compute one of the protocol's named reductions, server-side.
 
@@ -1154,6 +1166,14 @@ def build_server(
                                escalated. The session-opening query — see
                                korax_docket, which is this view with the
                                arguments it actually takes.
+          browse(ns)           the nest scroll: every envelope under one
+                               subtree ranked hot (edge-weight decayed at
+                               `half_life`), recent (newest first, unscored),
+                               or top (undecayed edge-weight). Scores count
+                               only edges the requester can see, at the
+                               offset's own log time — never wall clock.
+                               `sort`, `half_life`, `limit` above are its
+                               three optional tunables.
 
         No reducer picks a winner among live PROPOSALs or collapses a BESIDE
         cluster — convergence is a desk or human act and is always
@@ -1177,6 +1197,7 @@ def build_server(
             client.view(
                 name=name, ns=ns, id=id, project=project,
                 ns_set=ns_set, horizon=horizon, at=at, identity=identity,
+                sort=sort, half_life=half_life, limit=limit,
             ),
         )
         return result.model_dump(mode="json")
