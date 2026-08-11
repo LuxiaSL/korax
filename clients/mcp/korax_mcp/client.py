@@ -421,8 +421,16 @@ class KoraxClient:
         include_self: bool | None = None,
         horizon: str | None = None,
         limit: int = 200,
+        summary: bool | None = None,
     ) -> ReadPage:
-        """Drain forward from a cursor (§11)."""
+        """Drain forward from a cursor (§11).
+
+        `summary` asks for the projection (JOB #1447): structure, no prose.
+        `ReadPage.envelopes` is `dict[str, Any]`, so the projected records
+        pass through unmodelled and nothing is fabricated in place of the
+        payload — unlike the CLI, whose typed `Envelope` would have supplied
+        `payload=None` and made "not requested" look like "empty". The
+        looser model is the correct one here, and only here."""
         raw = await self._request(
             "GET",
             "/read",
@@ -431,7 +439,7 @@ class KoraxClient:
                 grade=grade, evidence=evidence, until=until, to=to,
                 to_author=to_author,
                 to_worked=to_worked, include_self=include_self, horizon=horizon,
-                limit=limit,
+                limit=limit, summary=summary,
             ),
         )
         return _parse(ReadPage, raw, "GET /read")

@@ -249,6 +249,44 @@ def create_app(board: Board) -> FastAPI:
     def dump(env: Envelope) -> dict[str, Any]:
         return env.model_dump(mode="json", exclude_none=True)
 
+    def summarise(record: dict[str, Any]) -> dict[str, Any]:
+        """§9.3-INERT BY CONSTRUCTION — the read projection (JOB #1447).
+
+        Structure without rhetoric: every field a caller needs to build an
+        index, a graph or a nav — id, ts, ns, type, author, band, grade,
+        evidence, refs, and a sha-pinned pointer's METADATA — with the
+        prose dropped. `payload` becomes `payload_bytes` and `ext` becomes
+        `ext_present`, so a reader can tell that content exists and roughly
+        how much, without being handed it.
+
+        **This is a pure transform of one already-dumped record and it is
+        applied at the LAST step, after `matches()`, `rotate_split` and the
+        counters have all run.** That ordering is the whole safety argument:
+        the projection cannot widen a slice it never selects, and it cannot
+        skew a count it is computed after. A version that filtered its own
+        list and counted over that list would be a §9.3 leak wearing a
+        performance fix's clothes — so this function takes a record, not a
+        log, and there is nowhere for that bug to live.
+
+        Motivating measurement (#1396): the perch pulls 4.36 MB of the
+        visible log on first paint to compute about twenty namespace
+        strings, because until now the read path could not answer with
+        structure alone.
+        """
+        payload = record.get("payload")
+        if payload is None:
+            payload_bytes = 0
+        elif isinstance(payload, str):
+            payload_bytes = len(payload.encode("utf-8"))
+        else:
+            # POLICY and friends carry an object payload; measure the wire
+            # form so the number means the same thing for every act.
+            payload_bytes = len(json.dumps(payload, separators=(",", ":")).encode())
+        out = {k: v for k, v in record.items() if k not in ("payload", "ext")}
+        out["payload_bytes"] = payload_bytes
+        out["ext_present"] = bool(record.get("ext"))
+        return out
+
     def visible_log(who: str):
         return filter_log(board.log, board.timeline, who, board.head)
 
@@ -613,6 +651,7 @@ def create_app(board: Board) -> FastAPI:
         horizon: str | None = None,
         include_self: bool = False,
         limit: int = Query(default=500, le=5000),
+        summary: bool = False,
     ) -> dict[str, Any]:
         _no_glob_ns(ns)
         pierce = pierced(horizon)
@@ -629,7 +668,13 @@ def create_app(board: Board) -> FastAPI:
         if not pierce:
             hits, rotated = rotate_split(board.log, board.timeline, hits, board.head)
         out = [dump(e) for e in hits][:limit]
+        # LAST, and after the cursor: `summary` changes what each record
+        # SHOWS, never which records are in the page nor where the page
+        # ends. Projecting before the slice was fixed would make the
+        # cursor a function of the projection (JOB #1447).
         cursor = out[-1]["id"] if out else since
+        if summary:
+            out = [summarise(r) for r in out]
         return {
             "envelopes": out,
             "cursor": cursor,

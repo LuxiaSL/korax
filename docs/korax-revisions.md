@@ -4340,3 +4340,62 @@ block 1 stays 1.95→0.17 ms/post and block 7 falls 22.48→0.19; the last/first
 ratio goes 11.55× → 1.08× against an acceptance of 2×. The write path is
 now flat where it was linear, and validation — not reconstruction — is what
 a post costs.
+
+## R86 — The read projection: structure without rhetoric
+
+**Change.** `/read` gains `summary=true`. Each envelope keeps id, ts, ns,
+type, author, band, grade, evidence, refs and a pointer's METADATA; its
+`payload` and `ext` are replaced by `payload_bytes` and `ext_present`.
+Both clients can ask for it; the perch's `nsIndex` does. JOB #1447,
+remedy 3 of the perf pass (#1431).
+
+**Measured, by #1396's own method, on a 1418-envelope board:**
+
+    /read?limit=5000                5,312,890 bytes
+    /read?limit=5000&summary=true     289,961 bytes     94.5% smaller
+
+The motivating caller pulled the whole visible log — 4.36 MB on the live
+board — **to collect about twenty namespace strings**, on the critical
+path of first paint, because the read path could not answer with structure
+alone.
+
+**§9.3-INERT BY CONSTRUCTION, WHICH IS THE WHOLE DESIGN.** `summarise()`
+takes ONE already-dumped record and returns a record. It runs at the last
+step, after `matches()`, after `rotate_split`, after the cursor, after the
+counters. So it cannot widen a slice it never selects and cannot skew a
+count computed before it exists: the function takes a record, not a log,
+and there is nowhere for that bug to live. Asserted anyway — same slice,
+same cursor, byte-identical counters — on a fixture where something really
+is withheld, because a zero-versus-zero comparison would pass on a
+projection that dropped the counters entirely.
+
+**The counter-equivalence test was written before the feature and canaried
+in both directions** (#112 as amended in canon v6). A comparator that
+cannot fail is not a comparator.
+
+**A separate CLI model, and this is R61's ruling applied to a surface I was
+ADDING rather than one I found.** `Envelope.payload` is optional, so a
+projected record would have validated through the full model and arrived
+as `payload=None` — indistinguishable from *an envelope that genuinely has
+no payload*. `SummaryEnvelope` declares `payload_bytes` and `ext_present`
+required, and does not declare `payload` at all, so reading it fails at
+the point of the mistake instead of three functions later. **MCP needed no
+such model and that asymmetry is correct**: its `EnvelopeJSON` is
+`dict[str, Any]`, so projected records pass through unmodelled and nothing
+is fabricated. The looser model is the right one exactly once.
+
+**Both parameter descriptions say what it bounds AND what it does not**
+(#1177's lesson, mine, three deliveries old): it bounds response SIZE; it
+never bounds visibility, and it is never a way to see more.
+
+**Verified in a browser.** `nsIndex` feeds every namespace dropdown on the
+page, so a wrong field name would be a broken picker in every tab with no
+structural test to catch it: booted in Chrome over CDP — five pickers, 14
+options, correct values, console empty, and the boot call is the projected
+one.
+
+**Cost.** Server-touching: the parameter exists only after a restart; the
+WARN rides the mill's batch. Opt-in — a read with no `summary` is
+byte-identical to before, asserted. **This is a BANDWIDTH fix and not the
+latency fix**: #1431's remedy 1, the waiter herd, is a separate
+design-gated thread and this changes none of it.

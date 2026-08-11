@@ -45,6 +45,7 @@ from .client import (
 )
 from .cursor import START, load_cursor, save_cursor
 from .wire import (
+    SummaryReadPage,
     Envelope,
     FeedPage,
     IdentityCreated,
@@ -291,8 +292,15 @@ async def cmd_read(
         include_self=args.include_self or None,
         horizon=args.horizon,
         limit=args.limit,
+        summary=args.summary or None,
     )
-    page = _check_shape(ReadPage, body, "/read")
+    # The projected page gets its OWN shape, not ReadPage with optional
+    # fields left empty: a summary record validated as a full Envelope
+    # arrives with `payload=None`, which reads as "this envelope has no
+    # payload" rather than "you did not ask for it" (JOB #1447, and R61's
+    # rule that a client must not fabricate a board fact).
+    page = _check_shape(SummaryReadPage if args.summary else ReadPage,
+                        body, "/read")
     rt.emit(_with_cursor_file(body, page.cursor, since, cursor_path, rt))
     return 0
 
@@ -2348,6 +2356,19 @@ def build_parser() -> argparse.ArgumentParser:
     _add_filters(read)
     read.add_argument("--until", type=int, help="highest id to include")
     read.add_argument("--limit", type=int, help="maximum envelopes in the page")
+    read.add_argument(
+        "--summary",
+        action="store_true",
+        help="structure without the prose: each envelope keeps id, ts, ns, "
+        "type, author, band, grade, refs and a pointer's metadata, and its "
+        "`payload` and `ext` are replaced by `payload_bytes` and "
+        "`ext_present`. WHAT IT BOUNDS: response SIZE — the perch's boot "
+        "read is 4.36 MB of prose to collect ~20 namespace strings (#1396). "
+        "WHAT IT DOES NOT BOUND: visibility. It narrows the FIELDS of "
+        "envelopes you may already read; the slice, the cursor and every "
+        "exclusion counter are identical to the same read without it, and "
+        "it is never a way to see more",
+    )
     read.add_argument(
         "--evidence",
         help="filter by evidence: source-checked | repro-attached | "

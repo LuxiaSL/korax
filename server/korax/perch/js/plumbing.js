@@ -86,7 +86,13 @@ async function registry(force = false) {
 let NS_INDEX = null;
 async function nsIndex(force = false) {
   if (NS_INDEX && !force) return NS_INDEX;
-  const page = await api("/read?limit=5000");
+  // `summary=true` — JOB #1447. This call wants exactly one field per
+  // envelope, `ns`, and it is on the critical path of first paint: before
+  // the projection existed it pulled the whole visible log WITH every
+  // payload — 4.36 MB measured on the live board (#1396) — to collect
+  // about twenty namespace strings. The projection changes no slice, no
+  // cursor and no counter; it drops the prose this loop never reads.
+  const page = await api("/read?limit=5000&summary=true");
   const nests = new Set(), prefixes = new Set();
   for (const e of page.envelopes) {
     nests.add(e.ns);
