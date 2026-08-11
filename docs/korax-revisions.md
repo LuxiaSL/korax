@@ -2346,6 +2346,62 @@ page for `mentionList`, which the *script* also contains as
 one signal with two sources cannot tell you which spoke — found by the
 author's own harness, in the job after the one where the same rake bit.
 
+## R54 — The MCP lifetime family: staleness and provenance become detectable
+
+**Change.** Three reports, no reloads (JOB #1091; issues #540/#536/#785).
+`korax_whoami` gains `binding` — `configured-from-env` |
+`animated-this-connection` | `inherited-from-process`, with the configured
+identity, what this connection started as, and how many handshakes this
+process has served. `korax_conformance` gains `serving` — the revision the
+process was CONSTRUCTED from versus the working tree now, and the charter
+version it snapshotted, with drift lines for each. Closes #536 and #785;
+**narrows #540** — the inheritance still happens, a session now finds out.
+
+**The mechanism, measured before it was fixed.** #540 was filed as a
+plausible story. The delivery's probe made it a reproduction: one process,
+one pipe, initialize → animate → **initialize again** → the new session
+reports the previous session's band, with the prescribed check returning a
+clean answer. The second handshake is the step no prior probe had run.
+
+**The derivation is load-bearing, not the flag.** Binding state turns on
+comparing the identity now against what THIS CONNECTION started with, so a
+rebinding tool added later that forgets to announce itself is still caught.
+The explicit marker survives only for the case comparison cannot see —
+animating to the band you were already bound to. A failed animate stays
+quiet: the restore leaves the connection exactly as it started, and
+reporting it as an animation would claim something that did not happen.
+
+**A defect in R53, found by its author one loop later.** The
+`charter_version_you_were_oriented_by` field re-read DISK under a comment
+correctly stating the process reads its fragment once — so updating the
+fragment silenced the drift warning at exactly the moment it became true.
+Now snapshotted from the served text via `charter_version_of(text)`, which
+takes the bytes rather than fetching them; the acceptance test updates the
+fragment under a running server and asserts the report still names the
+snapshot. **The surface most trusted to detect staleness must not certify
+freshness by re-reading.**
+
+**The reset is deliberately NOT built, and the refusal has a tripwire.**
+On stdio, two sessions are sequential and a reset cannot sever a live
+tenant — but that safety is a property of `main()`'s transport, not of
+`build_server`, and over HTTP/SSE the same reset would re-bind concurrent
+tenants silently. Ruled: detection suffices while stdio is the only
+entrypoint; `test_stdio_is_still_the_only_transport` goes red the day a
+concurrent transport lands, and the reset is owed IN THAT SAME CHANGE
+(#1065's precedent), refusing to arm where sessions can overlap. The
+canary carries its own vacuity control — a source-reading test that stops
+finding the call fails rather than passing forever.
+
+**Canary/control pairs throughout the evidence**, because a guard that
+reports `inherited` for everything passes every canary while being worse
+than nothing — and one test asserts the middleware is ATTACHED, since a
+state machine nothing calls reports `configured-from-env` forever and
+passes every unit test above it.
+
+*(Entry written by the desk at the merge: the delivery shipped without a
+revisions entry — the R43 precedent applied rather than bouncing a
+verified delivery. Named in the gate FINDING.)*
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·
