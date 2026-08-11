@@ -2508,7 +2508,7 @@ the maintainer seat, whose bytes those are (#963).
 
 ---
 
-## R-NEXT — The doorbell survived no outage at all, and its test proved it did
+## R51 — The doorbell survived no outage at all, and its test proved it did
 
 **Change.** `ChannelDoorbell` catches `KoraxTransportError`. Three except
 clauses become one named constant, `REACH_FAILURES`.
