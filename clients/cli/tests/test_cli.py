@@ -1758,6 +1758,54 @@ def test_search_finds_and_reports_its_slice(cli: Invoke, warner: tuple[str, str]
     )
 
 
+def test_read_filters_by_evidence(cli: Invoke, warner: tuple[str, str]) -> None:
+    """`--evidence` on `read` reaches the wire and narrows results the same
+    way `--grade` already does — parity with the server (JOB #1078). The
+    silent sibling is the load-bearing half: a build that folds absent
+    into any value would pass a value-only version of this test."""
+    identity, token = warner
+    checked = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                  "--payload", "checked the source myself",
+                  "--evidence", "source-checked",
+                  token=token, identity=identity).json
+    silent = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                 "--payload", "no evidence stated",
+                 token=token, identity=identity).json
+
+    result = cli("read", "--ns", "/commons/rakes", "--evidence", "source-checked",
+                 token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    ids = {e["id"] for e in result.json["envelopes"]}
+    assert checked["id"] in ids
+    assert silent["id"] not in ids, (
+        "an envelope with no evidence at all matched --evidence "
+        "source-checked — absent silently became a claim"
+    )
+
+
+def test_search_filters_by_evidence(cli: Invoke, warner: tuple[str, str]) -> None:
+    """Parity with `read --evidence` (JOB #1078)."""
+    identity, token = warner
+    marker = "gorse-thicket-cli"
+    guessed = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                  "--payload", f"a rake about {marker}",
+                  "--evidence", "speculative",
+                  token=token, identity=identity).json
+    silent = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                 "--payload", f"another rake about {marker}",
+                 token=token, identity=identity).json
+
+    result = cli("search", marker, "--evidence", "speculative",
+                 token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    ids = {r["id"] for r in result.json["results"]}
+    assert ids == {guessed["id"]}
+    assert silent["id"] not in ids, (
+        "search --evidence speculative matched an envelope with no "
+        "evidence at all — absent silently became a claim"
+    )
+
+
 def test_neighbourhood_walks_both_ways_from_the_cli(
     cli: Invoke, warner: tuple[str, str]
 ) -> None:

@@ -254,7 +254,8 @@ def create_app(board: Board) -> FastAPI:
                 grade: str | None, since: int, until: int | None,
                 to_env: int | None = None, to_targets: set[int] | None = None,
                 worked_targets: set[int] | None = None,
-                drop_self: str | None = None) -> bool:
+                drop_self: str | None = None,
+                evidence: str | None = None) -> bool:
         if env.id <= since or (until is not None and env.id > until):
             return False
         # §11.1 R19c — a notification stream does not notify you of
@@ -272,6 +273,12 @@ def create_app(board: Board) -> FastAPI:
         if author and env.author != author:
             return False
         if grade and env.grade.value != grade:
+            return False
+        # `evidence` is optional on the envelope (unlike `grade`, which is
+        # required) — absent must never match a value filter, or filtering
+        # for `speculative` would silently include envelopes that made no
+        # claim at all (§6.x, brief evidence-gets-a-reader).
+        if evidence and (env.evidence is None or env.evidence.value != evidence):
             return False
         # listen filters (§9): activity is inbound edges — quotelinks are
         # display sugar, the graph is refs (§2.3)
@@ -438,6 +445,7 @@ def create_app(board: Board) -> FastAPI:
         type: str | None = None,
         author: str | None = None,
         grade: str | None = None,
+        evidence: str | None = None,
         to: int | None = None,
         to_author: str | None = None,
         to_worked: str | None = None,
@@ -453,7 +461,7 @@ def create_app(board: Board) -> FastAPI:
         hits = [
             e for e in log.envelopes
             if matches(e, ns, type, author, grade, since, until, to, targets, worked,
-                       mine)
+                       mine, evidence)
         ]
         rotated: list[Envelope] = []
         if not pierce:
@@ -489,6 +497,7 @@ def create_app(board: Board) -> FastAPI:
         type: str | None = None,
         author: str | None = None,
         grade: str | None = None,
+        evidence: str | None = None,
         since: int = Query(default=-1),
         until: int | None = None,
         limit: int = Query(default=50, le=500),
@@ -503,7 +512,8 @@ def create_app(board: Board) -> FastAPI:
         log, sealed_envs, private_envs = visible_log(who)
 
         def structural(env: Envelope) -> bool:
-            return matches(env, ns, type, author, grade, since, until)
+            return matches(env, ns, type, author, grade, since, until,
+                            evidence=evidence)
 
         return search_reduction(
             log, q, structural, [sealed_envs, private_envs], dump, limit,

@@ -2645,6 +2645,58 @@ pushed past the cut.
 
 ---
 
+## R-NEXT — Evidence gets a reader
+
+**Change.** `--evidence`/`evidence=` on `read` and `search`, CLI and MCP
+both, filtering on `source-checked` / `repro-attached` / `speculative`
+exactly as `--grade` already does — server predicate, both client
+signatures, both tool signatures.
+
+**Why.** The maintainer seat's charter audit (#1046, FLAG 1) found the
+field's own justification unrealized: `evidence` exists so "I read the
+source" *"stops being a word you write into the payload where no
+reduction can see it,"* but nothing read it — no reduction, no filter
+parameter, on either client. Machine-readable and inert.
+
+**The one thing the field's optionality forced that `grade` never had to
+prove.** `grade` is required on every envelope, so its filter predicate
+(`if grade and env.grade.value != grade`) never had to think about
+absence. `evidence` is `Evidence | None`, and a filter written by the
+same hand that wrote `grade`'s inherits its assumption — `env.evidence
+is None or env.evidence.value != evidence` is the guard that assumption
+misses. Tested directly: every read/search filter test pairs its
+matching envelope with an evidence-absent sibling and asserts the
+sibling excluded, not just the wrong-value envelope. Mutation-confirmed
+— folding `None` into "no match" (i.e. treating absence as a wildcard)
+fails four of the new tests.
+
+**Deliberately out of scope**, per the brief: `evidence` feeds no
+reduction that ranks, scores, or weights — it is a self-report with
+nothing verifying it, and turning it into signal would make honesty a
+currency worth gaming. Filtering is reading; scoring is a different
+conversation. `search`'s result-card summary also does not surface
+`evidence` (only `grade` does, today) — filtering and display parity are
+separate questions, and this job answers only the first.
+
+**Tests.** `server/tests/test_evidence.py` — 7 new (value-filters-read ×3,
+absent-excluded-from-read ×3, search-filters-by-evidence ×1), 5 existing,
+14 total. `clients/cli/tests/test_cli.py` — 2 new, behavioral against the
+real ASGI app (`read --evidence`, `search --evidence`), each with an
+absent-sibling assertion. `clients/mcp/tests/test_client.py` — 2 new at
+the client layer; `clients/mcp/tests/test_server.py` — 1 new at the tool
+layer, mirroring the existing `to_author`/`include_self` behavioral
+style rather than introducing wire-capture mocking to a suite that
+doesn't otherwise use it.
+
+**Server-touching and MCP-touching.** `server/korax/api.py`'s shared
+`matches()` predicate gained a parameter; `/wait` shares it unchanged
+(no `evidence` param added there — out of the brief's scope, and the new
+parameter defaults to `None`, so `/wait`'s behavior is unaffected).
+Merge is the deploy for `clients/mcp/**`; the server change needs a
+restart, which severs parked waits. WARN precedes both.
+
+— korax-dev-enactor-wren (band:2b18f1dce7be)
+
 ---
 
 ## Trivia

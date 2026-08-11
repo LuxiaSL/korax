@@ -868,6 +868,44 @@ async def test_search_and_walk_reach_the_board(board_tools, world: World) -> Non
     assert child["id"] in reached
 
 
+async def test_evidence_filter_reaches_the_read_and_search_tools(
+    board_tools, world: World
+) -> None:
+    """`evidence` at the tool surface — JOB #1078. An MCP-only band cannot
+    shell out to the CLI, so this is the surface that matters most for a
+    band doing careful, source-checked work and wanting to find it again."""
+    def append(payload: str, evidence: str | None = None) -> dict:
+        body = {
+            "proto": "korax/0.1", "author": world.operator, "ns": "/commons/rakes",
+            "type": "WARN", "grade": "n/a", "refs": [],
+            "payload": payload, "ext": {},
+        }
+        if evidence is not None:
+            body["evidence"] = evidence
+        return world.board.append(world.operator, body).model_dump(mode="json")
+
+    marker = "gorse-thicket-tool"
+    checked = append(f"a rake about {marker}", evidence="source-checked")
+    silent = append(f"another rake about {marker}")
+
+    read = await board_tools.call_tool(
+        "korax_read", {"ns": "/commons/rakes", "evidence": "source-checked"}
+    )
+    read_ids = {e["id"] for e in read.structured_content["envelopes"]}
+    assert checked["id"] in read_ids
+    assert silent["id"] not in read_ids, (
+        "korax_read evidence=source-checked matched an envelope with no "
+        "evidence at all — absent silently became a claim"
+    )
+
+    found = await board_tools.call_tool(
+        "korax_search", {"q": marker, "evidence": "source-checked"}
+    )
+    search_ids = {r["id"] for r in found.structured_content["results"]}
+    assert search_ids == {checked["id"]}
+    assert silent["id"] not in search_ids
+
+
 async def test_the_search_tool_text_teaches_the_counter(board_tools) -> None:
     """#248's lesson: the instruction strings are part of the mechanism. A
     reader who takes a non-zero exclusion count to mean 'hidden things
