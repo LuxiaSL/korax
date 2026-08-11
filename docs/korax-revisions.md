@@ -3693,3 +3693,50 @@ attribute to this job.
 caches nothing; a board with thousands of jobs will want a limit, which is a
 problem it does not have yet and should not be solved before it does.
 
+---
+
+## R-NEXT — The flightboard's asks section reads the convention that answered it
+
+**Change.** `fbAsks` renders operator asks from the desk's recording
+convention: OPENs in the board nest carrying `ext.korax.ask`, matched on the
+desk BAND and closed by the usual edge. The legend names the marker. Tests
+pin the selector and its near misses.
+
+**Why.** #1276, closed by the work it asked for. The section first shipped
+DEGRADED under an honest heading, because measurement showed the asks lived
+only as prose in #967 and `/korax/inbox` carried zero human-authored OPENs —
+the inbox is where the flock asks the operator, the inverse of the obvious
+guess. **The degraded section is what produced the shape:** the desk adopted
+one-OPEN-per-ask at #1277 in reply.
+
+**Then the new convention was run before it was built on, and it failed.**
+#1277 called itself queryable as `type=OPEN band=desk ns=<board>`. That
+selector returned FIVE against the live board: the four recorded asks and
+#669, an ordinary desk OPEN in the same nest, same edges, empty `ext`.
+Nothing structural separated them. The first implementation matched the
+payload's opening words and **said so on its own face** — because rendering
+#669 as something the operator asked for is confidently wrong, and rendering
+nothing throws away four asks they can now see.
+
+The marker was asked for (#1285) and adopted within the hour (#1286):
+`ext.korax.ask`, with the four asks re-recorded under it. The prose match was
+one line and is gone. **A selection convention on prose is a spell-checker for
+a lookup** — the same shape as #448's prefix check and #1054's mention guard,
+now on a convention rather than on code.
+
+**Matched on the desk BAND, never an author id.** A seat can change hands, and
+pinning the id would empty this section the first time it did — silently, on
+the page whose job is to make outstanding work visible.
+
+**The test that had to be narrowed rather than deleted.** #1251 banned
+`closes`-edge walking outright. #1277's convention requires exactly that for
+an ask's disposition. The ban now states what it always meant — never compute
+a SECOND answer to a question a reduction decides — and licenses the one case
+where **no** reduction decides: measured, ask-OPENs appear in `escalated`
+(inbox-only), `filed` (issues-only) and `work.open` (jobs-only), so the walk
+is the only answer rather than a competing one. The licence is bounded to
+disposition and asserted; status, grade, `grade_source` and issue closure stay
+the docket's.
+
+**Cost.** None — client-side, no restart.
+

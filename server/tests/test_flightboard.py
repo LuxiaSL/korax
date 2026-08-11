@@ -63,6 +63,22 @@ def run_node(fn_pattern: str, expression: str) -> object:
     return json.loads(r.stdout)
 
 
+
+def flightboard_source() -> str:
+    """Just the flightboard's own code — bounded at both ends.
+
+    Splitting the whole script on the function name swallows every section
+    that follows it, which made an early version of the band-id assertion
+    below fail against code it was never about. Bound both ends or the
+    assertion is about the wrong file.
+    """
+    return script().split("// -- the flightboard")[1].split("// -- ledger")[0]
+
+
+def asks_source() -> str:
+    return flightboard_source().split("async function fbAsks")[1]
+
+
 # -- executed ------------------------------------------------------------------
 
 
@@ -226,46 +242,122 @@ def test_the_flightboard_styles_cannot_restyle_the_rest_of_the_perch() -> None:
     )
 
 
-def test_the_asks_section_renders_what_the_board_can_answer_and_names_what_it_cannot() -> None:
-    """**The brief's data question, answered by measurement rather than guess.**
+def test_the_asks_section_reads_the_adopted_convention() -> None:
+    """**This section's history is the point.**
 
-    The mock tracked ten operator asks to disposition. Measured at head: #967
-    (the envelope the mock cites) is a desk FINDING of PROSE on the board nest,
-    and `/korax/inbox` carries 0 human-authored OPENs — the inbox is where the
-    flock asks the OPERATOR, the inverse of the obvious guess. So the operator's
-    own asks have no structured home and cannot be tracked to disposition
-    without parsing prose into rows.
+    It first shipped degraded: the mock wanted operator asks tracked to
+    disposition, and measurement showed they lived only as prose in #967 while
+    `/korax/inbox` carried zero human-authored OPENs — the inbox is where the
+    flock asks the operator, the inverse of the obvious guess. The page said so
+    instead of rendering a confident emptiness, and the gap was filed (#1276).
 
-    The section therefore renders `docket.escalated` — reduction-computed —
-    and SAYS what it cannot show. This pins both halves, because a degraded
-    section that stops admitting it is degraded is worse than one that never
-    tried.
+    The desk then adopted the shape (#1277): one OPEN per ask in the board
+    nest, closed by the usual edge. So the section now reads it. **A degraded
+    section that names what it cannot show is how the shape arrived** — which
+    is worth pinning, because the temptation at the time was to parse prose
+    into rows and invent a disposition the log did not carry.
     """
-    html, source = page(), script()
-    assert "Waiting on you" in html, "the heading must not promise the mock's section"
-    assert "d.escalated" in source, (
-        "the section must render the reduction's answer, not a client-side "
-        "re-derivation of which OPENs are closed"
-    )
-    assert 'There is no' in html and 'ask' in html
-    assert "openEnvelope(967)" in html, (
-        "the page must point at where the asks actually live, or the reader is "
-        "told a section is empty without being told why"
-    )
+    html, asks = page(), asks_source()
+    assert "Your asks" in html
+    assert '/board' in asks, "the asks come from the project's board nest (#1277)"
+    assert 'e.type === "OPEN"' in asks
+    assert "#1277" in asks, "the convention must be cited where it is implemented"
 
 
 def test_no_client_side_recomputation_of_what_a_reduction_decides() -> None:
-    """**The rule named at claim time**, asserted rather than promised: a
-    wiring job invites recomputing open/taken/delivered from raw envelopes
-    because a tile wants a number the docket does not quite give. That is the
-    two-places defect this loop paid for five times.
+    """**The rule named at claim time — narrowed once, deliberately, and the
+    narrowing is the interesting part.**
 
-    The page may READ envelopes for titles and prose. It must not decide
-    status, grade or closure — those are the docket's.
+    The first version of this test banned `closes`-edge walking outright. Then
+    the desk adopted #1277: an operator ask is an OPEN in the board nest whose
+    disposition IS its `closes` edge, and it asked the flightboard to read it.
+    So the ban had to give — and a guard you blunt to ship a feature is usually
+    a guard that was load-bearing, which is why this narrows on a stated
+    principle rather than dropping the case.
+
+    **What was always meant: never compute a SECOND answer to a question a
+    reduction already decides.** Status, grade, `grade_source` and issue
+    closure are the docket's, measured and asserted below. An ask's
+    disposition is decided by NO reduction — `escalated` is inbox-only,
+    `filed` is issues-only, `work.open` is jobs-only — so the walk in `fbAsks`
+    is the only answer rather than a competing one, and the gap is filed so a
+    reduction can take it over.
+
+    If that distinction ever stops being expressible here, the honest move is
+    to restore the blanket ban and render asks degraded again.
     """
-    fb = script().split("// -- the flightboard")[1].split("// -- ledger")[0]
-    for forbidden in (".refs || []).some", 'edge === "closes"', "closedBy"):
-        assert forbidden not in fb, (
-            f"the flightboard computes {forbidden!r} — a second answer to a "
-            "question `docket` already decides"
+    fb = flightboard_source()
+    main, asks = fb.split("async function fbAsks")
+
+    # Everything except the asks section: no edge walking, no status inference.
+    for forbidden in (".refs || []).some", 'r.edge === "closes"', "closedBy"):
+        assert forbidden not in main, (
+            f"the flightboard computes {forbidden!r} outside fbAsks — a second "
+            "answer to a question `docket` already decides"
         )
+
+    # The asks section may walk closes, and ONLY closes.
+    assert 'r.edge === "closes"' in asks, "the asks section lost its disposition"
+    for forbidden in ("grade_source ===", 'status ===', "lease_until"):
+        assert forbidden not in asks, (
+            f"fbAsks infers {forbidden!r} — its licence covers an ask's "
+            "disposition and nothing else"
+        )
+
+
+def test_the_ask_convention_matches_the_seat_not_a_band_id() -> None:
+    """#1277 records asks as desk-authored OPENs. Matching a specific author id
+    would empty this section silently the first time the desk seat changes
+    hands — the exact failure this page exists to make visible, one layer up.
+    """
+    asks = asks_source()
+    assert 'e.band === "desk"' in asks
+    assert "band:" not in asks, "an author id is pinned where a band should be"
+
+
+def test_the_docket_still_decides_the_things_the_page_does_not(world: dict) -> None:
+    """The other half of the narrowing, asserted against a real board rather
+    than argued: these four questions HAVE a reduction, so the page must never
+    answer them itself."""
+    d = world["client"].get(
+        "/view/docket", params={"ns": "/korax-dev"}, headers=auth(world["tok"])
+    ).json()["output"]
+    assert isinstance(d["work"]["delivered"], list), "grade/grade_source live here"
+    assert isinstance(d["filed"], list), "issue closure lives here"
+    assert isinstance(d["work"]["open"], list) and isinstance(d["work"]["taken"], list)
+    assert "escalated" in d, (
+        "inbox escalation lives here — and notably does NOT cover board-nest "
+        "ask OPENs, which is why fbAsks is licensed to walk them"
+    )
+
+
+def test_the_ask_filter_is_structural_and_excludes_an_ordinary_desk_open() -> None:
+    """**Canary and control, and the control is why the marker exists.**
+
+    #1277 first stated the convention as queryable by `type=OPEN band=desk
+    ns=<board>`. Run against the real board, that selector returned FIVE: the
+    four recorded asks and #669, an ordinary desk OPEN in the same nest with
+    the same edges and an empty `ext`. Nothing structural separated them, so
+    the first implementation matched the payload's opening words — and a
+    selection convention on prose is a spell-checker for a lookup.
+
+    The marker was asked for (#1285) and adopted (#1286). This pins that the
+    filter is structural now, and that all three live near-miss shapes stay
+    out: an unmarked desk OPEN, a marked envelope from another band, and a
+    marked non-OPEN.
+    """
+    asks = asks_source()
+    assert "e.ext?.korax?.ask === true" in asks, (
+        "the ask filter is no longer structural — if it has gone back to "
+        "matching prose, #1285's whole argument has been undone"
+    )
+    assert "ASK_PREFIX" not in asks, "the prose stopgap outlived its marker"
+    assert 'e.band === "desk"' in asks and 'e.type === "OPEN"' in asks
+
+
+def test_the_page_no_longer_advertises_a_stopgap_it_does_not_have() -> None:
+    """The disclosure had to go when the seam closed. A page still confessing a
+    limitation it has fixed teaches readers to discount its other warnings."""
+    html = page()
+    assert "ext.korax.ask" in html, "the page must name what it selects on"
+    assert "stopgap" not in html.lower()
