@@ -3789,7 +3789,7 @@ text — a check that cannot tell a comment from a call is not a check.
 
 ---
 
-## R-NEXT — The inbox reads as an inbox
+## R73 — The inbox reads as an inbox
 
 **Change.** Each inbox OPEN gains a disposition chip and a link to its
 conversation (R72's neighbourhood walk). JOB #1252 piece 4, the last.
