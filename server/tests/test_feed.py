@@ -512,9 +512,24 @@ def test_you_may_not_mention_a_non_participant_into_a_mailbox(scene: dict) -> No
 
 
 def test_you_may_not_mention_someone_where_they_hold_no_grant(world: dict) -> None:
-    """The grant half of the same rule, on a board whose visitor floor is
-    narrower than this one's default — the configuration the check exists
-    for, built explicitly rather than assumed."""
+    """The grant half of the rule — **IN A CONFIGURATION THIS BOARD DOES NOT
+    RUN**, and the name of that fact is the deliverable (JOB #1079 part 2).
+
+    This fixture builds a root POLICY with **no `band:* -> reader` floor**.
+    The live board has one. `policy.py`'s `effective_band` treats a `band:*`
+    grantee as matching any identity string, so on a board carrying that
+    floor **every string holds a read grant and this refusal cannot fire on
+    a public nest.** Measured both ways at #1056: it does fire in
+    structurally private rooms, and structurally cannot in public ones.
+
+    **So this is a real guard covering a small room, not a broken guard** —
+    and the honest reading of a green tick here is "the rule works where it
+    applies", never "mentions into unreadable nests are refused". The
+    companion test below asserts the case that DOES run.
+
+    Do not "fix" the gap by weakening the floor: that floor is what makes
+    the board public, and a guard made reachable by removing it would be a
+    policy change wearing a test's clothes."""
     me, my_token = register(world, "me")
     outsider, _ = register(world, "outsider")
     # a root POLICY with NO `band:*` floor: reading is granted, not ambient
@@ -536,6 +551,46 @@ def test_you_may_not_mention_someone_where_they_hold_no_grant(world: dict) -> No
     })
     assert r.status_code == 403, r.text
     assert "no read grant" in r.json()["message"]
+
+
+def test_on_a_public_nest_the_floor_admits_everyone_and_the_guard_cannot_fire(
+    world: dict,
+) -> None:
+    """The configuration this board ACTUALLY runs (JOB #1079 part 2).
+
+    The guard above is untestable here by construction, and leaving that as
+    an unstated assumption is how a reader concludes mentions are checked
+    for readability everywhere. So it is asserted: on a nest under the
+    `band:* -> reader` floor, a mention of a band holding no *explicit*
+    grant is ACCEPTED, because the floor means they hold an implicit one and
+    the mention really is followable.
+
+    This is the honest coverage statement, not a wish: it passes for the
+    reason named in its own docstring, and if someone ever removes the
+    visitor floor this goes red and points at the policy change rather than
+    at the mention path.
+    """
+    me, my_token = register(world, "floor-me")
+    stranger, _ = register(world, "floor-stranger")
+
+    # `stranger` holds no grant anyone wrote down; the seeded board's
+    # `band:* -> reader` floor is the whole of their read access.
+    assert world["board"].timeline.effective_band(
+        stranger, "/commons/rakes", world["board"].head
+    ) is not None, (
+        "this board's visitor floor is gone — the premise of this test, and "
+        "of the sibling above, has changed; re-read both before touching it"
+    )
+
+    r = world["client"].post("/post", headers=auth(my_token), json={
+        "proto": PROTO, "author": me, "ns": "/commons/rakes", "type": "WARN",
+        "grade": "n/a", "refs": [], "payload": "canvassing the floor",
+        "ext": {"korax": {"mentions": [stranger]}},
+    })
+    assert r.status_code == 200, (
+        "a mention into a public nest was refused — on a board with a "
+        f"`band:*` floor the readability guard cannot apply: {r.text}"
+    )
 
 
 def test_mentions_into_a_readable_nest_are_fine(scene: dict) -> None:
@@ -577,3 +632,110 @@ def test_ns_readable_agrees_with_verdict(world: dict) -> None:
         assert env_ok == sel_ok == expected_readable, (
             f"{ns}: verdict says {env_ok}, selector check says {sel_ok}"
         )
+
+
+# ── part 1: a mention that names nothing is refused, not accepted ────────
+
+
+def test_an_unknown_band_id_is_refused_not_silently_delivered(world: dict) -> None:
+    """#1054's defect. `band:deadbeef` is well-shaped and names nobody.
+
+    The old guard was `who.startswith("band:")` — **a prefix check is a
+    spell-checker for a lookup**, and it passed the commonest typo (a real
+    id with a digit wrong) while catching only the rarer one. The envelope
+    posted, validated, and woke nobody, permanently, with no error anywhere.
+    """
+    me, my_token = register(world, "unknown-mentioner")
+    r = world["client"].post("/post", headers=auth(my_token), json={
+        "proto": PROTO, "author": me, "ns": "/commons/rakes", "type": "WARN",
+        "grade": "n/a", "refs": [], "payload": "who?",
+        "ext": {"korax": {"mentions": ["band:deadbeef"]}},
+    })
+    assert r.status_code == 400, r.text
+    assert "band:deadbeef" in r.json()["message"], "the refusal must name it"
+
+
+def test_the_refusal_reaches_the_field_not_only_the_cli_flag(world: dict) -> None:
+    """**The half that made the CLI guard insufficient.** R43 guarded the
+    `--mention` flag; `--ext korax.mentions=[…]`, the MCP `ext` parameter and
+    the perch all write the same field and walked straight past it. This
+    posts the raw `ext` — the spelling no client-side guard ever covered."""
+    me, my_token = register(world, "ext-speller")
+    r = world["client"].post("/post", headers=auth(my_token), json={
+        "proto": PROTO, "author": me, "ns": "/commons/rakes", "type": "WARN",
+        "grade": "n/a", "refs": [], "payload": "raw ext",
+        "ext": {"korax": {"mentions": ["not-a-band-at-all"]}},
+    })
+    assert r.status_code == 400, r.text
+
+
+def test_a_display_name_is_refused_and_told_which_id_it_meant(world: dict) -> None:
+    """The RULING this job makes, and the reason it differs from `korax dm`.
+
+    dm RESOLVES a unique display name; this REFUSES and names the id. The
+    difference is not inconsistency: dm resolves client-side *before* the
+    post, to choose a namespace, and never touches the poster's bytes. A
+    mention lives INSIDE the envelope, so resolving it here would be the
+    server rewriting client-supplied `ext` on the way to an append-only log
+    that carries `sig` — §1.1.2/.4 keeps those field sets disjoint precisely
+    so a stored envelope is the bytes its author wrote.
+
+    So the refusal does the teaching instead: it names the band id the
+    poster meant, and one retry costs less than a server that silently
+    improves your envelope.
+    """
+    me, my_token = register(world, "namer")
+    target, _ = register(world, "a-very-distinctive-display")
+    r = world["client"].post("/post", headers=auth(my_token), json={
+        "proto": PROTO, "author": me, "ns": "/commons/rakes", "type": "WARN",
+        "grade": "n/a", "refs": [], "payload": "by name",
+        "ext": {"korax": {"mentions": ["a-very-distinctive-display"]}},
+    })
+    assert r.status_code == 400, r.text
+    message = r.json()["message"]
+    assert target in message, "must name the id the poster meant"
+    assert "not rewrite" in message or "band ids" in message
+
+
+def test_a_valid_mention_is_unaffected(world: dict) -> None:
+    """The control. A guard that refuses everything is not a guard, and
+    every refusal above would pass just as happily against one."""
+    me, my_token = register(world, "good-mentioner")
+    friend, _ = register(world, "good-friend")
+    r = world["client"].post("/post", headers=auth(my_token), json={
+        "proto": PROTO, "author": me, "ns": "/commons/rakes", "type": "WARN",
+        "grade": "n/a", "refs": [], "payload": "hello",
+        "ext": {"korax": {"mentions": [friend]}},
+    })
+    assert r.status_code == 200, r.text
+    assert friend in r.json()["ext"]["korax"]["mentions"]
+
+
+def test_the_existence_check_runs_before_the_readability_check(world: dict) -> None:
+    """Ordering, asserted rather than left to the reading order of a loop.
+
+    You cannot ask whether an unknown band may read a nest, so existence
+    must come first — but the consequence is that a careless fixture can now
+    mask part 2's guard entirely: every readability case would refuse at the
+    existence check and go green without ever reaching the rule under test.
+    That very nearly happened in this job's own suite (see FIXTURE_REGISTRY
+    in test_fixture08). This pins the order so the masking is a test failure
+    rather than a silent loss of coverage.
+    """
+    me, my_token = register(world, "order-check")
+    body = {
+        "proto": PROTO, "author": me, "ns": f"/dm/{me}", "type": "NOTE",
+        "grade": "n/a", "refs": [], "payload": "order",
+    }
+    unknown = world["client"].post("/post", headers=auth(my_token), json={
+        **body, "ext": {"korax": {"mentions": ["band:deadbeef"]}}})
+    assert unknown.status_code == 400, "unknown id: existence, a 400"
+
+    known, _ = register(world, "order-known")
+    readable = world["client"].post("/post", headers=auth(my_token), json={
+        **body, "ext": {"korax": {"mentions": [known]}}})
+    assert readable.status_code == 403, (
+        "a KNOWN band mentioned into someone else's mailbox must still hit "
+        "the readability guard — if this is 400 the existence check has "
+        f"swallowed it: {readable.text}"
+    )

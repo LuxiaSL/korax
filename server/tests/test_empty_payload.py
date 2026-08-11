@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import truncated
+from conftest import truncated, FakeRegistry
 from korax.log import Log
 from korax.validate import PostError, validate_post
 
@@ -34,7 +34,7 @@ NS = "/commons/rakes"
 
 def _post(full_log: Log, envelope: dict) -> None:
     log, timeline = truncated(full_log, full_log.next_id() - 1)
-    validate_post(log, timeline, {"proto": "korax/0.1", **envelope})
+    validate_post(log, timeline, {"proto": "korax/0.1", **envelope}, FakeRegistry())
 
 
 def _author(full_log: Log) -> str:

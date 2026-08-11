@@ -2550,7 +2550,22 @@ def test_mention_is_repeatable_and_deduplicates(
 def test_mention_refuses_a_display_name(
     cli: Invoke, warner: tuple[str, str]
 ) -> None:
-    """THE GUARD THAT EARNS THE FLAG, and it is not pedantry.
+    """THE GUARD, NOW AT THE SEQUENCER — and this test did not need editing.
+
+    JOB #1079 moved this check server-side and deleted the flag's local
+    prefix guard. **This test kept passing, and that is the point worth
+    recording:** it asserts what the USER sees — a non-zero exit and a
+    message naming band ids and saying the mention reaches nobody — rather
+    than which layer produced it. So it transferred from a client guard to a
+    server one with no change, and now proves the sequencer's refusal reaches
+    a CLI user end to end, which is strictly more than it proved before.
+
+    A test written one level lower (`assert the flag raised CliError`) would
+    have gone red on a change that improved the behaviour, and someone would
+    have "fixed" it by restoring the weaker check. **Assert the outcome, not
+    the mechanism.**
+
+    The original reasoning, still exactly right:
 
     A display name would be accepted by the board, ride in a well-formed
     envelope, and reach nobody — the lane matches identity ids, so the name

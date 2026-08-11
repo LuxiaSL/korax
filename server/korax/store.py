@@ -189,6 +189,22 @@ class Store:
             ).fetchone()
         return row[0] if row else None
 
+    def identities_with_display(self, display: str) -> list[str]:
+        """Every band id wearing this display name — plural on purpose.
+
+        Display names are NOT unique (two parallel enactors choosing one name
+        is the normal case), so this returns a list and the caller refuses an
+        ambiguous match rather than picking. Sorted for a stable refusal
+        message: a candidate list that reorders between calls reads as two
+        different answers to one question.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT id FROM identities WHERE display = ? ORDER BY id",
+                (display,),
+            ).fetchall()
+        return [r[0] for r in rows]
+
     def identity_for_token(self, token: str) -> str | None:
         import hashlib
 

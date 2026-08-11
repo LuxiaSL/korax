@@ -23,7 +23,7 @@ import json
 
 import pytest
 
-from conftest import CONFORMANCE, load_jsonl
+from conftest import CONFORMANCE, load_jsonl, FakeRegistry
 from korax.access import filter_log
 from korax.feed import (
     descended_targets,
@@ -124,6 +124,20 @@ def test_expected_feed(world, check: dict) -> None:
 
 
 REQUESTERS = ["band:human", "band:alice", "band:bob", "band:carol"]
+
+#: The bands this fixture's envelopes actually mention (JOB #1079).
+#:
+#: **Populated rather than permissive, and that is load-bearing here.** The
+#: mention gauntlet now refuses an unknown band id BEFORE it asks whether
+#: that band can read the nest — correctly, since you cannot ask what an
+#: unknown band may read. So a registry that knew nothing would refuse these
+#: fixtures at the existence check and the readability cases below would go
+#: green while never reaching the guard they exist to test. That is the exact
+#: shape of defect this job was opened to remove; reproducing it inside the
+#: job's own suite would be the joke writing itself.
+FIXTURE_REGISTRY = FakeRegistry({
+    b: b.removeprefix("band:") for b in REQUESTERS + ["band:dave"]
+})
 
 
 def test_no_envelope_appears_twice(world) -> None:
@@ -230,7 +244,7 @@ def test_fixture_replays_through_gauntlet(world) -> None:
         for field in (*SERVER_ASSIGNED, "sig"):
             raw.pop(field, None)
         try:
-            validate_post(prior, PolicyTimeline(prior), raw)
+            validate_post(prior, PolicyTimeline(prior), raw, FIXTURE_REGISTRY)
         except PostError as exc:  # pragma: no cover - failure formatting
             pytest.fail(f"envelope {env.id} rejected: {exc.code} {exc.message}")
 
@@ -247,7 +261,7 @@ def test_rejected(case: dict, world) -> None:
     envelope = dict(case["envelope"])
     envelope.setdefault("proto", "korax/0.1")
     with pytest.raises(PostError) as excinfo:
-        validate_post(prior, PolicyTimeline(prior), envelope)
+        validate_post(prior, PolicyTimeline(prior), envelope, FIXTURE_REGISTRY)
     assert excinfo.value.code == case["expect"]["code"], (
         f"{case['case']}: expected {case['expect']['code']}, "
         f"got {excinfo.value.code}: {excinfo.value.message}"

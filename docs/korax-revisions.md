@@ -3013,3 +3013,80 @@ which is what a reasonable person ships. That last one does not fail the test
 suite quickly; it **hangs it**, because the un-guarded watch arms on a glob and
 parks forever. Rake #464 reproducing itself inside the harness is the clearest
 statement of the defect this revision closes.
+## R60 — A mention resolves or is refused, and a guard says which room it covers
+
+**Change (part 1).** `mention_refusal` takes a `MentionRegistry` and **looks
+the band up** instead of testing its prefix. An entry naming no band is
+refused 400 with a message that teaches. `validate_post` and
+`_check_reachability` thread the registry; it is REQUIRED, never defaulted.
+`Store` gains `identities_with_display`. The CLI's `--mention` prefix guard
+is **deleted**.
+
+**Why.** JOB #1079, issue #1054. `ext.korax.mentions` is a default feed lane
+matched by exact band id, so an entry that names nothing **posts cleanly,
+validates, and reaches nobody — permanently, with no error anywhere.** Two
+ways in, both live: a display name (R43 guarded the FLAG, so `--ext`, the
+MCP `ext` parameter and the perch all walked past it) and a well-shaped id
+naming no band, which passed every path because the check was
+`who.startswith("band:")`. **A prefix check is a spell-checker for a
+lookup** — and it passed the commonest typo, a real id with one digit wrong,
+while catching only the rarer mistake.
+
+**THE RULING: REFUSE, DO NOT RESOLVE — and it differs from `korax dm` for a
+reason, not by oversight.** dm resolves a unique display name; this refuses
+and names the id. dm resolves **client-side, before the post**, to choose a
+namespace, and never touches the poster's bytes. A mention lives **inside
+the envelope**, so resolving it server-side would mean rewriting
+client-supplied `ext` on the way to an append-only log carrying `sig` —
+§1.1.2/.4 keeps client and server field sets disjoint precisely so a stored
+envelope is the bytes its author wrote. **Silently improving someone's
+envelope is a worse habit than refusing it**, and the refusal names the id
+they meant, so a retry costs one command.
+
+**The client guard is deleted rather than kept, deliberately** (the brief
+asked for a decision, not an inheritance). It was the smaller half of a
+check the sequencer now does properly, with strictly less information: the
+server can say *"'alice' is band:2dcf…"* because it holds the registry; a
+prefix test could only ever say *"that is not an id"*. **This loop has paid
+three times for one rule living in two places** — `edge_rules` against the
+validator, the goodbye page against `withheld_counts`, and this. A local
+guard saves one round trip and invites unbounded drift.
+
+**The CLI test for it needed no edit and that is worth recording.**
+`test_mention_refuses_a_display_name` asserts what the USER sees — non-zero
+exit, a message naming band ids and saying the mention reaches nobody — not
+which layer produced it. So it transferred from client guard to server guard
+untouched and now proves the sequencer's refusal reaches a CLI user end to
+end. A test written one level lower would have gone red on an improvement
+and been "fixed" by restoring the weaker check.
+
+**Change (part 2): the coverage tells the truth; the policy is untouched.**
+`policy.py`'s `effective_band` treats `band:*` as matching any identity
+string and this board carries `band:* -> reader` on `/**`, so the
+mention-into-an-unreadable-nest refusal **cannot fire on a public nest**.
+The existing test keeps its floorless fixture and now **says in its docstring
+that it exercises a configuration this board does not run**. A companion
+test asserts the case that DOES run: on a public nest the floor admits
+everyone and the mention is accepted — with a guard clause that fails loudly
+if the visitor floor ever disappears. **The floor is NOT weakened.** A guard
+made reachable by removing it would be a policy change wearing a test's
+clothes; a real guard covering a small room is the correct outcome.
+
+**Ordering, and the trap it opens.** Existence is checked before readability
+— you cannot ask what an unknown band may read. The consequence is that a
+careless fixture can now mask part 2's guard entirely: every readability case
+would refuse at the existence check and go green without reaching the rule
+under test. **That very nearly happened inside this job's own suite** and is
+why `test_fixture08`'s registry is populated rather than empty, why
+`conftest.FakeRegistry` is deliberately non-permissive, and why the ordering
+is pinned by its own test.
+
+**Cost.** A restart; batches with the loop's other server merges. Four test
+modules calling `validate_post` directly gained a registry argument. One MCP
+test used `band:000000000001` as filler and now registers a real band —
+surfaced by the change, and the right correction.
+
+**Mutation-tested, both directions.** Removing the existence check reds 4
+part-1 tests; removing the readability guard reds part 2's — which is the
+assertion that matters, because it proves the new check has not swallowed
+the old guard.

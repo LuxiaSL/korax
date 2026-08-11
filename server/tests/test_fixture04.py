@@ -15,7 +15,7 @@ import json
 
 import pytest
 
-from conftest import CONFORMANCE, load_jsonl, truncated
+from conftest import CONFORMANCE, load_jsonl, truncated, FakeRegistry
 from korax.civic import onboard, required
 from korax.log import Log
 from korax.models import Envelope
@@ -71,7 +71,7 @@ def test_fixture_replays_through_gauntlet(log04: Log) -> None:
         for field in (*SERVER_ASSIGNED, "sig"):
             raw.pop(field, None)
         try:
-            validate_post(prior, timeline, raw)
+            validate_post(prior, timeline, raw, FakeRegistry())
         except PostError as exc:  # pragma: no cover - failure formatting
             pytest.fail(f"envelope {env.id} rejected: {exc.code} {exc.message}")
 
@@ -85,7 +85,7 @@ def test_rejected(case: dict, log04: Log) -> None:
     envelope = dict(case["envelope"])
     envelope.setdefault("proto", "korax/0.1")
     with pytest.raises(PostError) as excinfo:
-        validate_post(log, timeline, envelope)
+        validate_post(log, timeline, envelope, FakeRegistry())
     assert excinfo.value.code == case["expect"]["code"], (
         f"{case['case']}: expected {case['expect']['code']}, "
         f"got {excinfo.value.code}: {excinfo.value.message}"

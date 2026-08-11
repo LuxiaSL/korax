@@ -1049,11 +1049,16 @@ async def test_lease_until_merges_with_other_ext_fields(board_tools, world) -> N
         "ns": "/korax-dev/board", "type": "FINDING", "grade": "n/a",
         "payload": "leased and extended",
         "lease_until": "2026-08-11T13:00:00Z",
-        "ext": {"korax": {"mentions": ["band:000000000001"]}},
+        # A REAL band, not a synthetic id (JOB #1079). The mention here is
+        # only filler proving `lease_until` merges rather than replaces, and
+        # it used `band:000000000001` — which the sequencer now refuses,
+        # correctly, because it names nobody. Registering a band keeps this
+        # test about ext-merging instead of about mention validity.
+        "ext": {"korax": {"mentions": [world.operator]}},
     })
     ext = (posted.structured_content or {})["ext"]
     assert ext["lease_until"] == "2026-08-11T13:00:00Z"
-    assert ext["korax"]["mentions"] == ["band:000000000001"]
+    assert ext["korax"]["mentions"] == [world.operator]
 
 
 async def test_an_explicit_ext_lease_wins_over_the_parameter(board_tools, world) -> None:

@@ -105,7 +105,11 @@ class Board:
         """Validate against the policy in force now, sequence, persist."""
         if raw.get("author") != requester:
             raise PostError(403, "author must be the authenticated identity (§1.1.3)")
-        sub = validate_post(self.log, self.timeline, raw)
+        # `registry` is REQUIRED rather than defaulted, deliberately: an
+        # optional one would let a caller construct exactly the state this
+        # job exists to abolish — a mention check that silently does not run
+        # (#1079 part 2's lesson, applied to part 1's own wiring).
+        sub = validate_post(self.log, self.timeline, raw, self.store)
         band = self.timeline.effective_band(sub.author, sub.ns, self.log.next_id())
         assert band is not None  # validate_post raised otherwise
         accepted = sub.model_dump(mode="json", exclude_none=True)
