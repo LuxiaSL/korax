@@ -38,6 +38,8 @@ from .models import (
 from .nsglob import in_subtree, ns_matches
 from .reductions import (
     descendants,
+    docket,
+    docket_namespaces,
     fresh,
     jobs,
     of_record,
@@ -59,11 +61,11 @@ from .validate import PostError
 # walking `requires` (onboard, required); a horizon there would decay a
 # conversation's spine, or silently shrink a fresh agent's canon as it
 # aged. Rotation bounds discovery, not reference.
-ROTATING_VIEWS = frozenset({"state", "jobs", "fresh", "of-record"})
+ROTATING_VIEWS = frozenset({"state", "jobs", "fresh", "of-record", "docket"})
 
 VIEWS = [
     "state", "thread", "provenance", "descendants", "taint", "fresh",
-    "jobs", "of-record", "onboard", "required",
+    "jobs", "of-record", "onboard", "required", "docket",
 ]
 
 
@@ -665,9 +667,24 @@ def create_app(board: Board) -> FastAPI:
         if name in ROTATING_VIEWS:
             log, rotated_envs = rotate_project(board.log, board.timeline, log, offset)
 
+        # §9.3 — a view whose served slice is not expressible as its query
+        # arguments DECLARES it, and the counter is taken over that. The
+        # docket reads `/korax/inbox`, which is not under its `ns`, so
+        # deriving the slice from `ns` alone would count zero for every
+        # envelope withheld from that section — withholding while
+        # reporting a number structurally unable to include the
+        # withholding. #468 is the over-reporting twin of the same bug;
+        # under-reporting is the worse one, because a page that says
+        # zero-withheld re-arms a reader's belief that zero means complete.
+        served_ns = docket_namespaces(ns) if name == "docket" and ns else None
+
         def scoped(envs: list[Envelope]) -> int:
             """Every exclusion count names the slice being served, never
             the board (§8.7.5, §9.3)."""
+            if served_ns is not None:
+                return sum(
+                    1 for e in envs if any(in_subtree(p, e.ns) for p in served_ns)
+                )
             if ns is not None:
                 return sum(1 for e in envs if in_subtree(ns, e.ns))
             if ns_set is not None:
@@ -700,6 +717,14 @@ def create_app(board: Board) -> FastAPI:
                 output = onboard_reduction(log, tl, offset, identity or who)
             elif name == "required":
                 output = required_reduction(log, tl, offset, _req(id, "id"), identity or who)
+            elif name == "docket":
+                # §10.12 — `identity` here is an explicit narrowing the
+                # caller asked for, NOT `who`. Defaulting it to the
+                # requester would make the program's state unobtainable
+                # from a band that holds anything, which is the desk's
+                # standing question and the reason this is one reduction
+                # with a filter rather than two reductions.
+                output = docket(log, tl, offset, _req(ns, "ns"), identity)
             else:
                 raise HTTPException(404, f"unknown view; supported: {VIEWS}")
         except LookupError as exc:
