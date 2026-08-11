@@ -40,7 +40,8 @@ from .models import (
     Grade,
 )
 from .counters import Scope, scope_name, withheld_counts
-from .nsglob import in_subtree, ns_matches
+from .log import Log
+from .nsglob import has_glob_segment, in_subtree, ns_matches
 from .reductions import (
     descendants,
     docket,
@@ -229,6 +230,77 @@ def create_app(board: Board) -> FastAPI:
 
     def visible_log(who: str):
         return filter_log(board.log, board.timeline, who, board.head)
+
+    def _no_glob_ns(ns: str | None) -> None:
+        """§7 / #465 — a glob `ns` is REFUSED on the read path, never
+        answered emptily.
+
+        Globs are grant and policy vocabulary. The read path filters
+        through `in_subtree`, a segment-wise prefix, so `*` and `**` match
+        nothing here — and the failure is invisible: the request succeeds,
+        the page is empty, and a watch armed with one parks forever
+        without firing. The desk's own nest watch was dead an entire loop
+        this way (rake #464).
+
+        Same stance as `horizon` (§8.2): an argument this surface cannot
+        honour is refused rather than silently ignored. Grants and
+        policies keep their globs untouched — this is only the read path.
+        """
+        if ns is not None and has_glob_segment(ns):
+            raise HTTPException(
+                400,
+                f"`ns={ns}` uses glob vocabulary, which the read path cannot "
+                f"honour: read/wait/search match a namespace SUBTREE by "
+                f"segment-wise prefix (§7), so a `*` or `**` segment matches "
+                f"nothing at all rather than everything below it. Pass the "
+                f"subtree root instead — e.g. `{'/' + '/'.join(s for s in ns.strip('/').split('/') if s not in ('*', '**'))}`. "
+                f"Globs remain correct in grants and policies. Refused rather "
+                f"than answered emptily, because an empty page and a dead "
+                f"filter are indistinguishable to the caller (#465, rake #464).",
+            )
+
+    def _offset_or_refuse(at: int | None, log: Log) -> int:
+        """The offset a reduction evaluates at — refusing one that names
+        nothing IN THIS CALLER'S LOG, rather than answering a different
+        question than the one asked (#909, JOB #1092).
+
+        Two conditions were collapsed into one crash before this, and they
+        want opposite answers:
+
+        - `at` beyond what this requester can see names no envelope at
+          all. Every envelope they may read is below it, so
+          guard-and-continue would silently serve the answer for a
+          DIFFERENT offset — and §10's contract is that a reduction is
+          reproducible at a STATED offset. Refused, 400.
+        - `at` inside the log but naming an envelope this requester
+          cannot see is NOT an error. It is a normal consequence of a
+          filtered log, and the reduction still has a coherent slice to
+          serve. Those degrade instead: `eval_ts` is None and every
+          predicate that needs a clock is false. That position was
+          already the board's — `retention.eval_ts_at` names this exact
+          case — and three reductions had never adopted it.
+
+        The bound is the requester's own visible head, NEVER `board.head`.
+        Measured (#1118, probe 2): `onboard`'s `where_truth_lives.head`
+        already serves the VISIBLE head, so a refusal naming the board's
+        true height would disclose more than the orientation surface
+        does — it would turn every 400 into an oracle for how much is
+        being withheld. Naming the visible head discloses nothing the
+        caller cannot obtain by asking any view with no `at` at all.
+        """
+        visible_head = log.envelopes[-1].id if len(log) else 0
+        if at is not None and at > visible_head:
+            raise HTTPException(
+                400,
+                f"no envelope at offset {at} in your view of this log; the "
+                f"last you can see is {visible_head}. A reduction is "
+                f"reproducible at a stated offset (§10), so an offset naming "
+                f"nothing is refused rather than answered against a different "
+                f"one. This bound is YOUR horizon, not the board's height — "
+                f"another band may see further, and this refusal says nothing "
+                f"about whether it does.",
+            )
+        return at if at is not None else visible_head
 
     def pierced(horizon: str | None) -> bool:
         """§8.2 — `horizon=none` is the one accepted value on /read and
@@ -462,6 +534,7 @@ def create_app(board: Board) -> FastAPI:
         include_self: bool = False,
         limit: int = Query(default=500, le=5000),
     ) -> dict[str, Any]:
+        _no_glob_ns(ns)
         pierce = pierced(horizon)
         log, sealed_envs, private_envs = visible_log(who)
         targets = authored_by(log, to_author) if to_author else None
@@ -522,7 +595,13 @@ def create_app(board: Board) -> FastAPI:
         requester may read (#636 D2, ruled #637). Search is the first read
         surface with a content filter; the rule it establishes is that
         metadata may be evaluated against what you cannot read and content
-        may not."""
+        may not.
+
+        #465 binds here too, and not by extension: `search` scopes through
+        the same `matches()`/`in_subtree` as `/read`, so a glob `ns`
+        returns "no results" — the one answer a search surface is most
+        likely to have believed."""
+        _no_glob_ns(ns)
         log, sealed_envs, private_envs = visible_log(who)
 
         def structural(env: Envelope) -> bool:
@@ -602,6 +681,10 @@ def create_app(board: Board) -> FastAPI:
         include_self: bool = False,
         timeout: float = Query(default=60.0, le=600.0),
     ) -> dict[str, Any]:
+        # Before the long poll, not inside it: a glob `ns` here is the
+        # exact shape that parks a watch forever (rake #464), and the one
+        # place a refusal must beat a timeout.
+        _no_glob_ns(ns)
         pierce = pierced(horizon)
         mine = self_drop(who, to_author, to_worked, include_self)
 
@@ -852,7 +935,11 @@ def create_app(board: Board) -> FastAPI:
                 f"`horizon={PIERCE}` is accepted on /read and /wait only",
             )
         log, sealed_envs, private_envs = visible_log(who)
-        offset = at if at is not None else (log.envelopes[-1].id if len(log) else 0)
+        # One gate for EVERY view, including the next one added — the
+        # brief's "fix the class, not the instance". Placing it here
+        # rather than in each reduction is what makes the parametrized
+        # test over all view names meaningful.
+        offset = _offset_or_refuse(at, log)
         rotated_envs: list[Envelope] = []
         if name in ROTATING_VIEWS:
             log, rotated_envs = rotate_project(board.log, board.timeline, log, offset)

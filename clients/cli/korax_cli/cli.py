@@ -161,9 +161,63 @@ async def cmd_post(
     return 0
 
 
+_GLOB_SEGMENTS = frozenset({"*", "**"})
+
+
+def _refuse_glob_ns(ns: str | None, *, source: str = "flag") -> None:
+    """§7 / #465 — refuse a glob `ns` on the read path BEFORE the round
+    trip.
+
+    `read`, `wait`, `watch` and `search` match a namespace subtree by
+    segment-wise prefix, so a `*` or `**` segment matches nothing at all
+    rather than everything below it. The server refuses this too; the
+    client refuses it as well because the failure this prevents is a
+    watch that parks and never fires, and a band that has to reach the
+    board to learn its watch is dead has already lost the loop it was
+    watching for (rake #464).
+
+    `source` distinguishes the two ways in, and the SIDECAR is the one
+    that hurt: a re-arm reconstructs its filter set from disk, after
+    argument parsing, so a watch armed with a glob before this shipped
+    would otherwise go on arming dead forever with nobody typing
+    anything.
+    """
+    if ns is None:
+        return
+    segs = [s for s in ns.strip("/").split("/") if s]
+    if not any(s in _GLOB_SEGMENTS for s in segs):
+        return
+    root = "/" + "/".join(s for s in segs if s not in _GLOB_SEGMENTS)
+    if source == "sidecar":
+        raise CliError(
+            f"this watch's saved filter set carries a glob namespace "
+            f"(ns={ns!r}), which the read path cannot honour: it matches "
+            f"nothing, so re-arming it would park a watch that can never "
+            f"fire (rake #464). Re-arm with an explicit `--ns {root}` to "
+            f"replace the recorded filter set. Refusing loudly rather than "
+            f"arming dead — a watch that looks parked and is not is the "
+            f"failure this refusal exists for.",
+            ns=ns,
+            suggested=root,
+            source="watch sidecar",
+        )
+    raise CliError(
+        f"--ns {ns!r} uses glob vocabulary, which the read path cannot "
+        f"honour: read/wait/watch/search match a namespace SUBTREE by "
+        f"segment-wise prefix (§7), so a `*` or `**` segment matches "
+        f"nothing rather than everything below it. Use the subtree root: "
+        f"--ns {root}. Globs stay correct in grants and policies "
+        f"(claimant:/korax-dev/** is right); it is only reading that has "
+        f"no use for them (#465).",
+        ns=ns,
+        suggested=root,
+    )
+
+
 async def cmd_read(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
+    _refuse_glob_ns(args.ns)
     since, cursor_path = _resolve_since(args, rt)
     body = await client.read(
         ns=args.ns,
@@ -235,6 +289,7 @@ async def _poll(
 async def cmd_wait(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
+    _refuse_glob_ns(args.ns)
     since, cursor_path, seeded_from = await _resolve_since_for_wait(args, client, rt)
     body, model = await _poll(args, client, config, since)
     page = _check_shape(model, body, "/feed" if _is_bare(args) else "/wait")
@@ -540,9 +595,11 @@ async def cmd_watch(
     # arm recorded. This is the whole re-arm mechanism: same command, same
     # watch, no arguments to retype and no way to retype them differently.
     given = {name: getattr(args, name, None) for name in _WATCH_FILTERS}
+    rearmed_from_sidecar = False
     if not any(v for v in given.values()):
         try:
             given = json.loads(state_path.read_text(encoding="utf-8"))
+            rearmed_from_sidecar = True
             if given.get("feed"):
                 rt.warn(f"re-armed from {state_path} as a feed watch (§11.2)")
             else:
@@ -572,6 +629,14 @@ async def cmd_watch(
 
     for name in _WATCH_FILTERS:
         setattr(args, name, given.get(name))
+
+    # #465 — HERE, and not at argument parsing. `given` is whichever filter
+    # set actually governs this arm: the flags when they were passed, the
+    # SIDECAR when they were not. A validator on argv alone would refuse a
+    # freshly typed glob and go on arming every already-saved one dead
+    # forever, which is the half of rake #464 that cost a whole loop —
+    # nobody re-typed that watch, it just kept re-arming itself.
+    _refuse_glob_ns(args.ns, source="sidecar" if rearmed_from_sidecar else "flag")
 
     # #691 — under --repeat this command is a STREAM, and a stream's unit is a
     # line. Both emits below go through this, so the shape does not change
@@ -1360,6 +1425,7 @@ async def cmd_search(
     results, and the query is never evaluated against an envelope the
     board withheld from you, so the counts cannot be used to read what
     you may not read (#636 D2)."""
+    _refuse_glob_ns(args.ns)
     body = await client.search(
         q=args.q, ns=args.ns, type=args.type, author=args.author,
         grade=args.grade, evidence=args.evidence, since=args.since,

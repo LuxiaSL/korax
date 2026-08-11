@@ -63,3 +63,25 @@ def specificity(policy_ns: str) -> int:
 def in_subtree(root: str, path: str) -> bool:
     """Path equals root or descends from it."""
     return governs(root, path)
+
+
+GLOB_SEGMENTS = frozenset({"*", "**"})
+
+
+def has_glob_segment(ns: str) -> bool:
+    """True if `ns` uses the GLOB VOCABULARY — a segment that is exactly
+    `*` or `**`.
+
+    The read path filters through `in_subtree`, a segment-wise prefix, so
+    a glob segment can never match a concrete path: the request succeeds
+    and matches nothing, forever (#465). A watch armed with one parks and
+    never fires (rake #464). Read surfaces call this to refuse rather than
+    to answer emptily.
+
+    Deliberately a SEGMENT test, not `"*" in ns`. `ns` is validated only
+    as `^/` (models.py), so `/x/a*b` is a legal literal namespace that
+    `_match` can only match literally — refusing it would make a readable
+    nest unreadable to fix a bug it does not have. What is refused is the
+    vocabulary that means something else here than it does in a grant.
+    """
+    return any(seg in GLOB_SEGMENTS for seg in segments(ns))

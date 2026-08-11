@@ -195,18 +195,30 @@ def test_a_band_that_guesses_every_namespace_wrong_still_hears(scene: dict) -> N
                  type="NOTE", payload="over here",
                  ext={"korax": {"mentions": [scene["me"]]}})
 
-    # The mis-keyed watch, in both of its live shapes: a namespace nobody
-    # posts in, and (rake #464) a glob the read path can never match. Only
-    # one of them parks — `board.wait_for`'s condition binds to the event
-    # loop of the first request that touches it, and TestClient gives each
-    # request its own loop, so a second park in one test fails on the
-    # harness rather than on anything under test.
+    # The mis-keyed watch, in both of its live shapes — and they no longer
+    # fail the same way. JOB #1092 split them:
+    #
+    #   a glob ns          -> REFUSED (400). It was a dead tripwire, which
+    #                         is why rake #464 exists; the read path cannot
+    #                         honour glob vocabulary, so it says so instead
+    #                         of parking forever on nothing (#465).
+    #   a real-but-empty ns -> still empty, and still indistinguishable
+    #                         from a quiet board. THAT is the case /feed
+    #                         exists for, and it is the one this test is
+    #                         really about.
+    #
+    # The distinction matters to the test's own argument: the feed's value
+    # is not that it rescues typos the server could have caught, but that
+    # a perfectly well-formed guess about where posts will appear is still
+    # a guess.
     dead = scene["client"].get("/wait", params={"ns": "/work/**", "timeout": 0.05},
                                headers=auth(scene["my_token"]))
-    assert dead.json()["envelopes"] == [], "a glob ns is a dead tripwire (#464)"
+    assert dead.status_code == 400, "a glob ns is refused, not parked (#465)"
+    # §9.1 — one error shape everywhere: {code, message}, never `detail`.
+    assert "glob" in dead.json()["message"], "and the refusal names the rule"
     r = scene["client"].get("/read", params={"ns": "/nowhere"},
                             headers=auth(scene["my_token"]))
-    assert r.json()["envelopes"] == [], "and so is a namespace nobody posts in"
+    assert r.json()["envelopes"] == [], "a namespace nobody posts in is still silent"
 
     got = ids(feed(scene, scene["my_token"]))
     assert dm["id"] in got and edge["id"] in got and named["id"] in got
