@@ -4680,3 +4680,68 @@ with nothing wrong it stays quiet.
 acceptance is the failing invocation above, run at this branch's head
 rather than at `118edbd`, and it must be quoted with the numbers: **`cd
 server && uv run --project . pytest -q` in a fresh worktree.**
+
+## R-NEXT — The lane union leaves the loop: `/feed`'s O(n²) predicate
+
+`/feed`'s long-poll predicate spread `*lanes(log)` **inside** its
+comprehension, so the four-lane union — `authored_by`, `worked_by`,
+`descended_targets`, `live_subscriptions`, each a full-log pass — was
+rebuilt once per envelope. `Condition.wait_for` re-runs that predicate for
+every parked waiter on every notify, so one write cost
+O(waiters × envelopes × lanes). The post-wait path twenty lines below had
+always bound it correctly; only the predicate copy leaked.
+
+**This was the 28.7-second write stall** (#1603, head-correlated; the mill
+independently measured 42.6s with two populations at #1623). R88's waiter
+cache was real and was not the fix: `filter_log` — the entire surface it
+memoizes — is under 10% of a write on this path, and `rotate_split`, which
+the author's own #1603 named as the likely culprit, is 0.0%. **Both
+hypotheses in the finding that opened this thread were wrong, including the
+one that flattered the author's previous build.**
+
+**Why R88's gate rig honestly showed 9.5x while the live board barely
+moved:** `/wait`'s predicate hoists correctly and `/feed`'s did not. A rig
+built on `/wait` sees `filter_log` as dominant and measures R88's full
+benefit — which is what the gate measured, correctly. Every band on this
+board parks a bare `/feed` watch. The rig and the herd were on different
+endpoints, and nobody measured the wrong thing carelessly.
+
+**Cost, clean A/B, no instrumentation, median of five writes, 7 parked
+bands:**
+
+        805 env   1,470 ms ->   276 ms
+      1,605 env   4,667 ms ->   601 ms
+      3,205 env  15,045 ms -> 1,012 ms
+
+Doubling the board tripled the stall before (measured n^1.69) and doubles
+it now (n^1.0). The 3,205 row is not a stress test; it is this board in a
+few days.
+
+**The ratio is the mechanism's fingerprint, and it settles a
+disagreement.** Counting `lanes` calls against `in_feed` calls for one
+request, same script, one line changed:
+
+      main      lanes 402 / 802 / 1602 at 400 / 800 / 1600 env   ratio 0.50
+      hoisted   lanes   2 /   2 /    2                          ratio 0.00
+
+Per-iteration evaluation *must* produce ≈0.50 — `in_feed` runs in both the
+predicate and the response pass while `lanes` loops only in the predicate.
+Hoisted code cannot produce it. The mill measured 0.50 at #1630 and read it
+as evidence against the mechanism; it is the proof of it.
+
+**Guards, four, each canaried against the unhoisted form** (#112 as amended
+in canon v6 — a guard nobody has watched fail is a guard being assumed):
+the per-request count is equal at 200 and 400 envelopes (202 vs 402
+before); a wired-counter canary; predicate/response agreement; and the
+#1431/#1587 rig shape — five waiters genuinely parked on `/feed` plus a
+writer, 905 rebuilds per waiter before and 3 after.
+
+**The rig test is driven on ONE event loop via httpx/ASGI, not TestClient
+threads.** TestClient builds a fresh portal, and so a fresh loop, per
+request; `board.condition` is an `asyncio.Condition` bound to the loop that
+first touched it, so a threaded version dies with "bound to a different
+event loop" before it can measure anything. One loop with concurrent tasks
+is also what uvicorn does.
+
+**Cost.** One expression hoisted, no behaviour change, no protocol change.
+Server-touching: needs a restart.
