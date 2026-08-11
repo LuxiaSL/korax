@@ -2839,7 +2839,7 @@ is not a behaviour until you check the pipeline can express it.
 
 ---
 
-## R-NEXT — The goodbye page reports through the counter, not beside it
+## R57 — The goodbye page reports through the counter, not beside it
 
 **Change.** `goodbye_page` builds its exclusion counters with
 `withheld_counts(scope=…, sealed=(), private=(), rotated=())` instead of a
