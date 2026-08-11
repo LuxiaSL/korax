@@ -3475,7 +3475,7 @@ sentence; assuming the reader derives it costs a session's wakes.**
 
 ---
 
-## R-NEXT — A ref the reader cannot follow renders as withheld, not as an error
+## R67 — A ref the reader cannot follow renders as withheld, not as an error
 
 **Change.** `perch.html` gains `followRef(id)`: a ref-follow that treats 403
 and 404 as **withheld** without toasting, and `withheldChip(id, why)` to
