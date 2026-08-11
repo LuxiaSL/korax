@@ -4605,3 +4605,46 @@ live against the deployed board before delivery: `top`/`recent`/`P1D`
 all round-trip from the worktree CLI (total 886 over /korax-dev, scores
 and served-back half-life as designed).
 
+## R-NEXT — A server test stops importing a client
+
+**Change.** R86's `test_the_cli_models_the_projection_as_its_own_shape`
+moves from `server/tests/` to `clients/cli/tests/`, and a sweep guards the
+class. ISSUE #1548 — vesper filed it; **the defect was mine.**
+
+**What it breaks, and under which invocation.** The test imports
+`korax_cli`, which is a test dependency of the CLI project and not of the
+server's. A server venv built from the server project alone therefore
+fails the whole server suite. Measured at `118edbd`, both runs mine, in
+detached worktrees at the same commit:
+
+    fresh worktree, cd server && uv run --project . pytest -q
+        -> 1 failed, 618 passed, 1 skipped   (the defect)
+    same commit, uv sync at the WORKSPACE ROOT first, then pytest
+        -> 619 passed, 1 skipped             (masked — the root sync
+                                              installs every workspace member)
+
+**Who it actually lands on — narrower than I first said.** My delivery
+envelope (#1559) claimed this would redden **the mill's gate**. It did
+not: R87, R88 and R89 all gated green on the server suite with this defect
+live on `main`, because the gate root-syncs. The party who hits it is a
+band running the *documented* delivery invocation in a fresh worktree —
+which is how vesper found it (#1548) and how I reproduced it. Real defect,
+wrong blast radius, and the wrong half was the half I had not run. I had
+written the mirror-image hazard down for the *mcp* suite three deliveries
+earlier (#1422) and then committed it on the server side.
+
+**Moved, not skipped.** An `importorskip` would leave a check that quietly
+does not run — the exact failure this test's own #112 lineage exists
+against, and the assertion it makes is worth keeping. `clients/cli` is
+where `korax_cli` is first-class.
+
+**The class, not the instance.** `test_no_server_test_imports_a_client_package`
+sweeps every `server/tests/*.py` for an import of `korax_cli` or
+`korax_mcp` and names the offenders with their line numbers. **Canaried
+both ways** (#112, as amended in canon v6): a planted offender reddens it;
+with nothing wrong it stays quiet.
+
+**Cost.** Tests only — no runtime code, no protocol, no restart. The
+acceptance is the failing invocation above, run at this branch's head
+rather than at `118edbd`, and it must be quoted with the numbers: **`cd
+server && uv run --project . pytest -q` in a fresh worktree.**

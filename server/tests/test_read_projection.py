@@ -235,39 +235,20 @@ def test_the_default_is_unchanged(world: dict) -> None:
 # -- the clients, and the perch caller that motivated the job ---------------
 
 
-def test_the_cli_models_the_projection_as_its_own_shape() -> None:
-    """R61's rule on a surface I am ADDING, not one I found.
-
-    `Envelope.payload` is optional, so a projected record would validate
-    through the full model and arrive as `payload=None` — indistinguishable
-    from an envelope that genuinely has no payload. `SummaryEnvelope`
-    declares what the projection HAS and does not declare `payload` at all,
-    so reading it fails at the point of the mistake."""
-    from korax_cli.wire import SummaryEnvelope, SummaryReadPage  # noqa: PLC0415
-
-    rec = {"proto": "korax/0.1", "id": 1, "ts": "2026-08-11T00:00:00Z",
-           "author": "band:x", "band": "reader", "ns": "/x", "type": "NOTE",
-           "grade": "n/a", "refs": [], "payload_bytes": 12, "ext_present": False}
-    parsed = SummaryEnvelope.model_validate(rec)
-    assert parsed.payload_bytes == 12 and parsed.ext_present is False
-    assert not hasattr(parsed, "payload"), (
-        "the projected shape must not carry a payload field at all — a "
-        "None there is the fabrication R61 removed from the counters"
-    )
-
-    # required with no default: a board that omits them is a shape error,
-    # never a zero invented locally.
-    import pytest as _pytest  # noqa: PLC0415
-    from pydantic import ValidationError  # noqa: PLC0415
-    with _pytest.raises(ValidationError):
-        SummaryEnvelope.model_validate({k: v for k, v in rec.items()
-                                        if k != "payload_bytes"})
-
-    # the page inherits every §9.3 promise unchanged
-    for counter in ("sealed_excluded", "rotated_excluded",
-                    "participation_excluded", "withheld_scope"):
-        assert counter in SummaryReadPage.model_fields
-
+# The CLI's projected-shape test USED TO LIVE HERE and does not any more —
+# ISSUE #1548, vesper, and the defect was mine. It imported `korax_cli`,
+# which is a TEST dependency of the CLI project and not of the server's, so
+# a freshly-created server venv failed it: `ModuleNotFoundError: korax_cli,
+# 1 failed, 596 passed`. Invisible in the shared checkout, whose venv has
+# the CLI installed from earlier sessions; guaranteed in the detached
+# worktree the delivery ritual — and the MILL'S GATE — actually runs in.
+# So it would have reddened the next band's gate wearing their name, which
+# is #1418's shape exactly.
+#
+# It now lives in `clients/cli/tests/test_cli.py`, where `korax_cli` is a
+# first-class dependency. NOT skipped behind an importorskip: a check that
+# quietly does not run is the thing this suite's whole #112 lineage is
+# against. Moved, not weakened.
 
 def test_the_perch_boot_path_asks_for_structure(world: dict) -> None:
     """The motivating caller (#1396): `nsIndex` pulls the whole visible log
@@ -285,4 +266,37 @@ def test_the_perch_boot_path_asks_for_structure(world: dict) -> None:
     assert proj["envelopes"], "fixture produced nothing"
     assert all("ns" in e for e in proj["envelopes"]), (
         "nsIndex reads `ns` off every record; the projection must keep it"
+    )
+
+
+def test_no_server_test_imports_a_client_package() -> None:
+    """ISSUE #1548, as a CLASS rather than an instance.
+
+    A server test that imports `korax_cli` or `korax_mcp` passes in the
+    shared checkout — whose venv has them from earlier sessions — and fails
+    in the detached worktree the delivery ritual and the MILL'S GATE both
+    run in. So the failure surfaces on whichever band is next through the
+    gate, wearing their name: #1418's shape, and my R86 committed it.
+
+    A sweep rather than a lint rule because it costs three lines and runs
+    where the mistake is made. `korax_server` is the server's own package
+    and is not a client."""
+    from pathlib import Path  # noqa: PLC0415
+
+    tests = Path(__file__).resolve().parent
+    offenders: list[str] = []
+    for path in sorted(tests.glob("*.py")):
+        for n, line in enumerate(path.read_text().splitlines(), 1):
+            stripped = line.strip()
+            if not (stripped.startswith("import ") or stripped.startswith("from ")):
+                continue
+            if "korax_cli" in stripped or "korax_mcp" in stripped:
+                offenders.append(f"{path.name}:{n}: {stripped}")
+
+    assert not offenders, (
+        "server tests must not import a client package — the server project "
+        "does not depend on one, so these pass only where a stale venv "
+        "supplies it and redden the next band's gate:\n  "
+        + "\n  ".join(offenders)
+        + "\nMove the test to that client's suite (ISSUE #1548)."
     )

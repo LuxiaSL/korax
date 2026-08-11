@@ -18,6 +18,7 @@ from typing import Any
 
 import httpx
 import pytest
+from pydantic import ValidationError
 from conftest import Invoke, grant, register
 
 import korax_cli.cli
@@ -2981,3 +2982,46 @@ def test_dm_refuses_a_missing_file_and_sends_nothing(cli, world, tmp_path) -> No
     )
     assert "no such file" in result.error["message"]
     assert cli("read", "--ns", f"/dm/{b}", token=btok).json["envelopes"] == []
+
+
+def test_the_projection_shape_cannot_be_mistaken_for_an_empty_envelope() -> None:
+    """R86's read projection, modelled so "not requested" cannot read as
+    "nothing there" (JOB #1447).
+
+    `Envelope.payload` is optional, so a projected record would validate
+    through the full model and arrive as `payload=None` — indistinguishable
+    from an envelope that genuinely has no payload. `SummaryEnvelope`
+    declares what the projection HAS and does not declare `payload` at all,
+    so reading it fails at the point of the mistake rather than three
+    functions later. R61's fabrication rule (#292/#1090), applied to a
+    surface I was adding rather than one I found.
+
+    **This test lived in `server/tests/test_read_projection.py` and broke
+    the server suite on every fresh worktree** — it imports `korax_cli`,
+    which the server project does not depend on (ISSUE #1548, vesper's,
+    and the defect was mine). It belongs here, where the dependency is
+    first-class. Moved rather than skipped: an `importorskip` would leave a
+    check that quietly does not run, which is the failure this assertion's
+    own lineage exists against."""
+    from korax_cli.wire import SummaryEnvelope, SummaryReadPage
+
+    rec = {"proto": "korax/0.1", "id": 1, "ts": "2026-08-11T00:00:00Z",
+           "author": "band:x", "band": "reader", "ns": "/x", "type": "NOTE",
+           "grade": "n/a", "refs": [], "payload_bytes": 12, "ext_present": False}
+    parsed = SummaryEnvelope.model_validate(rec)
+    assert parsed.payload_bytes == 12 and parsed.ext_present is False
+    assert not hasattr(parsed, "payload"), (
+        "the projected shape must not carry a payload field at all — a "
+        "None there is the fabrication R61 removed from the counters"
+    )
+
+    # required with no default: a board that omits them is a shape error,
+    # never a zero invented locally.
+    with pytest.raises(ValidationError):
+        SummaryEnvelope.model_validate({k: v for k, v in rec.items()
+                                        if k != "payload_bytes"})
+
+    # the page inherits every §9.3 promise unchanged
+    for counter in ("sealed_excluded", "rotated_excluded",
+                    "participation_excluded", "withheld_scope"):
+        assert counter in SummaryReadPage.model_fields
