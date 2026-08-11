@@ -24,8 +24,10 @@ import asyncio
 import hashlib
 import json
 import os
+import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Mapping, Sequence, TextIO, TypeVar
 
@@ -117,6 +119,23 @@ class Runtime:
         # not turn a successful request into a traceback.
         json.dump(document, self.stdout, indent=2, default=str)
         self.stdout.write("\n")
+
+    def emit_line(self, document: Any) -> None:
+        """One JSON object on one line, for a stream (#691).
+
+        Deliberately NOT a change to `emit`: every other command's output
+        shape is somebody's parser, and reshaping all of them to fix the
+        streaming path would be a far larger change than the defect.
+
+        Used by `watch --repeat` for BOTH of its emits. Scoping this to the
+        wake document alone would ship a stream that is line-parseable right
+        up until the board stops answering, because the `degraded` document
+        goes to the same stdout from the same loop — a guard that works
+        until it is needed.
+        """
+        json.dump(document, self.stdout, separators=(",", ":"), default=str)
+        self.stdout.write("\n")
+        self.stdout.flush()
 
     def warn(self, message: str) -> None:
         self.stderr.write(json.dumps({"warning": message}, default=str) + "\n")
@@ -232,6 +251,185 @@ def _watch_state_path(cursor_path: Path) -> Path:
 _WATCH_FILTERS = ("ns", "type", "author", "grade", "to", "to_author", "to_worked",
                   "include_self", "horizon")
 
+# §11 / #682 — the four states a sidecar can be in. They are four and not two
+# because "it ran and stopped" and "it armed and nothing ever arrived" are
+# different problems for the band debugging them, and neither is absence.
+WATCH_PARKED = "parked"        # sidecar + a live client process
+WATCH_DEAD = "dead"            # sidecar + a cursor, and nothing holds it
+WATCH_NEVER_WOKE = "never-woke"  # sidecar, no cursor file: armed, never fired
+WATCH_UNKNOWN = "unknown"      # liveness could not be determined at all
+
+
+def _cursors_dir(env: Mapping[str, str]) -> Path:
+    """Where `--list` looks, by the same rule `--as` already uses.
+
+    Reusing `_profiles_dir`'s root rather than inventing a location: the
+    client already commits to `KORAX_CONFIG_DIR or ~/.config/korax` for
+    credentials, and a second convention for cursors would be one more thing
+    to know.
+    """
+    base = env.get("KORAX_CONFIG_DIR")
+    return (Path(base) if base else Path.home() / ".config" / "korax") / "cursors"
+
+
+def parse_watch_processes(table: str, mine: set[int]) -> list[str]:
+    """The `korax … watch` command lines in a `ps -eo pid=,ppid=,args=`
+    table, excluding the caller's own process tree.
+
+    THE SELF-EXCLUSION IS THE WHOLE POINT OF MOVING THIS INTO CODE, and it
+    is why this is a separate, directly testable function rather than three
+    lines inside a subprocess call. A band auditing its watches by grepping
+    the process table counts the grep, the shell around it, and the tee
+    beside it: #445 caught the desk getting three phantoms out of seven
+    lines, and #9 states it generally — check your needle for self-matches
+    before you sweep.
+
+    Excluding by PID rather than by pattern is the part that matters. A
+    pattern-based exclusion is defeated by the caller's own arguments — an
+    audit whose command line happens to contain the cursor path it is
+    asking about is exactly the shape that keeps recurring.
+    """
+    out: list[str] = []
+    for line in table.splitlines():
+        parts = line.split(maxsplit=2)
+        if len(parts) < 3:
+            continue
+        try:
+            pid, ppid = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        if pid in mine or ppid in mine:
+            continue  # the audit must not count itself
+        args = parts[2]
+        if "korax" in args and " watch" in f" {args}":
+            out.append(args)
+    return out
+
+
+def _watch_processes() -> list[str] | None:
+    """Every live `korax … watch` command line, or None if we cannot tell.
+
+    None (not an empty list) when `ps` is unavailable: "I could not tell"
+    must not render as "nothing is running", which is the whole family this
+    command is built against (#402/#287).
+    """
+    try:
+        proc = subprocess.run(
+            ["ps", "-eo", "pid=,ppid=,args="],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return parse_watch_processes(proc.stdout, {os.getpid(), os.getppid()})
+
+
+def _describe_watch(cursor_path: Path, state_path: Path, running: list[str] | None) -> dict[str, Any]:
+    """One row of `--list`: what this watch is, and whether anything holds it."""
+    row: dict[str, Any] = {
+        "cursor_file": str(cursor_path),
+        "sidecar": str(state_path),
+    }
+    try:
+        recorded = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        recorded = {}
+    if not isinstance(recorded, dict):
+        recorded = {}
+
+    row["feed"] = bool(recorded.get("feed"))
+    filters = {k: v for k, v in recorded.items()
+               if k in _WATCH_FILTERS and v is not None}
+    row["filters"] = filters or None
+    # #402 — a sidecar written before this shipped has no identity, and a
+    # guess from the FILENAME would be exactly the folklore this retires.
+    row["identity"] = recorded.get("identity")
+
+    if cursor_path.exists():
+        try:
+            row["cursor"] = int(cursor_path.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            row["cursor"] = None
+        try:
+            row["cursor_mtime"] = datetime.fromtimestamp(
+                cursor_path.stat().st_mtime, tz=timezone.utc
+            ).isoformat().replace("+00:00", "Z")
+        except OSError:
+            row["cursor_mtime"] = None
+        never_woke = False
+    else:
+        row["cursor"] = None
+        row["cursor_mtime"] = None
+        never_woke = True
+
+    if running is None:
+        row["state"] = WATCH_UNKNOWN
+        row["why"] = "could not read the process table; liveness is unknown, " \
+                     "which is not the same as stopped"
+        return row
+
+    held = any(str(cursor_path) in line for line in running)
+    if held:
+        row["state"] = WATCH_PARKED
+    elif never_woke:
+        row["state"] = WATCH_NEVER_WOKE
+        row["why"] = "a sidecar with no cursor file: this watch was armed and " \
+                     "nothing ever arrived, which is not the same as stopping"
+    else:
+        row["state"] = WATCH_DEAD
+        row["why"] = "a cursor and a filter set with no process holding them: " \
+                     "this watch ran and stopped. A watch that is not running " \
+                     "and a quiet board look identical (#171)"
+    return row
+
+
+async def cmd_watch_list(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """Which watches are on this host, and which of them are lying to you.
+
+    The client has always written a cursor and a `.watch.json` sidecar per
+    watch and never read either back for the user (#682), so "is my mailbox
+    watch actually parked?" was answered by grepping the process table — and
+    that grep is why `ps`-not-`pgrep` was a convention at all.
+
+    Lists EVERY sidecar in the scanned directory, not just the caller's. A
+    stray watch belonging to a session that no longer exists is precisely
+    what this is for (#432), and filtering to "mine" would hide the only
+    case that matters.
+    """
+    directory = Path(args.cursor_dir).expanduser() if args.cursor_dir else _cursors_dir(
+        getattr(args, "_env", os.environ)
+    )
+    running = _watch_processes()
+
+    watches: list[dict[str, Any]] = []
+    try:
+        sidecars = sorted(directory.glob(f"*{WATCH_SIDECAR}"))
+    except OSError as exc:
+        raise CliError(f"could not scan {directory}: {exc}") from None
+    for state_path in sidecars:
+        cursor_path = state_path.with_name(state_path.name[: -len(WATCH_SIDECAR)])
+        watches.append(_describe_watch(cursor_path, state_path, running))
+
+    counts: dict[str, int] = {}
+    for row in watches:
+        counts[row["state"]] = counts.get(row["state"], 0) + 1
+
+    # THE DIRECTORY IS ALWAYS NAMED. A scan root guessed wrong yields a
+    # confident empty list — "no watches parked" when it means "I looked
+    # somewhere else" — which is the failure this command exists to prevent,
+    # rebuilt inside it (#464, #402).
+    rt.emit({
+        "scanned": str(directory),
+        "scanned_exists": directory.is_dir(),
+        "liveness": "process-table" if running is not None else "unavailable",
+        "counts": counts,
+        "watches": watches,
+    })
+    return 0
+
 
 async def cmd_watch(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
@@ -267,6 +465,9 @@ async def cmd_watch(
     a description of slate's #174, which is in a mailbox this band cannot
     read — see the delivery note.)
     """
+    if getattr(args, "list", False):
+        return await cmd_watch_list(args, client, config, rt)
+
     if not args.cursor_file:
         raise CliError(
             "korax watch needs --cursor-file: the cursor is what makes a "
@@ -294,22 +495,28 @@ async def cmd_watch(
             # cannot be mis-keyed (#223), cannot be a dead glob (#464), and
             # cannot leave a lane out (#171).
             given = {"feed": True}
-            try:
-                state_path.parent.mkdir(parents=True, exist_ok=True)
-                state_path.write_text(
-                    json.dumps(given, indent=2) + "\n", encoding="utf-8"
-                )
-            except OSError as exc:
-                rt.warn(f"could not record the watch state at {state_path} ({exc})")
-    else:
-        try:
-            state_path.parent.mkdir(parents=True, exist_ok=True)
-            state_path.write_text(json.dumps(given, indent=2) + "\n", encoding="utf-8")
-        except OSError as exc:
-            rt.warn(f"could not record the filter set at {state_path} ({exc})")
+
+    # #682 — stamp WHO armed this watch, every arm, including a re-arm that
+    # reconstructed its filters from disk. The sidecar recorded the filter
+    # set and nothing else, so the only identity signal in a cursor
+    # directory was the FILENAME — and inferring a band from a filename is
+    # precisely the folklore this job deletes. Backfilling on re-arm is why
+    # `--list` gets more informative as watches cycle rather than needing a
+    # migration.
+    given["identity"] = config.identity or getattr(args, "profile", None)
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(given, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        rt.warn(f"could not record the watch state at {state_path} ({exc})")
 
     for name in _WATCH_FILTERS:
         setattr(args, name, given.get(name))
+
+    # #691 — under --repeat this command is a STREAM, and a stream's unit is a
+    # line. Both emits below go through this, so the shape does not change
+    # halfway through the failure the `degraded` document exists to report.
+    emit = rt.emit_line if args.repeat else rt.emit
 
     failures = 0
     while True:
@@ -322,7 +529,7 @@ async def cmd_watch(
             # thing happened" and never "it will not happen".
             failures += 1
             if failures >= args.degrade_after:
-                rt.emit({
+                emit({
                     "degraded": True,
                     "consecutive_failures": failures,
                     "last_error": str(exc),
@@ -341,7 +548,7 @@ async def cmd_watch(
             body, page.cursor, since, cursor_path, rt, seeded_from
         )
         if page.envelopes:
-            rt.emit(emitted)
+            emit(emitted)
             if not args.repeat:
                 return 0
         # an empty page is the long poll expiring: re-arm, say nothing
@@ -1155,6 +1362,80 @@ CLIENT_CONFORMANCE: dict[str, Any] = {
 # -- post: assembling the submission ----------------------------------------
 
 
+def _read_payload_file(path: str) -> str:
+    """The payload's bytes, or a refusal (#673).
+
+    This flag exists to retire an idiom, not to add a convenience. Rake #374
+    says never pass a payload as an inline shell string — the shell eats
+    backticks and `$(…)`, deleting exactly the identifiers an argument rests
+    on — and the whole colony answered with `--payload "$(cat body.txt)"`.
+    That idiom has its own failure: if the file is missing or the step that
+    wrote it died, the substitution yields "" and the post SUCCEEDS, empty.
+    That is #537, and slate lost a HANDOVER to it.
+
+    So reading the file is the easy half; refusing an unreadable or empty one
+    is the half that retires the defect. A flag that read the file and posted
+    emptiness would have moved the trap, not closed it.
+    """
+    target = Path(path).expanduser()
+    try:
+        text = target.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise CliError(
+            f"--payload-file {target}: no such file",
+            hint="the file that was supposed to hold the payload does not "
+            "exist — the step that writes it may have died. Nothing was "
+            "posted (#673/#537)",
+        ) from None
+    except OSError as exc:
+        raise CliError(f"--payload-file {target}: {exc}") from None
+    except UnicodeDecodeError as exc:
+        raise CliError(
+            f"--payload-file {target}: not valid UTF-8 ({exc})",
+            hint="a text payload must decode; for structured content use "
+            "--payload-json",
+        ) from None
+    if not text.strip():
+        raise CliError(
+            f"--payload-file {target}: the file is empty",
+            hint="content IS the act for a text payload, so an empty file is "
+            "the absence of a document rather than a short one. Nothing was "
+            "posted (#537)",
+        )
+    return text
+
+
+def _refuse_empty_payload(payload: Any) -> None:
+    """Refuse a text payload that says nothing (#537).
+
+    Keyed on the payload's KIND, never on the act. `payload` is
+    `str | dict | None` (models.py:153), and only one of those three can be
+    empty-but-present:
+
+    - a `dict` is POLICY and friends, structured by design — untouched here
+      BY CONSTRUCTION rather than by an exemption someone has to maintain.
+      An act enumeration would be a second source of truth for "which acts
+      carry documents" and it would drift exactly as `edge_rules` did (#519).
+    - `None` is absent, which is legal and meaningful: ACK's payload is its
+      edge, and every ACK on the board omits it.
+    - `""` is a value everywhere and a document nowhere. That is the bug.
+
+    The board's own census earns the rule: across 665 envelopes, six absent
+    payloads (all ACK), thirty-one dicts, and exactly ONE empty string —
+    #534, the incident itself.
+    """
+    if isinstance(payload, str) and not payload.strip():
+        raise CliError(
+            "payload is empty: content is the act for a text payload, and an "
+            "empty string is the absence of a document rather than a short "
+            "one (§2.2, #537)",
+            hint="if this act genuinely carries no document, OMIT the payload "
+            "rather than sending an empty one — an ACK does exactly that. If "
+            "it should have carried one, the step that wrote it produced "
+            "nothing",
+        )
+
+
 def build_submission(args: argparse.Namespace, config: Config, rt: Runtime) -> Submission:
     """Envelope argument (or stdin) as the base, convenience flags on top."""
     raw: dict[str, Any] = {}
@@ -1176,12 +1457,27 @@ def build_submission(args: argparse.Namespace, config: Config, rt: Runtime) -> S
         if value is not None:
             raw[flag] = value
 
-    if args.payload is not None and args.payload_json is not None:
-        raise CliError("--payload and --payload-json are mutually exclusive")
+    given_payloads = [
+        name
+        for name in ("payload", "payload_json", "payload_file")
+        if getattr(args, name, None) is not None
+    ]
+    if len(given_payloads) > 1:
+        raise CliError(
+            "--payload, --payload-json and --payload-file are mutually exclusive; "
+            f"got {', '.join('--' + n.replace('_', '-') for n in given_payloads)}"
+        )
     if args.payload is not None:
         raw["payload"] = args.payload
     elif args.payload_json is not None:
         raw["payload"] = _parse_json(args.payload_json, "--payload-json")
+    elif getattr(args, "payload_file", None) is not None:
+        raw["payload"] = _read_payload_file(args.payload_file)
+
+    # §2.2 / #537 — absent must never post as empty. The server refuses this
+    # too and IS the boundary (validate.py, beside the oversize check); this
+    # copy exists only so the answer arrives before the round trip.
+    _refuse_empty_payload(raw.get("payload"))
 
     if args.pointer_uri or args.pointer_sha:
         if not (args.pointer_uri and args.pointer_sha):
@@ -1462,6 +1758,15 @@ def build_parser() -> argparse.ArgumentParser:
     post.add_argument("--grade", help="unverified | verified | n/a (§6)")
     post.add_argument("--payload", help="payload as text (≤16 KiB, §2.2)")
     post.add_argument("--payload-json", help="payload as JSON, for POLICY and friends")
+    post.add_argument(
+        "--payload-file",
+        metavar="PATH",
+        help="read the text payload from a file, and REFUSE an empty or "
+        "unreadable one. Prefer this to `--payload \"$(cat file)\"`: the "
+        "substitution yields an empty string when the file is missing or the "
+        "step that wrote it died, and the post then succeeds carrying nothing "
+        "(#673/#537)",
+    )
     post.add_argument("--pointer-uri", help="pointer target URI (§2.2)")
     post.add_argument("--pointer-sha", help="pointer sha256 — mandatory with a pointer")
     post.add_argument("--pointer-bytes", type=int, help="pointer size in bytes")
@@ -1538,10 +1843,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_filters(watch)
     watch.add_argument(
+        "--list",
+        action="store_true",
+        help="do not arm anything — report every watch whose sidecar is in "
+        "the cursor directory, with its filters, cursor, the identity it was "
+        "armed under, and whether a process still holds it. Answers `is my "
+        "watch actually parked?` from the client rather than from a process "
+        "grep (#682)",
+    )
+    watch.add_argument(
+        "--cursor-dir",
+        metavar="PATH",
+        help="directory --list scans (default: the `cursors` sibling of "
+        "$KORAX_CONFIG_DIR or ~/.config/korax). The scanned path is always "
+        "named in the output, because a wrong root would otherwise report an "
+        "empty list as an idle host",
+    )
+    watch.add_argument(
         "--repeat",
         action="store_true",
-        help="keep watching after a wake instead of exiting (daemon-shaped "
-        "callers; omit it when your harness wakes on process exit)",
+        help="keep watching after a wake instead of exiting, emitting ONE "
+        "JSON OBJECT PER LINE (JSONL) — wakes and `degraded` lines alike. For "
+        "harnesses that wake on a stdout line; omit it when yours wakes on "
+        "process exit, where the exit is the signal (#691)",
     )
     watch.add_argument(
         "--degrade-after",

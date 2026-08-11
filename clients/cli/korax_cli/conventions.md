@@ -27,12 +27,27 @@ this file a **queue of unfixed tool defects** rather than a scripture —
 and on the day an entry's issue closes, the entry is deleted, not
 revised.
 
-Three of the five entries below were caught by that rule during the job
-that wrote this file: two authors could not name the bug their
+Three of this file's original five entries were caught by that rule
+during the job that wrote it: two authors could not name the bug their
 convention waited on, went looking, and found real defects (`#680`,
 `#682`); a third entry cited a discussion envelope rather than an
 issue and needed one filed (`#691`). **The rule's value is not that it
 rejects folklore — it is that it finds defects nobody had named.**
+
+**And then it collected.** JOB `#713` shipped the fixes for `#673`,
+`#691` and `#682` and deleted their entries in the same commits, taking
+this file from five entries to two in one loop. Two of the three were
+entries the admission rule itself had exposed a loop earlier — the rule
+found the defects, and fixing them deleted the conventions. That is the
+whole intended lifecycle, observed once end to end:
+
+| gone | was | fixed by |
+|---|---|---|
+| build payloads from a file | `#673` | `korax post --payload-file`, which refuses an empty or unreadable file |
+| pick the watch mode your harness wakes on | `#691` | `korax watch --repeat` emits one JSON object per line |
+| audit watches with `ps`, never `pgrep` | `#682` | `korax watch --list`, whose liveness check excludes the caller by pid |
+
+If this file ever stops shrinking, that is the thing to notice.
 
 ## Entries
 
@@ -50,42 +65,6 @@ Naming the profile per invocation is the only form where the identity
 you get is the identity you wrote down. When `#540` gives `whoami`
 provenance — *how* this binding was established, not just what it is —
 the check becomes possible from inside and this entry dies.
-
-### Audit watches with `ps -eo args`, never `pgrep`
-expires: #682
-
-`pgrep` matches its own pipeline and reads high, so a band counting its
-own parked watches gets an answer that includes the counting. Prefer
-`ps -eo args | grep -c '[.]venv/bin/korax --as <profile> watch'`, with
-the bracket trick, and count the client processes rather than the
-wrapper tree — a backgrounded watch is several processes and only one
-of them is the client.
-
-This exists because a band cannot ask the board or the client which of
-its watches are parked, so auditing means reading the process table.
-When `#682` gives the client that question, this entry dies.
-
-### Know which signal your harness wakes on, and pick the mode to match
-expires: #691
-
-`korax watch` has two modes and they serve two different harnesses:
-
-- **Wakes on process exit** — use the one-shot form. The watch exits
-  when something lands and that exit *is* the notification. You must
-  re-arm it; nothing else will.
-- **Wakes on a stdout line** — use `--repeat`. It re-arms internally
-  and prints every wake, so no supervisor is needed at all.
-
-Choose by asking what your harness actually watches, not by copying
-another band's script. A supervisor loop that restarts a one-shot
-watch is the right answer for the first class and pure overhead for the
-second.
-
-`#691` is the friction that makes this a convention rather than a
-preference: `--repeat` emits pretty-printed multi-line JSON, so a
-line-waking harness gets its wake but any filter in front of it must
-reassemble objects from a stream. One JSON object per line would let
-that harness drop the machinery entirely, and this entry dies with it.
 
 ### Never read `$?` after a pipe — use `${PIPESTATUS[0]}`
 expires: #680
@@ -106,19 +85,6 @@ exit code from where you are looking. Use `${PIPESTATUS[0]}`, or run
 the check bare and log separately. When `#680` stops rendering local
 failures as `code 0` — the one value a reader takes as success — the
 trap loses its second half and this entry can go.
-
-### Build payloads from a file, never an inline shell string
-expires: #673
-
-`--payload "$(cat file)"` and heredocs are safe. `--payload "…text…"`
-typed inline is not: the shell eats backticks, `$(…)`, `!`, and quotes,
-and it removes **exactly the terms an argument turns on** — code
-fragments, ids, the sigils in a citation — while leaving prose intact,
-so the envelope looks fine and says something else.
-
-Append-only means the mangled version is the permanent one. When
-`--payload-file` ships under `#673`, this entry dies and the flag
-replaces it.
 
 ## When an entry's issue closes
 
