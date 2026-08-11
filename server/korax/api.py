@@ -35,6 +35,7 @@ from .models import (
     Envelope,
     Grade,
 )
+from .counters import Scope, withheld_counts
 from .nsglob import in_subtree, ns_matches
 from .reductions import (
     descendants,
@@ -346,19 +347,25 @@ def create_app(board: Board) -> FastAPI:
             hits, rotated = rotate_split(board.log, board.timeline, hits, board.head)
         out = [dump(e) for e in hits][:limit]
         cursor = out[-1]["id"] if out else since
-        def scoped(envs: list[Envelope]) -> int:
-            return sum(
-                1 for e in envs
-                if matches(e, ns, type, author, grade, since, until, to, targets,
-                           worked, mine)
-            )
-
         return {
             "envelopes": out,
             "cursor": cursor,
-            "sealed_excluded": scoped(sealed_envs),
-            "rotated_excluded": len(rotated),  # §8.2 — never silent
-            "participation_excluded": scoped(private_envs),  # §9.3 — likewise
+            # §9.3 — the count names the NAMESPACE, never the requester's
+            # predicate (#667, ruled at #665). `matches()` above still scopes
+            # what is SERVED; it must never scope what is counted as withheld,
+            # or the count becomes a function of hidden records whose filter
+            # the requester chose (#645). Dropping the id-range with it is
+            # deliberate: a differenceable count is a rate per neighbour.
+            **withheld_counts(
+                scope=Scope.of_query(ns, None),
+                sealed=sealed_envs,
+                private=private_envs,
+                rotated=rotated,  # §8.2 — never silent
+                # unchanged by this job: /read counted the board here before
+                # and still does. Stated rather than defaulted, because the
+                # §9.3 counts beside it now mean something narrower.
+                rotated_scope=Scope.whole_board(),
+            ),
         }
 
     @app.get("/search")
@@ -386,7 +393,10 @@ def create_app(board: Board) -> FastAPI:
             return matches(env, ns, type, author, grade, since, until)
 
         return search_reduction(
-            log, q, structural, [sealed_envs, private_envs], dump, limit
+            log, q, structural, [sealed_envs, private_envs], dump, limit,
+            # `structural` scopes what is served; the scope scopes what is
+            # counted, and it carries the namespace and nothing else (#667).
+            scope=Scope.of_query(ns, None),
         )
 
     @app.get("/neighbourhood/{env_id}")
@@ -489,19 +499,19 @@ def create_app(board: Board) -> FastAPI:
             found, rotated = rotate_split(board.log, board.timeline, found, board.head)
         out = [dump(e) for e in found]
         cursor = out[-1]["id"] if out else since
-        def scoped(envs: list[Envelope]) -> int:
-            return sum(
-                1 for e in envs
-                if matches(e, ns, type, author, grade, since, None, to, targets,
-                           worked, mine)
-            )
-
         return {
             "envelopes": out,
             "cursor": cursor,
-            "sealed_excluded": scoped(sealed_envs),
-            "rotated_excluded": len(rotated),
-            "participation_excluded": scoped(private_envs),
+            # §9.3 — namespace only, as /read. /wait is the same oracle with a
+            # long poll in front of it: a blocked caller could otherwise time
+            # a predicate against a room it cannot read.
+            **withheld_counts(
+                scope=Scope.of_query(ns, None),
+                sealed=sealed_envs,
+                private=private_envs,
+                rotated=rotated,
+                rotated_scope=Scope.whole_board(),  # unchanged by this job
+            ),
         }
 
     @app.get("/feed")
@@ -568,18 +578,6 @@ def create_app(board: Board) -> FastAPI:
         out = [dump(e) for e in found]
         cursor = out[-1]["id"] if out else since
 
-        def scoped(envs: list[Envelope]) -> int:
-            # §9.3, D3 — UNION-scoped. `scoped()` on /read and /wait
-            # re-applies the same conjunctive filter; under a disjunction it
-            # must mean "withheld, and would have matched ANY lane". Getting
-            # this wrong reports 0 withheld while withholding, which is the
-            # false-completeness class R28 removed one layer down.
-            return sum(
-                1 for e in envs
-                if in_feed(e, who, since, authored, worked, descended, subs,
-                           drop_self)
-            )
-
         return {
             "envelopes": out,
             # D3 — reasons ride BESIDE the envelopes, never inside them. An
@@ -591,9 +589,20 @@ def create_app(board: Board) -> FastAPI:
                 for e in found
             },
             "cursor": cursor,
-            "sealed_excluded": scoped(sealed_envs),
-            "rotated_excluded": len(rotated),
-            "participation_excluded": scoped(private_envs),
+            # §9.3 — /feed takes no `ns` at all (deliberately; see this
+            # endpoint's docstring), so it reports BOARD scope. That is not a
+            # weaker answer than the old lane-union: it is invariant under
+            # everything the requester can type, so there is nothing to slice
+            # and nothing to difference. And zero survives exactly — if
+            # nothing is withheld from you board-wide, nothing is withheld
+            # from your feed, so R28's completeness claim holds where it
+            # matters most (#790).
+            **withheld_counts(
+                scope=Scope.whole_board(),
+                sealed=sealed_envs,
+                private=private_envs,
+                rotated=rotated,
+            ),
         }
 
     @app.get("/subscribe")
@@ -671,30 +680,31 @@ def create_app(board: Board) -> FastAPI:
         # arguments DECLARES it, and the counter is taken over that. The
         # docket reads `/korax/inbox`, which is not under its `ns`, so
         # deriving the slice from `ns` alone would count zero for every
-        # envelope withheld from that section — withholding while
-        # reporting a number structurally unable to include the
-        # withholding. #468 is the over-reporting twin of the same bug;
-        # under-reporting is the worse one, because a page that says
-        # zero-withheld re-arms a reader's belief that zero means complete.
-        served_ns = docket_namespaces(ns) if name == "docket" and ns else None
-
-        def scoped(envs: list[Envelope]) -> int:
-            """Every exclusion count names the slice being served, never
-            the board (§8.7.5, §9.3)."""
-            if served_ns is not None:
-                return sum(
-                    1 for e in envs if any(in_subtree(p, e.ns) for p in served_ns)
-                )
-            if ns is not None:
-                return sum(1 for e in envs if in_subtree(ns, e.ns))
-            if ns_set is not None:
-                globs = ns_set.split(",")
-                return sum(1 for e in envs if any(ns_matches(g, e.ns) for g in globs))
-            return len(envs)
-
-        sealed = scoped(sealed_envs)
-        rotated = scoped(rotated_envs)
-        private = scoped(private_envs)
+        # envelope withheld from that section — withholding while reporting
+        # a number structurally unable to include the withholding. #468 is
+        # the over-reporting twin of the same bug; under-reporting is the
+        # worse one, because a page that says zero-withheld re-arms a
+        # reader's belief that zero means complete. (Vesper, #756 D3.)
+        #
+        # The declaration is a `Scope.union` rather than a branch inside a
+        # local counting function: #667 gives every surface one emission
+        # point, so "the slice this reduction served" is expressed in the
+        # same type as every other scope instead of as a special case.
+        # Otherwise the ns-less views fall through to board scope, which is
+        # #468's other half — they used to `return len(envs)`, reporting the
+        # board and calling it the slice. They still count the board, and
+        # now the scope says so.
+        scope = (
+            Scope.union(docket_namespaces(ns))
+            if name == "docket" and ns
+            else Scope.of_query(ns, ns_set)
+        )
+        counts = withheld_counts(
+            scope=scope,
+            sealed=sealed_envs,
+            private=private_envs,
+            rotated=rotated_envs,
+        )
         tl = board.timeline
         try:
             if name == "state":
@@ -734,9 +744,12 @@ def create_app(board: Board) -> FastAPI:
             "at": offset,
             "evaluated_against": "offset-ts" if at is not None else "head",
             "output": output,
-            "sealed_excluded": sealed,  # §8.7.5 — never silent
-            "rotated_excluded": rotated,  # §8.2 — likewise
-            "participation_excluded": private,  # §9.3 — likewise
+            # §8.7.5 / §8.2 / §9.3 — never silent. `rotated_excluded` keeps
+            # the namespace scope it already had here (the default), which is
+            # NOT what /read and /wait do; both prior behaviours are
+            # preserved deliberately and the difference is a filed §8.2
+            # question rather than something this job resolved by guessing.
+            **counts,
         }
 
     # -- introspection ------------------------------------------------------

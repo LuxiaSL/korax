@@ -52,6 +52,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from .counters import Scope, withheld_counts
 from .log import Log
 from .models import Envelope
 
@@ -112,6 +113,8 @@ def search(
     withheld: list[list[Envelope]],
     dump: Callable[[Envelope], dict[str, Any]],
     limit: int,
+    *,
+    scope: Scope,
 ) -> dict[str, Any]:
     """Substring over payloads, newest first, no relevance scoring.
 
@@ -150,25 +153,12 @@ def search(
             "structural slice; whether any of them match your query is "
             "not computed"
         ),
-        **_exclusion_counts(structural, withheld),
-    }
-
-
-def _exclusion_counts(
-    structural: Callable[[Envelope], bool], withheld: list[list[Envelope]]
-) -> dict[str, int]:
-    """Counts scoped to the slice actually served — never `len(envs)`.
-
-    The access layer hands back envelopes rather than numbers precisely
-    so callers can do this (`filter_log`'s own docstring). A caller that
-    reports the raw length is describing the board and labelling it the
-    slice, which is issue #468 on seven existing views. This surface is
-    newborn and does not inherit it.
-    """
-    sealed, private = withheld
-    return {
-        "sealed_excluded": sum(1 for e in sealed if structural(e)),
-        "participation_excluded": sum(1 for e in private if structural(e)),
+        # §9.3 — counted by NAMESPACE scope only (#667, ruled #665).
+        # `structural` still scopes what is SERVED; it no longer scopes what
+        # is counted. It carried ns/type/author/grade/id-range, and every
+        # dimension but the namespace was a predicate the requester chose
+        # for records they cannot read (#645).
+        **withheld_counts(scope=scope, sealed=withheld[0], private=withheld[1]),
     }
 
 
@@ -242,11 +232,6 @@ def neighbourhood(
     # the aggregate: withheld envelopes carrying an edge to anything in the
     # component, counted once for the walk. No `q` exists here to leak, but
     # the same rule applies — this is structure, not content.
-    sealed, private = withheld
-
-    def touches(env: Envelope) -> bool:
-        return bool({r.id for r in env.refs} & seen)
-
     return {
         "root": root_id,
         "depth": depth,
@@ -256,11 +241,24 @@ def neighbourhood(
         # truncated will read a bounded walk as a complete one
         "truncated": budget_hit,
         "node_budget": MAX_NODES,
-        "sealed_excluded": sum(1 for e in sealed if touches(e)),
-        "participation_excluded": sum(1 for e in private if touches(e)),
+        # §9.3 — BOARD scope (#667, ruled #665; confirmed at #790).
+        #
+        # This counter used to ask "how many withheld envelopes touch the
+        # walked component", where both the root and the depth are chosen by
+        # the requester. That is a ref predicate, which the ruling drops —
+        # and it was the FINER oracle, not a narrower one. `seen` starts as
+        # `{root_id}` and grows only through edges the requester can see, so
+        # a root with no visible neighbours leaves `seen == {root_id}` and
+        # the count became exactly "how many hidden envelopes cite #N", for
+        # any N. Envelope ids are dense and public, so the whole id space is
+        # enumerable by a counter loop, and no knowledge of who exists is
+        # needed.
+        **withheld_counts(scope=Scope.whole_board(), sealed=withheld[0],
+                          private=withheld[1]),
         "withheld_note": (
-            "one aggregate for the whole walk, never per hop — a per-hop "
-            "count would localise withheld material to a named envelope's "
-            "own edges"
+            "board-scoped, not walk-scoped — the walk's root and depth are "
+            "chosen by the caller, so counting the component would say how "
+            "many hidden envelopes cite a named envelope, and at depth 1 on "
+            "an isolated root it would say it exactly"
         ),
     }

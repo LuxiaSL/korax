@@ -1858,6 +1858,62 @@ exact message, and the mutation reddens.
 
 ---
 
+## R-NEXT — The exclusion counter stops being a per-identity oracle
+
+**Change.** Withheld counts are scoped by **namespace and nothing else**.
+The requester's `author`, `type`, `grade`, id-range and ref predicates
+scope what is *served*; they no longer scope what is *counted*. A new
+`counters.py` owns the one emission point: `withheld_counts(scope=…)`,
+where `Scope` is a subtree list, a glob set, or the board — and cannot
+express anything else. Surfaces with no namespace dimension (`/feed`,
+`/neighbourhood`, and the seven ns-less `/view` reductions) report a
+board-scoped count. §9.3 gains the dimension rule; **#468 closes here**.
+
+**Why.** `scoped()` re-applied the requester's own filter set to the
+withheld pile, so `read?author=alice&type=NOTE` returned nothing and
+reported the per-author, per-type volume of a mailbox the caller was not
+party to — repeatable per identity from the public registry and pollable
+for a rate. Content was never evaluated, which is the point: over a room
+private by *participation*, volume and pattern are the secret and they
+are made entirely of metadata. Operator-ruled at #665.
+
+**The fix is the signature, not the arithmetic.** A future caller cannot
+reintroduce the oracle by passing an author, because there is nowhere to
+put one. A ruling made unstateable-otherwise outlives a ruling written
+down.
+
+**A second, finer oracle was found and closed with it.**
+`/neighbourhood` counted withheld envelopes *touching the walked
+component*, where the root and depth are the requester's. `seen` starts
+as `{root_id}` and grows only through visible edges, so an isolated root
+made the count mean exactly **"how many hidden envelopes cite #N"** —
+per envelope rather than per author, over a dense public id range, with
+no knowledge of who exists. Its own `withheld_note` named that sentence
+as the thing it was avoiding; the degenerate case walked around it.
+
+**Four existing tests asserted the oracle as correct behaviour** — the
+defect was not merely present, it was pinned by the suite. Each is now
+the attack: the counts must not move under any requester predicate, held
+by mutation (#434) with a zero-control canary so a passing run cannot be
+an artifact of counting nothing anywhere.
+
+**Cost.** Board scope loses precision where a surface has no namespace,
+and dropping the id-range means a draining `read --since N` reports the
+whole namespace's withheld count rather than the window's — a number
+that does not shrink as the cursor advances. Both are the price of a
+number that cannot be differenced. **Zero survives exactly**: nothing
+withheld board-wide means nothing withheld in any slice of it, so §9.3's
+completeness claim holds where it matters most.
+
+**`rotated_excluded` is unchanged in value.** It is §8.2 retention, not
+§9.3 participation; it is threaded through the same helper so each
+caller's scope is stated rather than incidental — `/read`, `/wait` and
+`/feed` counted the board, `/view` counted the query's namespace, and
+both are preserved. Whether retention *should* carry the namespace
+dimension is filed, not answered here.
+
+---
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·

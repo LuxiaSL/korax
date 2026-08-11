@@ -168,12 +168,51 @@ def test_the_count_is_scoped_to_the_slice_served(mail: dict) -> None:
                 ns="/commons/rakes")["participation_excluded"] == 0
 
 
-def test_the_count_respects_the_other_filters(mail: dict) -> None:
-    """Scoped to the same slice means the same slice — a type filter
-    that matches none of the withheld envelopes zeroes the count rather
-    than reporting the nest's total."""
-    page = read(mail, mail["carol_token"], ns=mail["box"], type="WARN")
+def test_the_count_ignores_the_other_filters(mail: dict) -> None:
+    """JOB #667, ruled by the operator at #665 — THIS TEST IS THE ATTACK.
+
+    It asserted the reverse until now: that `type=WARN`, matching none of
+    the withheld envelopes, drove the count to 0. That behaviour is #645's
+    oracle, and the suite held it in place as a contract — carol reads
+    nothing and learns the per-type volume of a mailbox she is not party
+    to, repeatable per identity from the public registry and pollable for
+    a rate.
+
+    Per #434 the assertion is an ABSENCE — the number must not move — so a
+    green run against unfixed code proves nothing and this is held by
+    mutation in the delivery.
+    """
+    baseline = read(mail, mail["carol_token"], ns=mail["box"])["participation_excluded"]
+    assert baseline > 0, (
+        "the fixture must withhold something from carol or this test "
+        "passes by counting nothing anywhere"
+    )
+    for probe in (
+        {"type": "WARN"},
+        {"type": "NOTE"},
+        {"author": mail["alice"]},
+        {"grade": "n/a"},
+        {"since": 0},
+    ):
+        page = read(mail, mail["carol_token"], ns=mail["box"], **probe)
+        assert page["envelopes"] == [], "carol must still be served nothing"
+        assert page["participation_excluded"] == baseline, (
+            f"the withheld count moved under {probe} — the requester's own "
+            "predicate reached records they cannot read (#645)"
+        )
+
+
+def test_a_band_with_nothing_withheld_reports_exactly_zero(mail: dict) -> None:
+    """The zero-control canary (#10, and #653's own method).
+
+    Without this, an attack suite that passes may simply be counting
+    nothing anywhere. bob is party to the mailbox, so nothing in it is
+    withheld from him, and the count must be an exact 0 rather than a
+    small number that happens not to vary.
+    """
+    page = read(mail, mail["bob_token"], ns=mail["box"])
     assert page["participation_excluded"] == 0
+    assert page["envelopes"], "bob must actually be served the traffic"
 
 
 # ── direct address still fuses absence and denial ────────────────────

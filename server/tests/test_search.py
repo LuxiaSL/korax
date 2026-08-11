@@ -207,18 +207,37 @@ def test_blind_rounds_cannot_leak_through_search(world: dict) -> None:
 # ── the counter names the slice, not the board (issue #468) ──────────
 
 
-def test_the_count_is_scoped_to_the_structural_slice(board_with_secrets: dict) -> None:
-    """#468's defect, not inherited. Seven existing `/view` surfaces
-    report `len(envs)` when given no namespace, so a one-envelope thread
-    claims 47 withheld. This surface is newborn; it counts what it served.
+def test_the_count_is_scoped_to_the_namespace_and_nothing_else(
+    board_with_secrets: dict,
+) -> None:
+    """JOB #667, ruled at #665 — the namespace dimension is kept and every
+    requester-chosen dimension is dropped.
+
+    This test previously asserted the opposite: that a `type=WARN` filter
+    matching none of the withheld envelopes drove the count to 0. That was
+    the oracle, pinned by the suite as intended behaviour — eve reads
+    nothing and learns the per-type volume of a room she is not party to
+    (#645). The namespace half was always right and is unchanged.
     """
     w = board_with_secrets
     assert search(w, w["carol_token"], q="", ns=w["box"])["participation_excluded"] == 1
     assert search(w, w["carol_token"], q="", ns="/commons/rakes")["participation_excluded"] == 0
-    assert search(w, w["carol_token"], q="", type="WARN")["participation_excluded"] == 0, (
-        "a type filter matching none of the withheld envelopes reported "
-        "them anyway — the count named the board, not the slice"
-    )
+
+    # The requester's own predicates must not move the number. With no `ns`
+    # the scope is the board, so this is the board-wide figure and stays it.
+    board_wide = search(w, w["carol_token"], q="")["participation_excluded"]
+    for probe in (
+        {"type": "WARN"},
+        {"type": "NOTE"},
+        {"author": w["alice"]},
+        {"author": w["bob"]},
+        {"grade": "n/a"},
+        {"since": 0},
+    ):
+        assert search(w, w["carol_token"], q="", **probe)["participation_excluded"] == board_wide, (
+            f"the count moved under {probe} — a requester-chosen predicate "
+            "reached the withheld pile, which is #645's oracle"
+        )
 
 
 def test_the_response_says_the_query_was_not_run_on_withheld(board_with_secrets: dict) -> None:
@@ -350,10 +369,43 @@ def test_withheld_neighbours_are_one_aggregate_never_per_hop(board_with_secrets:
          refs=[{"edge": "derives-from", "id": public["id"]}])
 
     out = walk(w, w["carol_token"], public["id"])
-    assert out["participation_excluded"] == 1, "carol is owed the fact, not the map"
     for hop in out["hops"]:
         assert "participation_excluded" not in hop and "sealed_excluded" not in hop
-    assert "never per hop" in out["withheld_note"]
+    assert "board-scoped" in out["withheld_note"]
+
+
+def test_the_walk_counter_does_not_localise_to_the_root(
+    board_with_secrets: dict,
+) -> None:
+    """JOB #667 Q4 — the finer oracle, closed. Confirmed at #790.
+
+    The aggregate used to count withheld envelopes *touching the walked
+    component*, where both the root and the depth are the requester's. The
+    degenerate case is the attack: `seen` is initialised to `{root_id}` and
+    grows only through edges the requester can see, so a root with no
+    visible neighbours left the count meaning exactly **"how many hidden
+    envelopes cite #N"** — for any N, over a dense public id range, with no
+    knowledge of who exists. The old `withheld_note` named that sentence as
+    the thing it was avoiding, and the degenerate case walked around it.
+
+    The count is now board-scoped, so it cannot vary with the root at all.
+    """
+    w = board_with_secrets
+    cited = post(w, w["op_token"], w["operator"], ns="/commons/rakes",
+                 type="WARN", payload="an envelope a hidden one will cite")
+    uncited = post(w, w["op_token"], w["operator"], ns="/commons/rakes",
+                   type="WARN", payload="an envelope nothing hidden cites")
+    post(w, w["alice_token"], w["alice"], ns=f"/dm/{w['bob']}", type="NOTE",
+         payload="privately citing the first one",
+         refs=[{"edge": "derives-from", "id": cited["id"]}])
+
+    on_cited = walk(w, w["carol_token"], cited["id"])["participation_excluded"]
+    on_uncited = walk(w, w["carol_token"], uncited["id"])["participation_excluded"]
+    assert on_cited == on_uncited, (
+        "the walk counter distinguished an envelope a hidden envelope cites "
+        "from one it does not — that is per-envelope resolution, finer than "
+        "the per-author oracle this job was chartered to close"
+    )
 
 
 def test_absent_and_withheld_answer_identically(board_with_secrets: dict) -> None:
