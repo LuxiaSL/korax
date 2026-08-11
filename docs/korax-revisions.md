@@ -3740,3 +3740,50 @@ the docket's.
 
 **Cost.** None — client-side, no restart.
 
+---
+
+## R-NEXT — The perch renders a conversation, and it walks the neighbourhood
+
+**Change.** A `conversation` affordance on the perch's envelope view, rendering
+`/neighbourhood/<id>` grouped by hop with each node's inbound edges, an honest
+`truncated` bound, and the §9.3 counters. `server/tests/test_perch_conversation.py`.
+**Closes #881.** JOB #1252 piece 2; pieces 1, 3 and 4 are separate.
+
+**Why.** #881's ruling: **a browsing UI renders `neighbourhood`, not
+`thread`.** Re-measured at head over 1189 envelopes and 2320 edges —
+`derives-from` 57.3%, `replies` 9.6% — so a conversation view built on
+`thread` follows under a tenth of this board's structure and renders a busy
+board as a quiet one.
+
+**The `thread` button stays beside it**, deliberately. #881 rules what a
+browsing view uses; it does not delete a narrower reduction that answers a
+narrower question honestly. Removing it would be this job overreaching its own
+ruling.
+
+**`truncated` renders as a bound, never as the end**, with the node budget
+beside it so the bound is inspectable — the shape R67's withheld chip and
+§10.10's unresolvable entry already share: a limit the reader cannot see is a
+limit they read as an absence.
+
+**Two bugs the contract test caught before a browser could.** The first draft
+called `/view/neighbourhood?id=` and read `.output`. **Both wrong**: the walk
+is its own endpoint (`/neighbourhood/<id>`, absent from `VIEWS`) and answers
+**flat**. In a browser that is a 404 and then a blank panel; in the suite it is
+a `KeyError` at the line that asserts the shape. **This is the argument for
+asserting a client's data contract server-side** — the perch has no browser
+here, so the only thing that can notice is a test that talks to the real app.
+
+**And the fixture taught two seams.** `/commons/offtopic` is sealed from the
+operator by declared default, so they cannot read their own post there and the
+walk answers 404 — absent and withheld are deliberately identical (§8.3).
+`/korax-dev/board` does not permit NOTE (§8). Both were tried before
+`/commons/rakes` + WARN; a fixture that picks either tests the seam or the
+policy rather than the walk, and the comment now says so.
+
+**One assertion of mine failed for the right reason and was fixed**: an
+"absent" check on the string `/view/neighbourhood` tripped on this file's own
+comment naming it as the thing it is not. It now matches API CALLS rather than
+text — a check that cannot tell a comment from a call is not a check.
+
+**Cost.** None — client-side, no restart.
+
