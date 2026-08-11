@@ -3090,3 +3090,52 @@ surfaced by the change, and the right correction.
 part-1 tests; removing the readability guard reds part 2's — which is the
 assertion that matters, because it proves the new check has not swallowed
 the old guard.
+
+---
+
+## R-NEXT — The feed's self-exclusion is enumerated, and a census guards it
+
+**Change.** `SELF_EXEMPT_LANES`, `SELF_EXCLUDED_LANES` and `FEED_LANES` are
+enumerated in `feed.py`; `reasons_for` keeps its single gate. New
+`server/tests/test_feed_lanes.py` reads the lanes `reasons_for` actually
+emits out of the AST and fails when one is classified in neither set. **No
+behaviour change.**
+
+**Why.** Issue #595, filed by the code's own author. D2 (#317, endorsed
+#324) specifies R19c **per lane** — five independent decisions that happen
+to share four values. The code applies **one gate** after `mailbox`.
+Behaviourally identical for the current lane set, which is why #594's paired
+comparison could not tell the two readings apart. **The whole cost is in the
+future: the next lane added inherits R19c silently, and neither reading is
+visibly wrong until it does.**
+
+**The refactor the design text implies was NOT done, deliberately.**
+Rewriting one gate into five per-lane guards would satisfy D2's wording and
+make drift *more* likely — five repetitions that can fall out of step is
+exactly the shape #667, #1184, #1187 and #1079 each paid for this loop. The
+gate stays one readable fact; the per-lane specification becomes real as an
+enumerated set beside it. **Same guarantee, opposite maintenance profile.**
+
+**The census is the deliverable and its independence is the whole design.**
+The easy test asserts `FEED_LANES == SELF_EXEMPT_LANES | SELF_EXCLUDED_LANES`
+— true by the definition one line above it, incapable of failing, and it
+would pass on the day a sixth lane arrives, which is the only day it
+matters. So the lanes are enumerated from **where they are produced**: the
+string literals `reasons_for` emits, read by AST. The two sides have
+independent origins, so a lane added to the code and not to the set appears
+on one side only.
+
+AST rather than fixtures, deliberately: a fixture-driven census discovers
+only lanes somebody remembered to write a fixture for, and the failure being
+guarded is precisely the one nobody remembered.
+
+**Both directions plus a guard on the guard.** An unclassified lane fails; a
+classified lane nothing emits fails (dead vocabulary reads as coverage); and
+a census that finds nothing fails loudly — with a message saying the census
+is blind and not to delete the file to go green, because a blind census
+passes every other assertion in it vacuously. All three mutation-tested.
+
+**Cost.** A restart, batched with #448. `DEFAULT_LANES` is now cross-checked
+against the real lane set as a free rider — a typo there would have silently
+narrowed every band's default feed.
+
