@@ -217,7 +217,12 @@ def test_unknown_response_fields_are_preserved() -> None:
     page = ReadPage.model_validate({
         "envelopes": [{"id": 1, "type": "SOMETHING_NEW", "quorum": ["a"]}],
         "cursor": 1,
+        # All three counters, because a hand-authored page missing one was
+        # describing a board that does not exist (#292/#662). The fixture
+        # was not wrong about §13 — it was wrong about the wire.
         "sealed_excluded": 0,
+        "rotated_excluded": 0,
+        "participation_excluded": 0,
         "withheld_scope": "slice",
         "truncated_at_depth": 2,
     })
@@ -228,7 +233,8 @@ def test_unknown_response_fields_are_preserved() -> None:
 
     view = ViewResult.model_validate({
         "view": "onboard", "at": 12, "output": [{"unknown": True}],
-        "sealed_excluded": 0, "withheld_scope": "slice",
+        "sealed_excluded": 0, "rotated_excluded": 0,
+        "participation_excluded": 0, "withheld_scope": "slice",
         "note": "future field",
     })
     assert view.model_dump(mode="json")["note"] == "future field"

@@ -21,7 +21,7 @@ from conftest import Invoke, grant, register
 
 import korax_cli.cli
 from korax_cli import PROTO, conventions
-from korax_cli.cli import DEFAULT_POLL, Config, build_parser, resolve_config
+from korax_cli.cli import DEFAULT_POLL, LOCAL_FAILURE, Config, build_parser, resolve_config
 
 
 def rake_ids(cli: Invoke, token: str) -> list[int]:
@@ -169,7 +169,9 @@ def test_server_assigned_fields_are_refused_before_the_round_trip(
     result = cli("post", "-", token=token, stdin=envelope)
     assert result.exit_code == 1
     assert result.stdout == ""
-    assert result.error["code"] == 0  # never reached a server
+    # #680 — a local failure names itself; it does not borrow the one
+    # value the adjacent exit-status channel defines as success.
+    assert result.error["code"] == LOCAL_FAILURE  # never reached a server
     assert field in result.error["message"]
 
 
@@ -356,7 +358,7 @@ def test_an_unreachable_board_is_a_json_failure(cli: Invoke) -> None:
     )
     assert result.exit_code == 1
     assert result.stdout == ""
-    assert result.error["code"] == 0
+    assert result.error["code"] == LOCAL_FAILURE
     assert result.error["transport"] == "ConnectError"
 
 
@@ -2630,3 +2632,58 @@ def test_the_send_side_is_documented_where_a_cli_band_reads(
         "the receiving side went missing while the sending side was added — "
         "the asymmetry has simply flipped"
     )
+
+
+# ── #680: the local-failure sentinel, asserted in BOTH directions ────────
+
+
+def test_no_successful_command_emits_a_code_at_all(
+    cli: Invoke, warner: tuple[str, str]
+) -> None:
+    """Direction one, and the half a "did the value change?" test misses.
+
+    The invariant is not "local failures say `local`" — it is that
+    `code` and success are disjoint. If a successful command ever grew a
+    `code`, the sentinel's whole argument would collapse no matter what
+    string it held, because the reader's question ("is this field here?")
+    would stop being decisive.
+    """
+    identity, token = warner
+    result = cli("read", "--ns", "/commons/rakes", token=token)
+    assert result.exit_code == 0
+    body = json.loads(result.stdout)
+    assert "code" not in body, (
+        "a successful command emitted `code` — the field must belong to "
+        "failures alone for its presence to mean anything (#680)"
+    )
+
+
+def test_no_local_failure_emits_a_value_that_collides_with_success(
+    cli: Invoke,
+) -> None:
+    """Direction two, over EVERY local-failure path rather than one.
+
+    Sampling one path is how `0` survived: `CliError.as_json` was fixed
+    once and the two `ApiError` transport sites in `client.py` kept
+    emitting zero, because nothing asserted over the family. This walks
+    the paths a caller can actually trigger.
+    """
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    unreachable = cli(
+        "read", "--ns", "/commons/rakes",
+        token="irrelevant", transport=httpx.MockTransport(refuse),
+    )
+    # a local refusal that never builds a request at all
+    bad_envelope = cli("post", "-", token="irrelevant", stdin="{not json")
+
+    for label, result in (("transport", unreachable), ("pre-flight", bad_envelope)):
+        assert result.exit_code != 0, f"{label} should fail"
+        code = result.error["code"]
+        assert code == LOCAL_FAILURE, f"{label} emitted {code!r}"
+        assert code != 0, f"{label} still collides with success"
+        # A shell reads `code` beside `$?`. Anything a shell would treat
+        # as success is disqualified, not merely the integer zero.
+        assert str(code) not in ("0", "", "None"), f"{label} emitted a success-shaped {code!r}"

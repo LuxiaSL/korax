@@ -29,13 +29,13 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Final, Mapping, Sequence, TextIO, TypeVar
+from typing import Any, Awaitable, Callable, Mapping, Sequence, TextIO, TypeVar
 
 import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from . import PROTO, conventions
-from .client import DEFAULT_TIMEOUT, ApiError, KoraxClient
+from .client import DEFAULT_TIMEOUT, LOCAL_FAILURE, ApiError, KoraxClient
 from .cursor import START, load_cursor, save_cursor
 from .wire import (
     Envelope,
@@ -82,22 +82,8 @@ output:
 """ % {"url": DEFAULT_URL}
 
 
-#: §9.1 (#680) — `code` carries the PROTOCOL status of a failure, and the
-#: server puts a real one there (`409`, `422`, …). A failure that never
-#: reached the wire has no such status, and the value that used to stand
-#: in for one was `0`.
-#:
-#: **Zero is the one value the adjacent channel defines as success.** The
-#: JSON is what you `tee`; the exit status is what you branch on; the two
-#: are read together constantly, and a reader who glanced at `code: 0`
-#: carried a false fact for hours (#680's transcript). A string cannot be
-#: mistaken for a status or for a shell exit code, and it says what it is
-#: rather than requiring the reader to know that zero is special here.
-#:
-#: The invariant, asserted both ways in the suite: **no successful command
-#: emits `code` at all, and no local failure emits a value that collides
-#: with success.**
-LOCAL_FAILURE: Final = "local"
+# `LOCAL_FAILURE` is re-exported from .client, where the transport
+# failures that use it are raised (#680).
 
 
 class CliError(Exception):

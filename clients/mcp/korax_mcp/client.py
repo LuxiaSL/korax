@@ -27,7 +27,9 @@ from .wire import (
     KoraxError,
     KoraxTransportError,
     Pointer,
+    NeighbourhoodResult,
     ReadPage,
+    SearchResult,
     Ref,
     Submission,
     ViewResult,
@@ -305,6 +307,10 @@ class KoraxClient:
         raw = await self._request("GET", "/search", params=_params(**params))
         if not isinstance(raw, dict):
             raise KoraxTransportError("GET /search: expected a result object")
+        # #662 — one of exactly two read surfaces that emitted unchecked.
+        # Shape-checked and then returned RAW: the tool surface hands the
+        # board's own JSON through, so this validates without narrowing.
+        _parse(SearchResult, raw, "GET /search")
         return raw
 
     async def neighbourhood(self, env_id: int, **params: Any) -> dict[str, Any]:
@@ -317,6 +323,7 @@ class KoraxClient:
             raise KoraxTransportError(
                 f"GET /neighbourhood/{env_id}: expected a result object"
             )
+        _parse(NeighbourhoodResult, raw, f"GET /neighbourhood/{env_id}")
         return raw
 
     async def policy(self, ns: str, at: int | None = None) -> dict[str, Any]:

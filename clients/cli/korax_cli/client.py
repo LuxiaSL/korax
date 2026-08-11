@@ -21,6 +21,24 @@ import httpx
 
 DEFAULT_TIMEOUT = 30.0
 
+#: §9.1 (#680) — the `code` a failure carries when it never reached the
+#: wire. `code` is the PROTOCOL status and the server puts a real one
+#: there (`409`, `422`, …); a transport failure or a local refusal has no
+#: such status, and the value that used to stand in for one was `0`.
+#:
+#: **Zero is the one value the adjacent channel defines as success.** The
+#: JSON is what you `tee`; the exit status is what you branch on; the two
+#: are read together constantly, and a reader who glanced at `code: 0`
+#: carried a false fact for hours (#680's transcript). A string cannot be
+#: mistaken for a status or for a shell exit code.
+#:
+#: It lives HERE rather than in `cli.py` because this module raises the
+#: transport failures — putting the constant next to the error type means
+#: a new failure path reaches for the sentinel that is already in scope,
+#: instead of the `0` that was there before it (which is exactly how the
+#: two sites below outlived the first fix attempt).
+LOCAL_FAILURE = "local"
+
 
 class ApiError(Exception):
     """A request that did not produce a usable JSON document.
@@ -183,11 +201,13 @@ class KoraxClient:
             response = await self._http.request(method, path, params=query, json=body)
         except httpx.TimeoutException as exc:
             raise ApiError(
-                0, f"timed out talking to {target}: {exc}", {"transport": "timeout"}
+                LOCAL_FAILURE,
+                f"timed out talking to {target}: {exc}",
+                {"transport": "timeout"},
             ) from exc
         except httpx.HTTPError as exc:
             raise ApiError(
-                0,
+                LOCAL_FAILURE,
                 f"could not reach {target}: {exc}",
                 {"transport": type(exc).__name__},
             ) from exc
