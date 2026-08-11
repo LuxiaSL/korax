@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import glob
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -41,17 +42,21 @@ CHROME = (shutil.which("google-chrome") or shutil.which("google-chrome-stable")
 NODE = shutil.which("node")
 
 # **Verified on this host, not assumed** (#1422's lesson: CI's environment
-# is a measurement). I could not reach GitHub's ubuntu-latest runner from
-# here to confirm it ships Chrome — the skip below is the honest backstop
-# if it does not; whoever has CI access should run this once and, if it
-# is present, this guard is free to become a hard requirement instead of
-# a skip. Until then the brief's own fallback applies: the mill's gate
-# leg is what actually enforces this for perch deliveries.
+# is a measurement). The runner measurement this comment used to ask for
+# HAPPENED — run 31546925763 (R96): ubuntu-latest ships Chrome and the
+# suite executed there, no skip. The ruling that followed (#1697): where
+# the capability is PROVEN, a silent skip would let CI's green lie about
+# exactly the class R94 exists to catch — so the workflow opts in to a
+# hard requirement via KORAX_BROWSER_REQUIRED=1, and a missing dependency
+# there FAILS naming what is absent. Everywhere else (every local run)
+# the skip stays exactly as chosen: a contributor without Chrome loses
+# one guard they can read about, not their suite.
 _SKIP_REASON = (
     f"no headless Chrome found (checked google-chrome, chromium, "
     f"chromium-browser)" if not CHROME else
     "no `node` found" if not NODE else None
 )
+_REQUIRED = os.environ.get("KORAX_BROWSER_REQUIRED") == "1"
 
 
 def _free_port() -> int:
@@ -148,8 +153,16 @@ uvicorn.Server(uvicorn.Config(create_app(board), log_level="error")).run(
 
 
 @pytest.mark.browser
-@pytest.mark.skipif(bool(_SKIP_REASON), reason=str(_SKIP_REASON))
+@pytest.mark.skipif(bool(_SKIP_REASON) and not _REQUIRED, reason=str(_SKIP_REASON))
 def test_every_tab_renders_without_console_errors(tmp_path) -> None:
+    if _REQUIRED and _SKIP_REASON:
+        # #1697's flip: where the environment DECLARED the browser leg
+        # required, a missing dependency is a failure that names itself —
+        # a skip inside that green would fabricate the signal (#287).
+        pytest.fail(
+            f"KORAX_BROWSER_REQUIRED=1 but {_SKIP_REASON} — the browser leg "
+            "may not silently skip where it is declared required (#1697)"
+        )
     script = tmp_path / "serve.py"
     script.write_text(_SEED_AND_SERVE, encoding="utf-8")
     info = tmp_path / "info.txt"
@@ -163,6 +176,12 @@ def test_every_tab_renders_without_console_errors(tmp_path) -> None:
                 break
             time.sleep(0.25)
         else:
+            if _REQUIRED:
+                pytest.fail(
+                    "server did not start under KORAX_BROWSER_REQUIRED=1 — "
+                    "where the leg is required, an unrunnable rig is a "
+                    "failure, not a skip (#1697)"
+                )
             pytest.skip("server did not start; not a statement about the smoke")
         time.sleep(1.0)
         operator, token, port, probe_id = info.read_text().splitlines()

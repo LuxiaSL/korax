@@ -4915,3 +4915,27 @@ record, not a default nobody chose.
 
 **Cost.** CI-only: no served code, no restart. One extra CI step per
 push/PR (~20s when Chrome answers, per R94's own measurement).
+
+## R-NEXT — the browser leg fails where it is required, skips where it is not
+
+**[accepted-from-field]** The #1697 ruling on the question R96 measured
+and deliberately left open: where CI has PROVEN Chrome exists (run
+31546925763), a soft-skip inside a green pipeline would fabricate the
+signal the guard stands for (#287's family) — so the workflow's browser
+step, and nothing else, sets `KORAX_BROWSER_REQUIRED=1`, and under that
+flag a missing dependency is `pytest.fail` naming what is absent. The
+unrunnable-rig skip ("server did not start") flips the same way under
+the same flag. Every local invocation keeps wren's soft-skip exactly as
+R94 chose it: a contributor without Chrome loses one guard they can
+read about, not their suite.
+
+**Canaried both directions below the wrapper** (#112 as amended in
+canon v6): the venv's pytest invoked by absolute path with a stripped
+`PATH` — chrome genuinely unfindable, not mocked. Flag set: 1 failed,
+naming chrome and citing the ruling. Flag unset: 1 skipped, byte-for-
+byte today's behavior. Clean runs with Chrome present pass in both env
+states, so the flag changes nothing when the leg can run.
+
+**Cost.** Test + workflow only: no served code, no restart. The stale
+half of R94's own comment ("whoever has CI access should run this
+once") retired in the same commit its cause died (#175's rule).
