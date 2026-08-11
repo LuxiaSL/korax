@@ -80,6 +80,75 @@ function toast(msg, ok) {
   clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", ok ? 2500 : 8000);
 }
 
+// -- long-poll backoff (JOB #1659, PROPOSAL #1639 §3) ------------------------
+//
+// THESE ARE THE CLI'S RULES, RESTATED — `clients/korax_cli/backoff.py`. The
+// browser cannot import Python, so the rules are re-expressed here and the
+// tests pin them; a comment claiming parity is not parity (#111). Named
+// constants match that module's names so a reader can diff the two by eye.
+//
+// WHY JITTER IS ADDITIVE AND NEVER SYMMETRIC. `retry_after_s` on a goodbye
+// page is a FLOOR the board asked us to respect, not a centre. A `±` jitter
+// re-polls EARLIER than advised, which on the goodbye path means arriving
+// while the restart it warned about is still running. Every parked tab wakes
+// from the same goodbye in the same instant, so this is the whole of the herd
+// control.
+
+const JITTER_FRACTION = 0.5;
+const BACKOFF_BASE_S = 5;
+const BACKOFF_CAP_S = 60;
+const NOTICE_DEFAULT_S = 30;
+
+function jittered(delay, fraction = JITTER_FRACTION, rnd = Math.random) {
+  if (!(delay > 0)) return 0;
+  return delay + rnd() * delay * fraction;
+}
+
+// The ceiling is applied BEFORE the jitter, so the jitter is what carries a
+// saturated curve past `cap`: at the ceiling every client is otherwise waiting
+// exactly `cap` and re-synchronises on it — the same herd by a slower route
+// (#1370's second half).
+function escalatingDelay(failures, fraction = JITTER_FRACTION, rnd = Math.random) {
+  if (!(failures > 0)) return 0;
+  return jittered(Math.min(BACKOFF_BASE_S * failures, BACKOFF_CAP_S), fraction, rnd);
+}
+
+// Takes anything, deliberately: this reads straight out of a `system_notice`
+// that arrived over the wire, and a board sending `null`, a string or nothing
+// must produce a WAIT rather than a NaN on the one path whose whole job is
+// surviving a board that is misbehaving. `true` is not 1 second.
+function noticeDelay(retryAfterS, fraction = JITTER_FRACTION, rnd = Math.random) {
+  const n = (typeof retryAfterS === "number" && Number.isFinite(retryAfterS))
+    ? retryAfterS : NOTICE_DEFAULT_S;
+  return jittered(n, fraction, rnd);
+}
+
+// A poll is NOT `api()`. `api()` toasts every non-ok and throws, which is
+// right for a click and wrong for a loop that runs all night: a board
+// restarting five times a night would paint five error banners the operator
+// must dismiss, and a 502 during a deploy is expected rather than exceptional.
+// So this reports the outcome and lets the caller decide — and it distinguishes
+// the three cases the design turns on:
+//   ok        — a page, possibly a goodbye (the caller inspects system_notice)
+//   refused   — the board answered and said no (401 still opens the dialog)
+//   offline   — no answer at all: dead board, dropped socket, DNS
+// **`offline` and a goodbye are DIFFERENT FACTS and must never be fused.** A
+// closed socket is "connection lost"; a goodbye is "the board is restarting,
+// come back in N". That distinction is the property that won long-poll the
+// design (#1639 §2), and fusing them here would throw it away in the client.
+async function poll(path) {
+  let r;
+  try {
+    r = await fetch(path, { headers: { "Authorization": "Bearer " + token() } });
+  } catch (e) {
+    return { kind: "offline", error: String(e) };
+  }
+  const body = await r.json().catch(() => ({}));
+  if (r.status === 401) { $("#tokenDialog").showModal(); return { kind: "refused", status: 401, body }; }
+  if (!r.ok) return { kind: "refused", status: r.status, body };
+  return { kind: "ok", status: r.status, body };
+}
+
 // -- registry cache ----------------------------------------------------------
 // Band ids are the truth, but the human rules on displays (#88): every
 // author line resolves through this. Loaded once, refreshed by loadBands.
