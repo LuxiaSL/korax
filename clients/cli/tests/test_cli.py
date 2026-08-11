@@ -2121,14 +2121,17 @@ def test_the_liveness_check_does_not_count_the_audit_itself() -> None:
     CONTAINS the very cursor path being asked about — the shape that
     defeats every pattern-based exclusion anyone writes.
     """
-    me, parent = os.getpid(), os.getppid()
+    me, parent = os.getpid(), os.getpid() + 1
     table = "\n".join([
         f"{me} {parent} korax --as quill watch --list --cursor-dir /c",
-        f"{me + 100000} {me} sh -c korax watch --cursor-file /c/feed.cursor",
+        f"{parent} 1 sh -c korax watch --list --cursor-file /c/feed.cursor",
         f"{me + 100001} 1 korax --as slate watch --cursor-file /c/slate.cursor",
         f"{me + 100002} 1 vim /c/notes.txt",
     ])
-    found = korax_cli.cli.parse_watch_processes(table, {me, parent})
+    found = korax_cli.cli.parse_watch_processes(table, me)
+    # the auditor and its parent are gone even though BOTH match the
+    # `korax … watch` filter and one carries a cursor path; the unrelated
+    # watch survives; `vim` was never a candidate
     assert found == ["korax --as slate watch --cursor-file /c/slate.cursor"]
 
 
@@ -2148,3 +2151,56 @@ def test_liveness_unavailable_is_not_reported_as_stopped(
     assert result.exit_code == 0, result.stderr
     assert result.json["liveness"] == "unavailable"
     assert result.json["watches"][0]["state"] == "unknown"
+
+
+def test_a_wrapper_that_merely_mentions_a_cursor_does_not_hold_it() -> None:
+    """THE DESK'S REPRODUCTION AT #806, constructed before the fix (#112).
+
+    My first version modelled the harness as two processes and excluded
+    `{getpid(), getppid()}`. The real harness is FOUR deep — every band
+    here drives this CLI as `bash -c '<full command text>'`, so the
+    wrapper two levels out carries the entire typed command, including
+    any cursor path that appears in it, and it survived a two-level
+    exclusion. A substring match then read that text as a live watch.
+
+    `desk-mailbox.cursor` was retired around #595. The command said
+    `parked`. THAT IS THE DANGEROUS DIRECTION: a false `dead` costs a
+    redundant re-arm; a false `parked` means a band reads "covered" and
+    does not re-arm, which is #171 and #432 delivered by the command
+    built to end them.
+
+    Two independent defences, and this asserts both:
+      1. the whole ANCESTRY is excluded, not two levels;
+      2. a cursor path counts only as the value of `--cursor-file`,
+         never as a substring of the line.
+    """
+    me = os.getpid()
+    python_, uv, wrapper, harness = me, me + 1, me + 2, me + 3
+    cursor = "/home/luxia/.config/korax/cursors/desk-mailbox.cursor"
+    table = "\n".join([
+        f"{python_} {uv} python3 korax --as desk watch --list --cursor-dir /c",
+        f"{uv} {wrapper} uv run --project . korax --as desk watch --list",
+        # the level that defeated the old exclusion: an ancestor, two out,
+        # carrying the whole typed command with a cursor path inside it
+        f"{wrapper} {harness} /bin/bash -c echo {cursor} >/dev/null; "
+        f"uv run korax --as desk watch --list",
+        f"{harness} 1 claude --dangerously-skip-permissions",
+        # a REAL watch, a sibling subtree rather than an ancestor: it is a
+        # descendant of the harness, so an over-broad filter would drop it
+        f"{me + 500} {harness} korax --as slate watch --cursor-file /c/slate.cursor",
+    ])
+    found = korax_cli.cli.parse_watch_processes(table, me)
+
+    assert not any(cursor in line for line in found), (
+        "an ancestor wrapper that merely mentions a cursor was counted"
+    )
+    assert found == ["korax --as slate watch --cursor-file /c/slate.cursor"], found
+    assert not korax_cli.cli.holds_cursor(
+        f"/bin/bash -c echo {cursor} >/dev/null", Path(cursor)
+    ), "a mention of the path is not a watch holding it"
+    assert korax_cli.cli.holds_cursor(
+        f"korax watch --cursor-file {cursor}", Path(cursor)
+    )
+    assert korax_cli.cli.holds_cursor(
+        f"korax watch --cursor-file={cursor}", Path(cursor)
+    )

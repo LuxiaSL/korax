@@ -272,9 +272,61 @@ def _cursors_dir(env: Mapping[str, str]) -> Path:
     return (Path(base) if base else Path.home() / ".config" / "korax") / "cursors"
 
 
-def parse_watch_processes(table: str, mine: set[int]) -> list[str]:
+def holds_cursor(args: str, cursor_path: Path) -> bool:
+    """Does this command line actually WATCH this cursor?
+
+    The path must appear as the value of `--cursor-file`, never merely
+    somewhere in the line. A `--list` invocation that *mentions* a cursor
+    is not a watch holding it — and because every band here drives this
+    CLI through `bash -c '<full command text>'`, the caller's own typed
+    command is routinely a string containing cursor paths (#806).
+    """
+    target = os.path.normpath(str(Path(cursor_path).expanduser()))
+    tokens = args.split()
+    for index, token in enumerate(tokens):
+        candidate: str | None = None
+        if token == "--cursor-file" and index + 1 < len(tokens):
+            candidate = tokens[index + 1]
+        elif token.startswith("--cursor-file="):
+            candidate = token.split("=", 1)[1]
+        if candidate is None:
+            continue
+        if os.path.normpath(Path(candidate.strip("'\"")).expanduser().as_posix()) == target:
+            return True
+    return False
+
+
+def _ancestry(table: str, pid: int) -> set[int]:
+    """Every process from `pid` up to the top, from the ps table itself.
+
+    ANCESTORS ONLY, never descendants. That asymmetry is load-bearing: a
+    genuinely parked watch armed by this same session is a DESCENDANT of
+    the harness and a sibling of the audit, so excluding the harness's
+    whole subtree would hide exactly the watches the command exists to
+    report. Walking up is what distinguishes "this process is part of me
+    asking the question" from "this process is an answer".
+    """
+    parent: dict[int, int] = {}
+    for line in table.splitlines():
+        parts = line.split(maxsplit=2)
+        if len(parts) < 3:
+            continue
+        try:
+            parent[int(parts[0])] = int(parts[1])
+        except ValueError:
+            continue
+
+    seen: set[int] = set()
+    current = pid
+    while current and current not in seen:
+        seen.add(current)
+        current = parent.get(current, 0)
+    return seen
+
+
+def parse_watch_processes(table: str, self_pid: int) -> list[str]:
     """The `korax … watch` command lines in a `ps -eo pid=,ppid=,args=`
-    table, excluding the caller's own process tree.
+    table, excluding the caller's own ancestry.
 
     THE SELF-EXCLUSION IS THE WHOLE POINT OF MOVING THIS INTO CODE, and it
     is why this is a separate, directly testable function rather than three
@@ -284,22 +336,29 @@ def parse_watch_processes(table: str, mine: set[int]) -> list[str]:
     lines, and #9 states it generally — check your needle for self-matches
     before you sweep.
 
-    Excluding by PID rather than by pattern is the part that matters. A
-    pattern-based exclusion is defeated by the caller's own arguments — an
-    audit whose command line happens to contain the cursor path it is
-    asking about is exactly the shape that keeps recurring.
+    Excluding by PID rather than by pattern is the right instinct, and the
+    first version of this got its DEPTH wrong: it excluded `{getpid(),
+    getppid()}`, two levels, while the real harness is four —
+    `python ← uv run ← bash -c '<full text>' ← claude`. The `bash -c`
+    wrapper survived, carrying the entire typed command, and a substring
+    match then read that text as a live watch. The desk reproduced it at
+    #806 and `--list` called a watch retired around #595 `parked`, which is
+    the dangerous direction: a false `dead` costs a redundant re-arm, a
+    false `parked` means a band does not re-arm at all — #171 and #432,
+    rebuilt by the command written to end them.
     """
+    excluded = _ancestry(table, self_pid)
     out: list[str] = []
     for line in table.splitlines():
         parts = line.split(maxsplit=2)
         if len(parts) < 3:
             continue
         try:
-            pid, ppid = int(parts[0]), int(parts[1])
+            pid = int(parts[0])
         except ValueError:
             continue
-        if pid in mine or ppid in mine:
-            continue  # the audit must not count itself
+        if pid in excluded:
+            continue  # the audit must not count itself, at any depth
         args = parts[2]
         if "korax" in args and " watch" in f" {args}":
             out.append(args)
@@ -322,7 +381,7 @@ def _watch_processes() -> list[str] | None:
         return None
     if proc.returncode != 0:
         return None
-    return parse_watch_processes(proc.stdout, {os.getpid(), os.getppid()})
+    return parse_watch_processes(proc.stdout, os.getpid())
 
 
 def _describe_watch(cursor_path: Path, state_path: Path, running: list[str] | None) -> dict[str, Any]:
@@ -369,7 +428,7 @@ def _describe_watch(cursor_path: Path, state_path: Path, running: list[str] | No
                      "which is not the same as stopped"
         return row
 
-    held = any(str(cursor_path) in line for line in running)
+    held = any(holds_cursor(line, cursor_path) for line in running)
     if held:
         row["state"] = WATCH_PARKED
     elif never_woke:
