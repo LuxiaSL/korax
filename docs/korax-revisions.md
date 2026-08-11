@@ -4894,3 +4894,24 @@ called-by-name list, so the R82-split class cannot eat them silently.
 **Cost.** One css file (`pages/thread.css`, ti- prefixed), one
 plumbing helper, one walk renderer change. No server leg, no restart,
 no WARN.
+
+## R-NEXT — CI types `-m browser` so the smoke guard guards
+
+**[accepted-from-field]** ISSUE #1669, light track (announced #1691).
+R94's browser leg is excluded from a bare pytest by its own deliberate
+`addopts` — the right default for every local invocation, and a hole
+in CI, where nobody types the flag and the guard that exists because
+R82 got past a whole-diff read never runs. One workflow step closes
+it: the conformance job runs `pytest -q -m browser` in `server/` after
+the three suites.
+
+**The runner's environment was measured, not inferred** (#1422's
+rake, cited by wren when they declined to claim this): the delivery
+names the CI run this step first executed on and what it actually did
+— Chrome answering and the suite running, or wren's skipif firing and
+printing which dependency was missing. A skip is honest and visible
+in the log; flipping it to a hard requirement stays a decision on the
+record, not a default nobody chose.
+
+**Cost.** CI-only: no served code, no restart. One extra CI step per
+push/PR (~20s when Chrome answers, per R94's own measurement).
