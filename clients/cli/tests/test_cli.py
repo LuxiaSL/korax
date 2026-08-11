@@ -2720,3 +2720,117 @@ def test_no_local_failure_emits_a_value_that_collides_with_success(
         # A shell reads `code` beside `$?`. Anything a shell would treat
         # as success is disqualified, not merely the integer zero.
         assert str(code) not in ("0", "", "None"), f"{label} emitted a success-shaped {code!r}"
+
+
+# -- dm --payload-file (#989) --------------------------------------------------
+
+
+DM_PROSE = (
+    "the `$HOME` of it, and a note about `backticks` — "
+    "quoting eats exactly these, which is why the file door exists"
+)
+
+
+def test_dm_sends_a_message_from_a_file(cli, world, tmp_path) -> None:
+    """#989 — `dm` was the one command dedicated to prose and the only
+    one without the door `post` had. The payload here carries `$` and
+    backticks on purpose: those are the characters the shell deletes,
+    and a DM is where coordination prose goes by design."""
+    a, atok = register(cli, world, "dm-file-a")
+    b, btok = register(cli, world, "dm-file-b")
+    body = tmp_path / "message.md"
+    body.write_text(DM_PROSE, encoding="utf-8")
+
+    sent = cli("dm", b, "--payload-file", str(body), token=atok, identity=a)
+    assert sent.exit_code == 0, sent.stderr
+    assert sent.json["ns"] == f"/dm/{b}"
+    assert sent.json["payload"] == DM_PROSE, (
+        "byte-for-byte, including the characters quoting would have eaten"
+    )
+
+    got = cli("read", "--ns", f"/dm/{b}", token=btok).json["envelopes"]
+    assert [e["payload"] for e in got] == [DM_PROSE]
+
+
+def test_dm_still_takes_a_positional_one_liner(cli, world) -> None:
+    """The back-compat control. The positional stays — removing it would
+    break every existing invocation to fix a trap that only bites prose,
+    and this test is what says so."""
+    a, atok = register(cli, world, "dm-positional-a")
+    b, _btok = register(cli, world, "dm-positional-b")
+    sent = cli("dm", b, "on it", token=atok, identity=a)
+    assert sent.exit_code == 0, sent.stderr
+    assert sent.json["payload"] == "on it"
+
+
+def test_dm_refuses_both_a_message_and_a_file(cli, world, tmp_path) -> None:
+    """Both-or-neither, refused rather than silently preferring one: a
+    `dm` that ignored the file it was handed would send the wrong text
+    under your name, permanently."""
+    a, atok = register(cli, world, "dm-both-a")
+    b, btok = register(cli, world, "dm-both-b")
+    body = tmp_path / "message.md"
+    body.write_text("the one from the file", encoding="utf-8")
+
+    result = cli("dm", b, "the one from the shell", "--payload-file", str(body),
+                 token=atok, identity=a)
+    assert result.exit_code != 0
+    assert result.error["code"] == "local", (
+        "refused LOCALLY, before the round trip. `code: \"local\"` is the\n        local-failure marker R61 shipped for #680. Without this the\n        assertion also passes on the SERVER's empty-payload backstop, and\n        proves nothing about this flag — measured: the mutation that\n        deletes the client guard came back green."
+    )
+    assert "mutually exclusive" in result.error["message"]
+    assert cli("read", "--ns", f"/dm/{b}", token=btok).json["envelopes"] == [], (
+        "and nothing was sent"
+    )
+
+
+def test_dm_refuses_neither(cli, world) -> None:
+    a, atok = register(cli, world, "dm-neither-a")
+    b, _btok = register(cli, world, "dm-neither-b")
+    result = cli("dm", b, token=atok, identity=a)
+    assert result.exit_code != 0
+    assert result.error["code"] == "local", (
+        "refused LOCALLY, before the round trip. `code: \"local\"` is the\n        local-failure marker R61 shipped for #680. Without this the\n        assertion also passes on the SERVER's empty-payload backstop, and\n        proves nothing about this flag — measured: the mutation that\n        deletes the client guard came back green."
+    )
+    assert "--payload-file" in result.error["message"], (
+        "the refusal names the flag that fixes it"
+    )
+
+
+def test_dm_refuses_an_empty_file_and_sends_nothing(cli, world, tmp_path) -> None:
+    """THE ONE THE FLAG EXISTS FOR (#537/#673).
+
+    Reading the file is the easy half; refusing an empty one is the half
+    that retires the defect. `--payload "$(cat file)"` yields "" when the
+    step that wrote the file died, and the DM then arrives blank — worse
+    than never sending, because the recipient sees a message from you
+    that says nothing."""
+    a, atok = register(cli, world, "dm-empty-a")
+    b, btok = register(cli, world, "dm-empty-b")
+    body = tmp_path / "message.md"
+    body.write_text("   \n\n", encoding="utf-8")
+
+    result = cli("dm", b, "--payload-file", str(body), token=atok, identity=a)
+    assert result.exit_code != 0
+    assert result.error["code"] == "local", (
+        "refused LOCALLY, before the round trip. `code: \"local\"` is the\n        local-failure marker R61 shipped for #680. Without this the\n        assertion also passes on the SERVER's empty-payload backstop, and\n        proves nothing about this flag — measured: the mutation that\n        deletes the client guard came back green."
+    )
+    assert "empty" in result.error["message"]
+    assert cli("read", "--ns", f"/dm/{b}", token=btok).json["envelopes"] == [], (
+        "an empty DM is the absence of a message, and none was sent"
+    )
+
+
+def test_dm_refuses_a_missing_file_and_sends_nothing(cli, world, tmp_path) -> None:
+    """The step that writes the payload can die. Nothing is sent."""
+    a, atok = register(cli, world, "dm-missing-a")
+    b, btok = register(cli, world, "dm-missing-b")
+
+    result = cli("dm", b, "--payload-file", str(tmp_path / "never-written.md"),
+                 token=atok, identity=a)
+    assert result.exit_code != 0
+    assert result.error["code"] == "local", (
+        "refused LOCALLY, before the round trip. `code: \"local\"` is the\n        local-failure marker R61 shipped for #680. Without this the\n        assertion also passes on the SERVER's empty-payload backstop, and\n        proves nothing about this flag — measured: the mutation that\n        deletes the client guard came back green."
+    )
+    assert "no such file" in result.error["message"]
+    assert cli("read", "--ns", f"/dm/{b}", token=btok).json["envelopes"] == []

@@ -1318,6 +1318,43 @@ async def _mailbox_owner(client: KoraxClient, recipient: str) -> tuple[str, str 
     )
 
 
+def _resolve_dm_message(args: argparse.Namespace) -> str:
+    """The DM's text, from exactly one of the two sources (#989).
+
+    `_read_payload_file` is reused rather than reimplemented, and that
+    matters more than it looks: the half of the flag that retires the
+    defect is not reading the file, it is REFUSING an empty or
+    unreadable one. A second copy of that rule is how the rake returns
+    on the third surface — the first copy is already the reason this
+    issue exists, because `post` had it and `dm` did not.
+
+    Both-or-neither is refused the way `post` refuses its mutually
+    exclusive payload flags, rather than silently preferring one: a `dm`
+    that quietly ignored the file it was handed would send the wrong
+    text under your name, permanently.
+    """
+    file_given = getattr(args, "payload_file", None) is not None
+    message_given = args.message is not None
+
+    if file_given and message_given:
+        raise CliError(
+            "a message and --payload-file are mutually exclusive; pass one",
+            hint="the positional is for one-liners; --payload-file is for "
+            "anything the shell could damage on the way in (#374/#989)",
+        )
+    if not file_given and not message_given:
+        raise CliError(
+            "korax dm needs a message: either the positional argument or "
+            "--payload-file PATH",
+            hint="use --payload-file for prose — quoting eats backticks, "
+            "quotes and `$`, and a DM is where coordination prose goes "
+            "(#374, canon #735)",
+        )
+    if file_given:
+        return _read_payload_file(args.payload_file)
+    return args.message
+
+
 async def cmd_dm(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
@@ -1326,7 +1363,17 @@ async def cmd_dm(
     message it answers, which is what wakes the sender's to_author watch.
     A display name is resolved through the registry, or refused — it is
     not an address. Keep your own watch parked:
-    `korax wait --ns /dm/<you> --cursor-file <path>`."""
+    `korax wait --ns /dm/<you> --cursor-file <path>`.
+
+    The message comes from `--payload-file` or from the positional, and
+    exactly one of them (#989). `dm` was the only command dedicated to
+    prose and the only one without the file door, so the surface most
+    likely to carry em-dashes, quotes, backticks and `$` was the one
+    surface forced into the idiom rake #374 exists to retire — while the
+    remedy had shipped on `post` four hours earlier. The positional stays
+    for one-liners: removing it would break every existing invocation to
+    fix a trap that only bites long prose."""
+    message = _resolve_dm_message(args)
     author = await _resolve_author(args, client, config)
     owner, resolved_from = await _mailbox_owner(client, args.recipient)
     refs: tuple[dict[str, Any], ...] = ()
@@ -1338,7 +1385,7 @@ async def cmd_dm(
         type="NOTE",
         grade="n/a",
         refs=refs,  # type: ignore[arg-type]
-        payload=args.message,
+        payload=message,
     )
     body = await client.post_envelope(submission.to_wire())
     _check_shape(Envelope, body, "/post")
@@ -2530,7 +2577,25 @@ def build_parser() -> argparse.ArgumentParser:
         "band or more than one — a mailbox is keyed by id, so a name is not "
         "itself an address (`korax identities`)",
     )
-    dm.add_argument("message", help="the message text")
+    dm.add_argument(
+        "message",
+        nargs="?",
+        help="the message text, for a one-liner. Omit it and pass "
+        "--payload-file for anything longer: the shell eats backticks, "
+        "quotes and `$` out of an inline string, and DMs are where "
+        "coordination prose goes by design (#374, canon #735)",
+    )
+    dm.add_argument(
+        "--payload-file",
+        metavar="PATH",
+        help="read the message from a file, and REFUSE an empty or "
+        "unreadable one. Prefer this to a quoted message for anything "
+        "longer than a line: quoting silently deletes exactly the terms "
+        "your message turns on, and `--payload \"$(cat file)\"` sends an "
+        "EMPTY message when the file is missing or the step that wrote it "
+        "died (#673/#537). Mutually exclusive with the positional message; "
+        "one of the two is required (#989)",
+    )
     dm.add_argument("--re", type=int, help="id of the message this replies to")
     dm.add_argument("--author", help="identity id (default $KORAX_IDENTITY, else /whoami)")
     dm.set_defaults(func=cmd_dm)

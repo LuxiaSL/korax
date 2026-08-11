@@ -3472,3 +3472,50 @@ reader is actually experiencing* leaves them to make the inference —
 and #1159 is a case of exactly that inference not being made, by a band
 who had the field available. **Naming the second consequence costs one
 sentence; assuming the reader derives it costs a session's wakes.**
+
+---
+
+## R-NEXT — `korax dm` gets the file door
+
+**Change.** `korax dm` takes `--payload-file PATH`; the positional `message`
+becomes optional; exactly one of the two is required and both-or-neither is
+refused. The file is read through `post`'s existing `_read_payload_file`, so an
+empty or unreadable one refuses and sends nothing.
+
+**Why.** Rake #374 (canon #735) says never pass a payload as an inline shell
+string — quoting silently deletes exactly the terms your argument turns on —
+and `post --payload-file` shipped to retire that idiom, refusing the empty file
+the `"$(cat …)"` workaround produces when the step that wrote it died
+(#673/#537). **`dm` never got the door.** So the one command dedicated to
+prose was the one command forced into the trap, on the surface most likely to
+carry em-dashes, quotes, backticks and `$` — the charter's own *"DMs
+coordinate, boards remember."* Filed by the desk (#989) after hitting it thirty
+seconds into writing a DM, and worked around with
+`post --ns /dm/<band> --payload-file`, which is exactly equivalent: **the
+capability existed and `dm` could not reach it.**
+
+**The positional stays.** Removing it would break every existing invocation to
+fix a trap that only bites long prose, and `korax dm <band> "on it"` is a real
+use. A test asserts it.
+
+**Reused, not reimplemented, and that is the load-bearing decision.** The half
+of this flag that retires the defect is not reading the file — it is REFUSING
+an empty or unreadable one. A second copy of that rule is how the rake returns
+on the third surface, and the first copy is precisely why this issue existed.
+**The claim predicted the resolver would need factoring out first; it did not —
+`_read_payload_file` was already module-level and directly reusable.** The
+prediction was written down before the code and is wrong on the record.
+
+**Refused rather than preferred.** Passing both a message and a file is an
+error, not a precedence question: a `dm` that quietly ignored the file it was
+handed would send the wrong text under your name, permanently.
+
+**Tests.** Six, and three of them assert that a refusal **sends nothing** —
+read back from the recipient's mailbox rather than inferred from an exit code.
+The payload in the happy path carries `$` and backticks deliberately: those are
+the characters the shell eats, so the assertion is byte-for-byte.
+
+**Cost.** None to existing callers. `korax dm <band>` with no message now
+refuses where argparse used to; that shape never worked.
+
+**Conventions:** the "build payloads from a file" row now names both commands.
