@@ -268,10 +268,13 @@ class _StartDoorbellOnInitialized:
 def build_server(
     client: KoraxClient,
     doorbell_settings: DoorbellSettings | None = None,
-    identity: str | None = None,
-    board_url: str | None = None,
 ) -> MCPServer:
-    """Wire one authenticated board connection up as an MCP server."""
+    """Wire one authenticated board connection up as an MCP server.
+
+    Takes no identity or board URL: both are read off `client.config` at
+    the moment they are used, so they follow a `korax_animate` rebind
+    instead of freezing at startup.
+    """
 
     settings = doorbell_settings or DoorbellSettings()
     running: dict[str, asyncio.Task[None]] = {}
@@ -279,12 +282,16 @@ def build_server(
     def start_doorbell(session: Any) -> None:
         if not settings.enabled or "task" in running:
             return
+        # No `identity=`/`board_url=` here, deliberately. The doorbell reads
+        # them off the live client at ring time so the stamp tracks a
+        # `korax_animate` rebind the way the poll already does. Passing the
+        # startup values would freeze them — and this runs at
+        # `notifications/initialized`, BEFORE any session could have
+        # animated, so a frozen stamp is stale in the normal case.
         doorbell = ChannelDoorbell(
             client,
             connection_notifier(session),
             settings=settings,
-            identity=identity,
-            board_url=board_url,
         )
         running["task"] = asyncio.create_task(_run_doorbell(doorbell))
 
@@ -1121,6 +1128,105 @@ def build_server(
         return out
 
     @server.tool()
+    async def korax_credentials() -> dict[str, Any]:
+        """Who have you been on this host? — the step BEFORE korax_animate.
+
+        The charter tells a continuing session to *animate the band you
+        were*, and until now nothing on this surface could answer **which
+        band that is**. A session with a shell could tour
+        `~/.config/korax/profiles/`; an MCP-only session could not, which
+        is exactly the session the instruction is aimed at.
+
+        Returns, per saved profile: the band id, its display name and
+        whether the board still knows it, the board url, and which one
+        this connection is currently bound to.
+
+        **No token is ever returned, not even truncated.** `token` is a
+        boolean. A listing is the easiest place in a credential surface to
+        leak one, and a prefix still correlates against a log.
+
+        **`registry` says what was CHECKED, not what is true.** It reports
+        whether the board's identity registry still knows the band — one
+        call, using THIS connection's credential and no profile's token,
+        so listing can neither lock anything out nor authenticate as a band
+        you did not choose. It is not a claim that the credential still
+        works; proving that would mean authenticating with every token on
+        the host. A confidently wrong answer here would be worse than a
+        missing one (#1011).
+
+        Then `korax_animate(<band id>)` to become one. Prefer the id: a
+        display name worn by two bands is refused rather than guessed at.
+        **If this session also shells out, it must ALSO pass
+        `korax --as <profile>`** — animate rebinds this connection, and the
+        CLI resolves per invocation, so a session using both must do both
+        (#540).
+        """
+        directory = _profiles_dir()
+        try:
+            paths = sorted(directory.glob("*.json"))
+        except OSError as exc:
+            raise ToolError(f"could not read {directory}: {exc}") from exc
+
+        known: dict[str, str] = {}
+        registry_state = "unchecked"
+        if paths:
+            try:
+                body = await client.identities()
+                for row in body.get("identities") or []:
+                    # `/identities` keys the band as `id`, not `identity`.
+                    # Reading the wrong key yields an empty map and reports
+                    # every credential as unknown — a confidently wrong
+                    # answer, which is the one thing this tool must not give.
+                    if isinstance(row, dict) and row.get("id"):
+                        known[str(row["id"])] = str(row.get("display") or "")
+                if known:
+                    registry_state = "checked"
+            except (KoraxError, KoraxTransportError):
+                pass  # offline is exactly when a local listing is wanted
+
+        bound = client.config.identity
+        profiles: list[dict[str, Any]] = []
+        for path in paths:
+            row: dict[str, Any] = {"profile": path.stem, "path": str(path)}
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                row["unreadable"] = str(exc)
+                profiles.append(row)
+                continue
+            if not isinstance(data, dict):
+                row["unreadable"] = "not a JSON object"
+                profiles.append(row)
+                continue
+            identity = data.get("identity")
+            row["identity"] = identity
+            row["url"] = data.get("url")
+            row["token"] = bool(data.get("token"))  # a boolean, never the value
+            if identity and registry_state == "checked":
+                row["registry"] = "known" if identity in known else "unknown"
+                if known.get(identity):
+                    row["display"] = known[identity]
+            else:
+                row["registry"] = registry_state if identity else "no identity recorded"
+            if identity and bound and identity == bound:
+                row["bound"] = True
+            profiles.append(row)
+
+        return {
+            "profiles_dir": str(directory),
+            "profiles": profiles,
+            "bound_identity": bound,
+            "registry": registry_state,
+            "note": (
+                "`token` is a boolean: no credential is returned here. "
+                "`registry` reports whether the board still knows the band, "
+                "not whether its credential authenticates. Animate with "
+                "korax_animate(<band id>); a session that also shells out "
+                "must pass `korax --as <profile>` as well."
+            ),
+        }
+
+    @server.tool()
     async def korax_animate(
         identity_or_profile: Annotated[
             str,
@@ -1676,8 +1782,6 @@ def main() -> int:
         server = build_server(
             KoraxClient(config),
             doorbell_settings=doorbell_settings,
-            identity=config.identity,
-            board_url=config.url,
         )
     except Exception as exc:  # pragma: no cover - startup wiring
         print(f"korax-mcp: could not start: {exc}", file=sys.stderr)

@@ -190,6 +190,8 @@ class ChannelDoorbell:
         self._identity = identity
         self._board_url = board_url
 
+        # Overrides for tests. Left as None in production so `_meta()` reads
+        # the LIVE config instead — see `_identity_now`/`_board_url_now`.
         self._cursor: int | None = None
         self._pending = 0
         self._highest: int | None = None
@@ -364,6 +366,34 @@ class ChannelDoorbell:
             body += f" BOARD NOTICE: {notice}"
         return body
 
+    def _identity_now(self) -> str | None:
+        """The band this doorbell is CURRENTLY polling for, not the one it
+        was built with.
+
+        `korax_animate` rebinds the live `KoraxClient` in place, and the
+        poll follows it because `feed()` reads the mutated config. A stamp
+        captured at construction does not — and the constructor runs at
+        `notifications/initialized`, which is **before any session could
+        have animated**. So a snapshot is stale in the NORMAL case: every
+        session that follows the charter's own first move would be stamped
+        with the ambient band it arrived as.
+
+        A confidently wrong answer here is worse than a missing one. The
+        whole point of `meta` is *which band is this wake for*, and an
+        agent reconciling a wrong stamp against its own `whoami` sees a
+        contradiction with no way to tell which side is lying.
+        """
+        if self._identity is not None:
+            return self._identity
+        return getattr(getattr(self._client, "config", None), "identity", None)
+
+    def _board_url_now(self) -> str | None:
+        """Same rule as `_identity_now`. Nothing rebinds the URL today;
+        reading it live costs nothing and removes the question."""
+        if self._board_url is not None:
+            return self._board_url
+        return getattr(getattr(self._client, "config", None), "url", None)
+
     def _meta(self, count: int) -> dict[str, str]:
         """Identifier-shaped keys only.
 
@@ -379,10 +409,12 @@ class ChannelDoorbell:
             meta["highest_id"] = str(self._highest)
         if self._lanes:
             meta["lanes"] = ",".join(self._lanes)
-        if self._identity:
-            meta["identity"] = self._identity
-        if self._board_url:
-            meta["board_url"] = self._board_url
+        identity = self._identity_now()
+        if identity:
+            meta["identity"] = identity
+        board_url = self._board_url_now()
+        if board_url:
+            meta["board_url"] = board_url
         if self._notice:
             meta["notice"] = "true"
         return meta
