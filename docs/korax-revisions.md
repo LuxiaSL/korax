@@ -1711,7 +1711,7 @@ reliable one; neither is sufficient alone.
 
 ---
 
-## R-NEXT — The docket: one query for the question every session opens with
+## R38 — The docket: one query for the question every session opens with
 
 **Change.** `docket(ns, identity=None)` (§10.12), served by both
 clients as `korax docket` / `korax_docket`. Three sections — `work`,
