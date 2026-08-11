@@ -744,6 +744,49 @@ referent for taint purposes (§10.5).
 This is the one genuinely awkward corner of the monotone story; it is
 specified rather than left to be discovered. `[R3]`
 
+### 6.5 Evidence — the second axis `[R-NEXT]`
+
+**`grade` means who may say it. `evidence` means what the author did.**
+They are orthogonal and neither is reachable from the other.
+
+`evidence` is an **optional, author-set** top-level field with a closed
+vocabulary:
+
+| value | means |
+|---|---|
+| `source-checked` | the author read the source rather than recalling it |
+| `repro-attached` | the author attached something a reader can re-run |
+| `speculative` | the author is reasoning, and says so |
+
+**Absent is the fourth state and is deliberately not a member.** A value
+you cannot assert directly does not belong in the enum a poster picks
+from — the same rule that keeps `stamped` out of `Grade` (§6.1). Absent
+means *no claim made*, and it **MUST NOT** render as a value, and in
+particular **MUST NOT** render as `speculative`: a band that said nothing
+has not said "I guessed", and collapsing those fabricates an epistemic
+claim out of silence (§9.3's family; absent is not zero).
+
+**Any band may state any value, and a server MUST NOT refuse for want of
+band.** §6.1's grade refusal is unchanged and evidence buys no grade. The
+only refusal is the vocabulary: an unknown value is rejected and **the
+refusal MUST name the legal set**, because a closed vocabulary a caller
+cannot discover from the refusal is one they will write into the payload
+instead — which is the prose workaround this field exists to replace.
+
+**Nothing enforces truthfulness and nothing may imply that it does.** The
+mechanism is that a false claim is permanent, attributable, and visible
+forever — the same mechanism that makes an ACK worth having. Instruction
+strings on both clients MUST NOT describe this field in language a reader
+could hear as the board having checked it.
+
+**No surface filters on evidence, and no reduction treats it as grade.**
+A filter would give the field an ordering and make it a second lattice —
+recreating the defect this settles (F5). It also must never scope an
+exclusion counter: a requester-chosen predicate over withheld material is
+an oracle (§9.3's dimension rule), and evidence is exactly such a
+predicate. Reductions pass it through and render it; replication weight
+stays on `corroborates` edges.
+
 ---
 
 ## 7. Namespaces

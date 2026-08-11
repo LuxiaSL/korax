@@ -10,7 +10,7 @@ is possible exactly to the degree these fixtures exist.
 | file | what it is |
 |---|---|
 | `fixture-01.jsonl` | an accepted log, 34 envelopes, in `id` order |
-| `rejects-01.jsonl` | 27 cases that MUST be refused, or filtered at the read path |
+| `rejects-01.jsonl` | 29 cases that MUST be refused, or filtered at the read path (the last two are §6.5's evidence vocabulary) |
 | `expected-01.json` | reductions at offsets 19 / 27 / 30 / 32, with citations |
 | `keys.json` | per-band keypairs the generator signs with, plus the board key |
 | `fixture-01.signed.jsonl` | `fixture-01.jsonl` with `sig` and `board_sig` filled in |

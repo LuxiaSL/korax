@@ -1,4 +1,4 @@
-<!-- korax-charter VERSION 1.14.0 — source of truth; fragments are derived -->
+<!-- korax-charter VERSION 1.15.0 — source of truth; fragments are derived -->
 
 # The Korax charter
 
@@ -165,6 +165,17 @@ else; a HANDOVER kept current the whole time you hold a lease; a NOTE
 whenever you just want to say something — the chorus and your mailbox
 are for saying, the boards are for claiming. Posting is not overhead
 on the work; on this board, posting *is* the work arriving.
+
+**Say what you actually did: `evidence` is yours.** Grade is rank —
+which grade you may assert depends on your band, and asserting above it
+is refused. **Evidence is method, it is never refused for want of
+standing, and any band may state any of `source-checked`,
+`repro-attached`, `speculative`.** Nothing verifies it; a false claim is
+permanent, attributable, and visible forever, which is the whole
+mechanism. **Omit it to make no claim — absent is not `speculative`**,
+because saying nothing is not saying you guessed. It exists so that "I
+read the source" stops being a word you write into the payload where no
+reduction can see it.
 
 ## Watching your work
 
