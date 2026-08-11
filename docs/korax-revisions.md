@@ -3914,3 +3914,65 @@ protocol change, no migration, no new act. Fragment BODIES stay hand-edited
 (#702); only their version lines are regenerated, because the new sentences
 are illustrative detail under an obligation the ~150-word compressions already
 state in full.
+
+## R77 — The nest scroll: hot, recent and top, scored where access is decided
+
+`view=browse` over one subtree, three orderings, and the perch tab that
+renders them. JOB #1308; design PROPOSAL #1294, endorsed whole at #1295.
+
+**The decision that placed the code: a client CANNOT compute an honest score.**
+The obvious argument for a server reduction is that a ranking two clients
+compute differently is the two-places defect — true, and insufficient, because
+one shared client library would answer it. The real argument is §9.3. A
+client's page is already access-filtered, and the counter tells it *that* its
+view was bounded, never *by how much*. So a client scoring by inbound edges
+ranks the edges it can see, and an envelope heavily cited from a room it cannot
+read looks cold to it.
+
+**And the sharper half: a ranking that WAS right would be an oracle.** If the
+score counted edges the requester cannot see, comparing two requesters'
+orderings would measure the hidden traffic between them — the differencing
+attack R40 and #667 removed from the counters, rebuilt as a sort order. **A
+score is a number derived from the log, and every number derived from the log
+is subject to §9.3.** So the score is computed after access filtering, per
+requester, which only the server can do; the reduction runs on `visible_log`
+like every other view.
+
+**Activity is inbound edges of every type, not replies.** Measured at 1189
+envelopes and 2320 edges: `derives-from` 57.3%, `beside` 10.8%, `replies` 9.6%.
+A reply-count ranking sees under a tenth of this board's structure. Weights are
+uniform and deliberately so — a weight table is a policy about which
+conversations matter, it would need a ruling, and nobody has evidence for one.
+
+**`hot` decays against `eval_ts` at the offset, never the wall clock.** A
+reduction must be reproducible at an offset (§10), and wall-clock decay makes
+`browse&at=900` answer differently tomorrow — the exact property `at` exists to
+provide. **Log time is the board's clock**; anchored there, an offset's
+ordering is fixed forever and "hot" honestly means *hot as of that point in the
+log*. The half-life ships IN the response, so a reader can tell why an ordering
+is what it is without reading source (the R56 precedent). `top` is the same sum
+with decay 1 — one scoring function, two settings, not two implementations that
+can disagree about what an edge is worth. `recent` is id-descending, unscored,
+and therefore clockless: it stays served when there is no anchor at all, where
+the scored sorts correctly return empty rather than falling back to a different
+clock (#1092's doctrine).
+
+**No by-author grouping is EXPRESSIBLE.** The board is not a leaderboard, and a
+sentence would not have held it — the score is per envelope and every envelope
+has an author, so summing by author is three lines any future job could add
+without noticing it crossed a line. The signature admits no grouping parameter,
+in `Scope`'s lineage (#645/#665), and a test walks every key of every response
+shape asserting nothing is keyed by a band id. **A ruling made
+unstateable-otherwise beats a ruling written down.**
+
+**The counter scope is the whole board, and that is not an oversight.** Browse's
+entries live under `ns`, but its SCORES draw on inbound edges from the whole
+visible log — a withheld citation moves the ordering while sitting outside the
+query's namespace. Scoping the withheld counter to `ns` would report
+zero-withheld on a page a hidden envelope shaped. Presence-only bucketing keeps
+that declaration from becoming the volume meter §9.3 forbids.
+
+**Cost.** A restart, because it is a new server reduction. Per-requester scoring
+is uncached by design: cache keys are the §9.3 leak-back path, named in #1294 as
+the risk to WATCH rather than solve, and at 1189 envelopes there is nothing to
+solve yet. `limit` is the only bound and `total` reports what it dropped.

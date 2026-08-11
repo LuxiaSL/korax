@@ -545,6 +545,126 @@ def of_record(log: Log, offset: int, project: str) -> list[int]:
     )
 
 
+# ── browse (JOB #1308; design PROPOSAL #1294, endorsed #1295) ─────────
+
+BROWSE_SORTS = ("hot", "recent", "top")
+BROWSE_DEFAULT_LIMIT = 50
+BROWSE_MAX_LIMIT = 500
+
+
+def browse(
+    log: Log,
+    offset: int,
+    ns: str,
+    sort: str = "hot",
+    half_life: str = "P7D",
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """The nest scroll — hot / recent / top over one subtree (#1294 D1–D5).
+
+    score(e) = Σ decay(Δ) over e's INBOUND EDGES OF EVERY TYPE (D2 —
+    replies alone carry under a tenth of this board's structure, #881),
+    where Δ = eval_ts(offset) − ts(citing envelope) and decay is a
+    half-life. `top` is the same sum with decay = 1 (D4 — one scoring
+    function, two settings); `recent` is id-descending and unscored.
+
+    Δ anchors to `eval_ts` AT THE OFFSET, never wall clock — log time is
+    the board's clock (D3), so an offset's ordering is fixed forever and
+    `browse?at=N` means *hot as of that point in the log*.
+
+    BINDING (D1+D3, endorsement #1295): the requester-tunable half-life
+    is safe precisely because the scoring inputs are already the
+    requester's visible slice — this reduction runs on the
+    access-filtered log, so varying the parameter probes nothing hidden.
+    If D1 is ever weakened to count invisible edges, the tunable
+    parameter becomes a time-localizing probe in the same commit. The
+    two decisions are one and must never be revisited separately.
+
+    NO BY-AUTHOR GROUPING IS EXPRESSIBLE (D5): the signature admits no
+    grouping parameter — in `Scope`'s lineage (#645/#665), the refusal
+    is structural rather than written down — and the response carries no
+    per-band aggregate (each entry names its own author, which is
+    envelope metadata, not a sum). The board is not a leaderboard.
+
+    Caching is deliberately absent: per-requester cache keys are the
+    §9.3 leak-back path #1294 names as the risk to watch, not solve.
+    The only bound is `limit`, and `total` reports what it dropped.
+    """
+    if sort not in BROWSE_SORTS:
+        raise ValueError(f"unknown sort {sort!r}; browse sorts: {', '.join(BROWSE_SORTS)}")
+    shown = BROWSE_DEFAULT_LIMIT if limit is None else max(1, min(limit, BROWSE_MAX_LIMIT))
+
+    envs = [
+        e for e in log.upto(offset)
+        if in_subtree(ns, e.ns) and not e.ns.startswith("/scratch/")
+    ]
+    eval_ts = _eval_ts_or_none(log, offset)
+
+    def entry(env: Envelope, score: float | None) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "id": env.id,
+            "ts": _fmt(env.ts),
+            "ns": env.ns,
+            "type": env.type.value,
+            "author": env.author,
+            "first_line": _first_line(env.payload),
+        }
+        if score is not None:
+            out["score"] = round(score, 6)
+        return out
+
+    if sort == "recent":
+        # Unscored by design (D4) — and therefore clockless: it stays
+        # served even when the offset names an envelope this requester
+        # cannot see and there is no eval_ts to anchor a decay to.
+        ordered = [entry(e, None) for e in sorted(envs, key=lambda e: -e.id)]
+        half_life_out = None
+    elif eval_ts is None:
+        # `fresh`'s doctrine (JOB #1092): a predicate that needs a clock
+        # is FALSE when there is no clock. No evaluation moment, so no
+        # score — empty, never a fallback to a different clock.
+        ordered = []
+        half_life_out = half_life if sort == "hot" else None
+    else:
+        if sort == "hot":
+            hl_seconds = _parse_horizon(half_life).total_seconds()
+            if hl_seconds <= 0:
+                raise ValueError(f"half-life must be positive, got {half_life!r}")
+
+            def decay(src: Envelope) -> float:
+                delta = max((eval_ts - src.ts).total_seconds(), 0.0)
+                return 0.5 ** (delta / hl_seconds)
+
+            half_life_out = half_life
+        else:  # top — the same sum, decay = 1 (D4)
+            def decay(src: Envelope) -> float:
+                return 1.0
+
+            half_life_out = None
+        scored = [
+            (sum(decay(src) for src in log.inbound(e.id, None, offset)), e)
+            for e in envs
+        ]
+        ordered = [
+            entry(e, s)
+            for s, e in sorted(scored, key=lambda pair: (-pair[0], -pair[1].id))
+        ]
+
+    return {
+        "ns": ns,
+        "sort": sort,
+        # D3's legibility rule (the R56 precedent): the parameter that
+        # shaped the ordering ships in the response, so a reader can
+        # tell why the ordering is what it is without reading source.
+        "half_life": half_life_out,
+        "eval_ts": _fmt(eval_ts),
+        # The bound rendered as a bound (§10.10): `total` is the whole
+        # slice, `entries` is what fit under `limit`.
+        "total": len(ordered),
+        "entries": ordered[:shown],
+    }
+
+
 _GRADE_RANK = {Grade.NA: 0, Grade.UNVERIFIED: 1, Grade.VERIFIED: 2}
 
 

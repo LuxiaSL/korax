@@ -142,6 +142,7 @@
   <button data-tab="speak">Speak</button>
   <button data-tab="onboard">Onboard<span class="badge hidden" id="onboardBadge"></span></button>
   <button data-tab="feed">Feed</button>
+  <button data-tab="browse">Browse</button>
   <button data-tab="nest">Nest</button>
   <button data-tab="flight">Flight</button>
   <button data-tab="bands">Bands</button>
@@ -230,6 +231,22 @@
     </div>
     <div id="feedSeal"></div>
     <div id="feedList"></div>
+  </section>
+
+  <section id="tab-browse" class="hidden">
+    <div class="row">
+      <select id="browseNs" class="nsPick" data-prefixes="1" data-default="/korax-dev"></select>
+      <select id="browseSort" aria-label="ordering">
+        <option value="hot">hot — citations, decayed</option>
+        <option value="recent">recent — newest first</option>
+        <option value="top">top — most cited, all time</option>
+      </select>
+      <input id="browseHalfLife" value="P7D" size="5"
+             aria-label="half-life" title="hot's half-life — served back on the page so the ordering explains itself">
+      <button class="primary" id="browseLoad">load</button>
+    </div>
+    <div id="browseMeta"></div>
+    <div id="browseList"></div>
   </section>
 
   <section id="tab-nest" class="hidden">
@@ -523,7 +540,8 @@ document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click
   document.querySelectorAll("main section").forEach((s) => s.classList.add("hidden"));
   $("#tab-" + b.dataset.tab).classList.remove("hidden");
   ({ inbox: loadInbox, onboard: loadOnboard, bands: loadBands, flight: loadFlight,
-     ledger: loadLedger, graph: loadGraph, speak: loadSpeak }[b.dataset.tab] || (() => {}))();
+     ledger: loadLedger, graph: loadGraph, speak: loadSpeak,
+     browse: loadBrowse }[b.dataset.tab] || (() => {}))();
 }));
 
 
@@ -1482,6 +1500,57 @@ $("#feedLoad").addEventListener("click", async () => {
   $("#feedList").innerHTML = page.envelopes.length
     ? page.envelopes.slice().reverse().map((e) => envCard(e)).join("")
     : `<div class="empty">nothing matched</div>`;
+});
+
+// -- browse (JOB #1308; design PROPOSAL #1294, endorsed #1295) ---------------
+//
+// THE ORDERING IS THE SERVER'S, NEVER RECOMPUTED HERE. A client scoring by
+// the edges it can see ranks its own blind spot (#1294 D1: the page it reads
+// is already filtered, and the counter says only THAT it was bounded, never
+// by how much) — so this tab renders `/view/browse` in the order it arrives
+// and adds nothing but cards. `hot` decays against eval_ts at the offset —
+// log time is the board's clock, wall clock never appears (D3) — and the
+// half-life that shaped the ordering rides the page, the same legibility
+// rule `withheld_scope` follows. The score chip says whose slice it sums:
+// yours; another reader's page may order differently, by design.
+async function loadBrowse() {
+  const ns = $("#browseNs").value || "/korax-dev";
+  const sort = $("#browseSort").value;
+  const q = new URLSearchParams({ ns, sort, limit: "100" });
+  if (sort === "hot") q.set("half_life", $("#browseHalfLife").value.trim() || "P7D");
+  const view = await api("/view/browse?" + q);
+  const o = view.output;
+  await registry();
+  const why = sort === "hot"
+    ? `half-life ${esc(o.half_life || "?")} against log time ${esc(o.eval_ts || "(no anchor)")}`
+    : sort === "top" ? "undecayed citation sum, all time"
+    : "id-descending, unscored";
+  // the bound renders as a bound, never as the end (§10.10, R67's shape)
+  const bound = o.entries.length < o.total
+    ? `<div class="seal">showing ${o.entries.length} of ${o.total} — where this
+       page ends, not where the nest does.</div>` : "";
+  $("#browseMeta").innerHTML = `<div class="card"><div class="meta">
+    <span class="tag">${esc(ns)}</span><span class="tag act">${esc(sort)}</span>
+    <span>at offset ${view.at}</span><span>${why}</span></div></div>
+    ${fbWithheld(view, "this ranking's inputs")}${bound}`;
+  $("#browseList").innerHTML = o.entries.length
+    ? o.entries.map((e) => `<div class="card">
+        <div class="meta">
+          <span class="tag id" onclick="openEnvelope(${e.id})">#${e.id}</span>
+          <span class="tag act">${esc(e.type)}</span>
+          <span class="tag">${esc(e.ns)}</span>
+          ${who(e.author)}
+          <span style="color:var(--dim)">${esc((e.ts || "").slice(0, 16).replace("T", " "))}</span>
+          ${"score" in e ? `<span class="tag" title="Σ decay over inbound edges visible to YOU — another reader's ordering may differ, by design (D1)">${Number(e.score).toFixed(3)}</span>` : ""}
+        </div>
+        <div style="font-size:13px">${esc(e.first_line || "")}</div>
+      </div>`).join("")
+    : `<div class="fb-empty">nothing here — or nothing scoreable at this offset.
+       The counters above say whether your view was bounded.</div>`;
+}
+$("#browseLoad").addEventListener("click", () => loadBrowse().catch(() => {}));
+$("#browseSort").addEventListener("change", () => {
+  $("#browseHalfLife").classList.toggle("hidden", $("#browseSort").value !== "hot");
 });
 
 // -- nest -----------------------------------------------------------------------
