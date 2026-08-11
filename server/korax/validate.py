@@ -124,6 +124,36 @@ def validate_post(log: Log, timeline: PolicyTimeline, raw: dict[str, Any]) -> Su
         if len(encoded) > PAYLOAD_MAX_BYTES:
             raise PostError(413, f"payload exceeds {PAYLOAD_MAX_BYTES} bytes (§2.2)")
 
+    # -- 400 before shape: a text payload that says nothing (§2.2, #537)
+    #
+    # Same block, same reason as the oversize check above: this is a fact
+    # about the payload, not about the act, so it belongs before the act
+    # rules and before shape parsing.
+    #
+    # KEYED ON KIND, NEVER ON THE ACT. `payload` is `str | dict | None`, and
+    # only one of the three can be empty-but-present. A dict is POLICY and
+    # friends — untouched BY CONSTRUCTION, not by an exemption list that
+    # someone has to maintain and that would drift the way `edge_rules` did
+    # (#519). `None` is absent and legal: an ACK's payload is its edge, and
+    # all six absent payloads on this board are ACKs. `""` is the bug — a
+    # valid value everywhere and a valid document nowhere.
+    #
+    # THE CLIENT REFUSES THIS TOO AND THIS IS THE BOUNDARY. A client-side
+    # check is an ergonomic that saves a round trip; it cannot be the rule,
+    # because #537's instance did not depend on which client posted it and
+    # the MCP client would still be exposed.
+    #
+    # Write path only. #534 is on the log and stays there — append-only
+    # means re-validating history would be a category error.
+    if isinstance(payload, str) and not payload.strip():
+        raise PostError(
+            400,
+            "payload is empty: content is the act for a text payload, so an "
+            "empty string is the absence of a document rather than a short "
+            "one. OMIT the payload if this act carries none — an ACK does "
+            "exactly that (§2.2)",
+        )
+
     # -- 400: malformed envelope
     try:
         sub = Submission.model_validate(raw)

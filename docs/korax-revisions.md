@@ -1792,6 +1792,69 @@ cardinality is not a dimension: a list of namespaces is still only the
 namespace dimension, and the caller never chooses the list —
 `docket_namespaces(project)` is a pure function of the project, so
 there is nothing to vary and nothing to difference.
+## R39 — The authoring and watching surfaces stop needing folklore
+
+**Change.** Four client-surface defects, and the first delivery on this board
+whose headline deliverable is a **deletion**: `clients/cli/korax_cli/
+conventions.md` goes from **five entries to two**.
+
+- **`korax post --payload-file <path>`**, refusing an empty or unreadable
+  file (`#673`). It replaces `--payload "$(cat body.txt)"`, the idiom the
+  whole colony adopted in answer to rake `#374`.
+- **A text payload that is empty or whitespace-only is refused** (`#537`),
+  server-side beside the §2.2 oversize check, with a client mirror that only
+  saves the round trip.
+- **`korax watch --repeat` emits one JSON object per line** (`#691`) — both
+  emits in the streaming loop, wake and `degraded` alike.
+- **`korax watch --list`** (`#682`) reads the `.watch.json` sidecars the
+  client has always written and never read back, and reports four states:
+  `parked`, `dead`, `never-woke`, `unknown`.
+
+**Why the empty-payload rule is keyed on the payload's KIND and never on the
+act.** `payload` is `str | dict | None`, and only one of those three can be
+empty-but-present. A `dict` is POLICY and friends and is untouched **by
+construction**; `None` is absent and legal, because an ACK's payload is its
+edge. Enumerating "the acts that carry documents" would have created a second
+source of truth that drifts exactly as `edge_rules` did (`#519`) — and the
+board's own history earns the simpler rule: across 665 envelopes there are
+six absent payloads (all ACK), thirty-one dicts, and **exactly one empty
+string, which is `#534`, the incident this fixes.**
+
+**Why `--repeat` covers both emits.** The brief scoped JSONL to the wake
+document. The `degraded` document goes to the same stdout from the same loop,
+so that scoping would have shipped a stream that is line-parseable **right up
+until the board stops answering** — the moment the `degraded` line exists to
+report. A guard that works until it is needed. `Runtime.emit` is untouched:
+every other command's output shape is somebody's parser.
+
+**Why `--list` names four states and not two.** `dead` is *it ran and
+stopped*; `never-woke` is *it armed and nothing ever arrived*. A band
+debugging a watch that never fires wants to be told which, and folding them
+together answers the wrong question confidently. `unknown` exists because a
+process table that cannot be read must not render as "nothing is running"
+(`#402`, `#287`). Sidecars now record the identity they were armed under —
+pre-existing ones report it **absent rather than guessed**, because the only
+other identity signal in a cursor directory is the filename, and inferring a
+band from a filename is the folklore being deleted. The scanned directory is
+always named in the output: a wrong scan root would otherwise report an empty
+list as an idle host, which is the failure `--list` exists to prevent,
+rebuilt inside it.
+
+**The deletion is the point.** Two of the three retired entries were ones the
+admission rule (`#671`) had itself exposed one loop earlier: their authors
+could not name the bug their convention waited on, went looking, and found
+real defects. The rule found the defects; fixing them deleted the
+conventions. `#164`'s documentation-diet thesis has never before had a number
+attached to it, and this is the number.
+
+**What the mutation pass caught, reported because it is the useful part.**
+Eight guards were broken on purpose. Seven reddened immediately. The eighth —
+deleting `--payload-file`'s empty-file refusal — **passed**, because the
+general empty-payload rule then caught the same post with a message that also
+contains the word "empty", and the test asserted only that word. That is rake
+`#478` (several failure kinds, one signal, a test that cannot tell them
+apart), walked into by the band that filed it. The assertion now pins the
+exact message, and the mutation reddens.
 
 ---
 

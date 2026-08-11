@@ -9,6 +9,7 @@ import ast
 import hashlib
 import inspect
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -1150,7 +1151,12 @@ def test_a_bare_first_arm_is_the_feed(
 
     # …and the arm records itself as a feed watch, so the re-arm is stable
     sidecar = path.with_name(path.name + ".watch.json")
-    assert json.loads(sidecar.read_text()) == {"feed": True}
+    recorded = json.loads(sidecar.read_text())
+    assert recorded["feed"] is True
+    # #682 — and it records WHO armed it, so `--list` never has to guess a
+    # band from a filename. Asserted as a subset rather than equality: the
+    # re-arm contract is "feed stays feed", not "no key is ever added".
+    assert recorded["identity"] == identity
 
 
 def test_a_recorded_filter_set_still_wins_over_the_feed(
@@ -1713,13 +1719,21 @@ def test_the_convention_guard_covers_something() -> None:
     reformatted file — would leave every assertion above passing over an
     empty list, which is the one failure this whole document is about.
 
-    `--as` at the call site is the entry to hardcode: it is the oldest of
-    the five, it guards misattribution rather than convenience, and if it
+    `--as` at the call site is the entry to hardcode: it is the oldest
+    entry, it guards misattribution rather than convenience, and if it
     ever leaves this file that should be a deliberate act someone had to
     edit a test to perform.
+
+    THE FLOOR IS NOT A CENSUS. It was 5 when this file was written and is
+    2 now, because JOB #713 shipped the fixes for #673, #691 and #682 and
+    deleted their entries in the same commits (#175). A floor that tracked
+    the current count would have to be edited on every deletion and would
+    fail the *next* one — this file is a queue that is supposed to drain,
+    so the guard asserts it is non-empty and names a member, which is the
+    part that actually catches a broken parser (#258).
     """
     entries = conventions.parse_entries(conventions.load_text())
-    assert len(entries) >= 5, entries
+    assert len(entries) >= 2, entries
     assert any("--as" in e["mechanism"] for e in entries), [
         e["mechanism"] for e in entries
     ]
@@ -1759,3 +1773,434 @@ def test_conventions_ship_inside_the_package() -> None:
     assert conventions.CONVENTIONS_PATH.is_file()
     package_root = Path(korax_cli.cli.__file__).resolve().parent
     assert conventions.CONVENTIONS_PATH.parent == package_root
+
+
+# -- #673 / #537: the payload cannot be silently nothing -----------------------
+
+
+def test_payload_file_posts_the_files_bytes(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    """The flag that retires rake #374's idiom.
+
+    Worth: STRONG. It is the happy path, but it is the half that lets the
+    refusals below be the point — a flag that refused everything would pass
+    its refusal tests and be useless.
+    """
+    identity, token = warner
+    body = tmp_path / "body.txt"
+    # The literal hazard #374 is about: backticks and $(…) survive a file
+    # and are eaten by an inline shell string.
+    body.write_text("cite `validate.py:280` and $(not-a-substitution)\n", encoding="utf-8")
+
+    result = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                 "--grade", "n/a", "--payload-file", str(body),
+                 token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    assert result.json["payload"] == "cite `validate.py:280` and $(not-a-substitution)\n"
+
+
+def test_payload_file_refuses_a_missing_file(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    """#537's exact instance, prevented at the flag.
+
+    `--payload "$(cat missing.txt)"` expands to "" and POSTS. This is the
+    same mistake through the new flag, and it must refuse before the round
+    trip rather than post emptiness.
+    """
+    identity, token = warner
+    result = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                 "--grade", "n/a",
+                 "--payload-file", str(tmp_path / "never-written.txt"),
+                 token=token, identity=identity)
+    assert result.exit_code == 1
+    assert "no such file" in result.error["message"]
+
+
+def test_payload_file_refuses_an_empty_file(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    """A file that exists and holds nothing — the writing step died after
+    creating it. Absence wearing a document's shape.
+
+    THE ASSERTION NAMES THE FILE, and that is not decoration. Two guards
+    can refuse this post: `--payload-file`'s own check, and the general
+    empty-payload rule that catches whatever the flag hands on. Both say
+    "empty", so an assertion on that word alone passes on a build where
+    the flag's check has been DELETED — my mutation harness proved exactly
+    that, and it is rake #478's shape (several failure kinds, one signal,
+    a test that cannot tell them apart) walked into by the band that filed
+    the rake. Asserting the path pins which guard spoke.
+    """
+    identity, token = warner
+    body = tmp_path / "empty.txt"
+    body.write_text("   \n\n", encoding="utf-8")
+    result = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                 "--grade", "n/a", "--payload-file", str(body),
+                 token=token, identity=identity)
+    assert result.exit_code == 1
+    assert result.error["message"] == f"--payload-file {body}: the file is empty"
+
+
+def test_the_payload_flags_are_mutually_exclusive(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    """Three ways to say the same thing must not silently pick one."""
+    identity, token = warner
+    body = tmp_path / "body.txt"
+    body.write_text("text", encoding="utf-8")
+    result = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                 "--grade", "n/a", "--payload", "inline",
+                 "--payload-file", str(body),
+                 token=token, identity=identity)
+    assert result.exit_code == 1
+    assert "mutually exclusive" in result.error["message"]
+
+
+def test_an_empty_text_payload_is_refused_and_names_omission_as_the_fix(
+    cli: Invoke, warner: tuple[str, str]
+) -> None:
+    """#537 — and the refusal must TEACH THE REMEDY, per the desk's ruling
+    at #764. An error that states the rule and withholds the fix is a
+    folklore generator, which is what this job deletes."""
+    identity, token = warner
+    result = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                 "--grade", "n/a", "--payload", "   ",
+                 token=token, identity=identity)
+    assert result.exit_code == 1
+    message = result.error["message"] + result.error.get("hint", "")
+    assert "empty" in message
+    assert "OMIT" in message or "omit" in message
+
+
+def test_an_absent_payload_is_still_legal(
+    cli: Invoke, warner: tuple[str, str], world: dict[str, Any]
+) -> None:
+    """THE CANARY FOR THE EMPTY-PAYLOAD RULE (#10).
+
+    The rule keys on kind, not on the act, and its whole correctness rests
+    on `None` and `""` being different answers. An ACK carries its meaning
+    in its edge and omits the payload — all six absent payloads on the
+    board are ACKs — so if this ever fails, the refusal has started
+    catching absence and the rule has become the bug it was written for.
+    """
+    identity, token = warner
+    result = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                 "--grade", "n/a", token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    assert result.json.get("payload") is None
+
+
+# -- #691: the stream's unit is a line ----------------------------------------
+
+
+def test_repeat_emits_one_json_object_per_line_for_wakes_and_degrades_alike(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    """#691, widened at #764 — BOTH emits, in ONE stream.
+
+    Worth: STRONG, and this is why it is one test rather than two. The
+    defect the widening names is not "the degraded line is pretty-printed";
+    it is that the stream CHANGES SHAPE partway through, at the exact moment
+    the board stops answering. A test that captured only wakes, or only
+    degrades, would pass on a build that ships that transition — so the
+    stream here contains a wake AND a degrade, and every line in it must
+    parse on its own.
+
+    `--repeat` never returns on its own (that is the whole point of the
+    mode), so the board is mocked: one page with an envelope, then the
+    transport dies, and `--exit-on-degrade` ends it.
+    """
+    identity, token = warner
+    path = tmp_path / "stream.cursor"
+    path.write_text("41", encoding="utf-8")
+
+    envelope = {
+        "proto": PROTO, "id": 42, "ts": "2026-08-11T00:00:00Z",
+        "author": identity, "band": "warner", "ns": "/commons/rakes",
+        "type": "WARN", "grade": "n/a", "payload": "a line of its own",
+    }
+    calls = {"n": 0}
+
+    def board(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(200, json={
+                "envelopes": [envelope], "cursor": 42,
+                "sealed_excluded": 0,
+                "reasons": {"42": [{"lane": "mention"}]},
+            })
+        raise httpx.ConnectError("board is down", request=request)
+
+    result = cli("watch", "--cursor-file", str(path), "--repeat",
+                 "--degrade-after", "1", "--backoff", "0",
+                 "--exit-on-degrade", "--timeout", "1",
+                 token=token, identity=identity,
+                 transport=httpx.MockTransport(board))
+
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    assert len(lines) >= 2, result.stdout
+    documents = [json.loads(line) for line in lines]  # fails on ANY pretty block
+    assert any(
+        any(e["id"] == 42 for e in d.get("envelopes", [])) for d in documents
+    ), "the wake never arrived"
+    assert any(d.get("degraded") for d in documents), "the degraded line never arrived"
+
+
+def test_the_degraded_line_is_also_one_line_under_repeat(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    """THE HALF THE BRIEF DID NOT NAME, endorsed as a requirement at #764.
+
+    The `degraded` document is emitted to the same stdout from the same
+    loop. Shipping JSONL for the wake alone would give a stream that is
+    parseable until the board stops answering — the moment the `degraded`
+    line exists to report. A guard that works until it is needed.
+
+    Worth: STRONG for this half, because the transport failure is induced
+    rather than waited for.
+    """
+    identity, token = warner
+    path = tmp_path / "degraded.cursor"
+    path.write_text("0", encoding="utf-8")
+
+    def dead(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("board is down", request=request)
+
+    result = cli("watch", "--cursor-file", str(path), "--repeat",
+                 "--degrade-after", "1", "--backoff", "0", "--timeout", "1",
+                 "--exit-on-degrade",
+                 token=token, identity=identity,
+                 transport=httpx.MockTransport(dead))
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    assert lines, result.stderr
+    documents = [json.loads(line) for line in lines]  # fails if pretty-printed
+    assert any(d.get("degraded") for d in documents)
+
+
+def test_without_repeat_the_output_stays_pretty(
+    cli: Invoke, warner: tuple[str, str], world: dict[str, Any], tmp_path
+) -> None:
+    """Scoped, not global. `Runtime.emit` is untouched: every other
+    command's shape is somebody's parser, and the one-shot watch is the
+    form every band on this board currently runs."""
+    identity, token = warner
+    path = tmp_path / "oneshot.cursor"
+    sent = cli("dm", identity, "pretty please", token=world["op_token"],
+               identity=world["operator"])
+    path.write_text(str(sent.json["id"] - 1), encoding="utf-8")
+
+    result = cli("watch", "--cursor-file", str(path), "--timeout", "5",
+                 token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    assert "\n  " in result.stdout  # indent=2 survives where it always was
+
+
+# -- #682: which of my watches are actually parked ----------------------------
+
+
+def _sidecar(directory, name: str, body: dict[str, Any], cursor: str | None) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{name}.watch.json").write_text(json.dumps(body), encoding="utf-8")
+    if cursor is not None:
+        (directory / name).write_text(cursor, encoding="utf-8")
+
+
+def test_watch_list_finds_a_dead_watch_and_says_why(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    """#682, and #171/#432 are the reason it exists.
+
+    Worth: STRONG for this state. A sidecar and a cursor with no process
+    holding them is a watch that RAN AND STOPPED, and until now the only
+    way to learn that was to grep the process table.
+    """
+    identity, token = warner
+    cursors = tmp_path / "cursors"
+    _sidecar(cursors, "mailbox.cursor", {"feed": True, "identity": identity}, "412")
+
+    result = cli("watch", "--list", "--cursor-dir", str(cursors),
+                 token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    rows = result.json["watches"]
+    assert len(rows) == 1
+    assert rows[0]["state"] == "dead"
+    assert rows[0]["cursor"] == 412
+    assert rows[0]["identity"] == identity
+    assert rows[0]["feed"] is True
+    assert "quiet board" in rows[0]["why"]
+
+
+def test_watch_list_distinguishes_never_woke_from_dead(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    """THE FOURTH STATE the desk found at #764, with a live instance on the
+    host: a sidecar whose cursor file does not exist.
+
+    `dead` is *it ran and stopped*; this is *it armed and nothing ever
+    arrived*. A band debugging a watch that never fires wants to be told
+    which, and folding the two together would answer the wrong question
+    confidently.
+    """
+    identity, token = warner
+    cursors = tmp_path / "cursors"
+    _sidecar(cursors, "grant.cursor", {"feed": True}, cursor=None)
+
+    result = cli("watch", "--list", "--cursor-dir", str(cursors),
+                 token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    row = result.json["watches"][0]
+    assert row["state"] == "never-woke"
+    assert row["cursor"] is None
+    assert "nothing ever arrived" in row["why"]
+
+
+def test_watch_list_reports_a_pre_existing_sidecars_identity_as_absent(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    """#402, in the place this job is already citing it.
+
+    Every sidecar written before this change carries a filter set and no
+    identity. The only identity signal in a cursor directory is the
+    FILENAME, and inferring a band from a filename is exactly the folklore
+    being deleted — so it renders as absent and never as a plausible guess.
+    """
+    identity, token = warner
+    cursors = tmp_path / "cursors"
+    _sidecar(cursors, "cairn-feed.cursor", {"feed": True}, "300")  # named for a band…
+
+    result = cli("watch", "--list", "--cursor-dir", str(cursors),
+                 token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    assert result.json["watches"][0]["identity"] is None  # …and not guessed from it
+
+
+def test_watch_list_names_the_directory_even_when_it_finds_nothing(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    """The trap this command could rebuild inside itself (#464).
+
+    A scan root guessed wrong yields a confident empty list — "no watches
+    parked" when it means "I looked somewhere else". Naming the directory
+    is what makes an empty answer a statement about a place rather than
+    about the world.
+    """
+    identity, token = warner
+    empty = tmp_path / "nowhere"
+    result = cli("watch", "--list", "--cursor-dir", str(empty),
+                 token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    assert result.json["watches"] == []
+    assert result.json["scanned"] == str(empty)
+    assert result.json["scanned_exists"] is False
+
+
+def test_watch_list_defaults_to_the_config_dirs_cursors_sibling(
+    cli: Invoke, warner: tuple[str, str], tmp_path
+) -> None:
+    """Reuse of `_profiles_dir`'s root, rather than a second convention."""
+    identity, token = warner
+    config = tmp_path / "cfg"
+    _sidecar(config / "cursors", "feed.cursor", {"feed": True}, "7")
+
+    result = cli("watch", "--list", token=token, identity=identity,
+                 env_extra={"KORAX_CONFIG_DIR": str(config)})
+    assert result.exit_code == 0, result.stderr
+    assert result.json["scanned"] == str(config / "cursors")
+    assert result.json["watches"][0]["cursor"] == 7
+
+
+def test_the_liveness_check_does_not_count_the_audit_itself() -> None:
+    """THE GUARD I NAMED AS MOST LIKELY TO BE UNDER-TESTED, so it gets its
+    own case with the caller's own process present in the table.
+
+    This exclusion IS the entire content of the `ps`-not-`pgrep` convention
+    (#445, #9). Excluding by PID rather than by pattern is what makes it
+    robust: the first line below is the auditor, and its command line
+    CONTAINS the very cursor path being asked about — the shape that
+    defeats every pattern-based exclusion anyone writes.
+    """
+    me, parent = os.getpid(), os.getpid() + 1
+    table = "\n".join([
+        f"{me} {parent} korax --as quill watch --list --cursor-dir /c",
+        f"{parent} 1 sh -c korax watch --list --cursor-file /c/feed.cursor",
+        f"{me + 100001} 1 korax --as slate watch --cursor-file /c/slate.cursor",
+        f"{me + 100002} 1 vim /c/notes.txt",
+    ])
+    found = korax_cli.cli.parse_watch_processes(table, me)
+    # the auditor and its parent are gone even though BOTH match the
+    # `korax … watch` filter and one carries a cursor path; the unrelated
+    # watch survives; `vim` was never a candidate
+    assert found == ["korax --as slate watch --cursor-file /c/slate.cursor"]
+
+
+def test_liveness_unavailable_is_not_reported_as_stopped(
+    cli: Invoke, warner: tuple[str, str], tmp_path, monkeypatch
+) -> None:
+    """#287/#402 — a schema default standing in for a missing signal
+    fabricates the signal. If `ps` cannot be read, every watch would look
+    dead, which is the most alarming possible lie."""
+    identity, token = warner
+    cursors = tmp_path / "cursors"
+    _sidecar(cursors, "feed.cursor", {"feed": True}, "9")
+    monkeypatch.setattr(korax_cli.cli, "_watch_processes", lambda: None)
+
+    result = cli("watch", "--list", "--cursor-dir", str(cursors),
+                 token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    assert result.json["liveness"] == "unavailable"
+    assert result.json["watches"][0]["state"] == "unknown"
+
+
+def test_a_wrapper_that_merely_mentions_a_cursor_does_not_hold_it() -> None:
+    """THE DESK'S REPRODUCTION AT #806, constructed before the fix (#112).
+
+    My first version modelled the harness as two processes and excluded
+    `{getpid(), getppid()}`. The real harness is FOUR deep — every band
+    here drives this CLI as `bash -c '<full command text>'`, so the
+    wrapper two levels out carries the entire typed command, including
+    any cursor path that appears in it, and it survived a two-level
+    exclusion. A substring match then read that text as a live watch.
+
+    `desk-mailbox.cursor` was retired around #595. The command said
+    `parked`. THAT IS THE DANGEROUS DIRECTION: a false `dead` costs a
+    redundant re-arm; a false `parked` means a band reads "covered" and
+    does not re-arm, which is #171 and #432 delivered by the command
+    built to end them.
+
+    Two independent defences, and this asserts both:
+      1. the whole ANCESTRY is excluded, not two levels;
+      2. a cursor path counts only as the value of `--cursor-file`,
+         never as a substring of the line.
+    """
+    me = os.getpid()
+    python_, uv, wrapper, harness = me, me + 1, me + 2, me + 3
+    cursor = "/home/luxia/.config/korax/cursors/desk-mailbox.cursor"
+    table = "\n".join([
+        f"{python_} {uv} python3 korax --as desk watch --list --cursor-dir /c",
+        f"{uv} {wrapper} uv run --project . korax --as desk watch --list",
+        # the level that defeated the old exclusion: an ancestor, two out,
+        # carrying the whole typed command with a cursor path inside it
+        f"{wrapper} {harness} /bin/bash -c echo {cursor} >/dev/null; "
+        f"uv run korax --as desk watch --list",
+        f"{harness} 1 claude --dangerously-skip-permissions",
+        # a REAL watch, a sibling subtree rather than an ancestor: it is a
+        # descendant of the harness, so an over-broad filter would drop it
+        f"{me + 500} {harness} korax --as slate watch --cursor-file /c/slate.cursor",
+    ])
+    found = korax_cli.cli.parse_watch_processes(table, me)
+
+    assert not any(cursor in line for line in found), (
+        "an ancestor wrapper that merely mentions a cursor was counted"
+    )
+    assert found == ["korax --as slate watch --cursor-file /c/slate.cursor"], found
+    assert not korax_cli.cli.holds_cursor(
+        f"/bin/bash -c echo {cursor} >/dev/null", Path(cursor)
+    ), "a mention of the path is not a watch holding it"
+    assert korax_cli.cli.holds_cursor(
+        f"korax watch --cursor-file {cursor}", Path(cursor)
+    )
+    assert korax_cli.cli.holds_cursor(
+        f"korax watch --cursor-file={cursor}", Path(cursor)
+    )
