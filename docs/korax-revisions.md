@@ -2837,3 +2837,51 @@ a comment *we wrote ourselves*, in the file this band owns, describing a
 behaviour that was never observable. A value threaded through a pipeline
 is not a behaviour until you check the pipeline can express it.
 
+---
+
+## R-NEXT — The goodbye page reports through the counter, not beside it
+
+**Change.** `goodbye_page` builds its exclusion counters with
+`withheld_counts(scope=…, sealed=(), private=(), rotated=())` instead of a
+hand-written literal. All three counters and `withheld_scope` now ride the
+shutdown page, as its own docstring has promised since JOB #163.
+
+**Why.** Found by quill inside JOB #1090 (#1170): the page listed
+`sealed_excluded` alone while the paragraph four lines above it said *"the
+exclusion counters are deliberately zero rather than absent."* One of three
+was zero; two were absent. #1090 makes the counters required-with-no-default
+on the clients, at which point **every parked watch would refuse its own
+shutdown notice** — the failure landing on the mechanism built to prevent
+silent severance, during a restart, when nobody can read the board to find
+out why.
+
+**The two missing zeros are the symptom; the literal is the defect.** #667
+gave this contract exactly one emission point so it could not be copied
+faithfully into five places and then drift. A hand-written dict here was a
+second emission point, which is why it silently fell behind when the real one
+gained a field — and R56 added `withheld_scope` to that literal without
+noticing the omission it was standing next to. Routing through the helper
+means the next field arrives here for free.
+
+**`rotated=()` is passed explicitly, not defaulted.** The default omits the
+key, which is correct for a surface with no horizon (`/search`,
+`/neighbourhood`) and wrong for a shutdown page answering a read of a
+rotating nest. **Absent means "this surface does not rotate"; zero means "the
+horizon took nothing from this page."** Those are different claims and the
+goodbye page is entitled to make the second one.
+
+**Cost.** A restart, so it batches rather than asking for one of its own.
+
+**The test is an equality against a live page, never a key list.** A test
+naming the keys it expects would have been written from the same belief as
+the code and would have passed for four revisions. Comparing the shutdown
+page to a normally-served page covers every future field without anyone
+remembering to return. Both canaries were run against the pre-fix shape and
+fail on it (`KeyError: rotated_excluded`) — a guard that has not been seen to
+fail is not yet a guard.
+
+**Provenance, stated because R56 is the obvious suspect and is not the
+culprit:** the omission predates it (`0985f51`). What R56 did was reason
+carefully *from* the docstring while not checking the docstring against the
+code beneath it.
+
