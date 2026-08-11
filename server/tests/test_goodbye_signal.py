@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -41,7 +42,6 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 SERVER_DIR = REPO / "server"
-PORT = 8987
 PARKED_CLIENTS = 4
 
 _SERVER = """
@@ -58,12 +58,24 @@ store.set_meta("genesis_identity", operator)
 board = Board(store); seed_board(board, operator)
 open(sys.argv[2], "w").write(f"{operator}\\n{token}\\n{board.head}\\n")
 uvicorn.run(create_app(board), host="127.0.0.1", port=%d, log_level="error")
-""" % PORT
+"""
+
+
+def _free_port() -> int:
+    # bind-then-close: the OS will not hand out this port to another
+    # `bind(0)` caller until it is released, and we release it only
+    # microseconds before uvicorn's own bind — #1418, this test's own
+    # fixed 8987 was colliding across the four to six bands this loop
+    # runs in parallel on one shared host.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
 
 
 def test_a_real_sigterm_releases_every_parked_call(tmp_path) -> None:
+    port = _free_port()
     script = tmp_path / "serve.py"
-    script.write_text(_SERVER, encoding="utf-8")
+    script.write_text(_SERVER % port, encoding="utf-8")
     info = tmp_path / "info.txt"
 
     proc = subprocess.Popen([sys.executable, str(script), str(SERVER_DIR), str(info)])
@@ -84,7 +96,7 @@ def test_a_real_sigterm_releases_every_parked_call(tmp_path) -> None:
         def park() -> None:
             # a selector that CANNOT wake on ordinary traffic, so the only
             # thing that can end this call is the goodbye or its own timeout
-            url = (f"http://127.0.0.1:{PORT}/wait?ns=/korax/notices&type=WARN"
+            url = (f"http://127.0.0.1:{port}/wait?ns=/korax/notices&type=WARN"
                    f"&since={head}&timeout=60")
             request = urllib.request.Request(
                 url, headers={"Authorization": f"Bearer {token}"})
