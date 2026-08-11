@@ -30,6 +30,8 @@ import asyncio
 import httpx
 import pytest
 
+from fastapi.testclient import TestClient
+
 from korax.api import create_app
 from korax.board import DEFAULT_RETRY_AFTER_S, Board
 from korax.seed import seed_board
@@ -280,3 +282,58 @@ def test_the_notice_always_carries_a_number(world: dict) -> None:
     notice = r.json()["system_notice"]
     assert isinstance(notice["retry_after_s"], int)
     assert notice["retry_after_s"] > 0
+
+
+# ── the goodbye page reports the same counters as every other page ───────
+
+
+COUNTER_KEYS = {"sealed_excluded", "rotated_excluded",
+                "participation_excluded", "withheld_scope"}
+
+
+def test_the_goodbye_carries_every_counter_a_normal_page_does(world: dict) -> None:
+    """quill's #1170. **The assertion is an EQUALITY against a live page,
+    never a hard-coded key list**, and that is the whole point of the test.
+
+    This page listed `sealed_excluded` alone for four revisions while its own
+    docstring promised all three, and R56 added `withheld_scope` beside the
+    omission without anyone noticing. A test naming the keys it expects would
+    have been written from the same mistaken belief as the code, and would
+    have passed. Comparing the shutdown page against a page the board serves
+    normally means the next field added to `withheld_counts` is covered here
+    without anyone remembering to come back — and if it is ever added to only
+    one of the two paths, this fails.
+    """
+    head = world["board"].head
+    # the control page, taken BEFORE the shutdown — same board, same query
+    live = TestClient(world["app"]).get(
+        "/read", params={**PARKS}, headers=auth(world["op_token"])).json()
+    goodbye = park_then_shutdown(
+        world, "/wait", {**PARKS, "since": head, "timeout": 8}).json()
+
+    assert goodbye["system_notice"]["kind"] == "restart", "not the goodbye path"
+    assert COUNTER_KEYS <= set(live), (
+        "the control page lost a counter — this test's baseline is wrong, "
+        "not the goodbye page"
+    )
+    assert set(goodbye) & COUNTER_KEYS == set(live) & COUNTER_KEYS, (
+        "the shutdown page and a normal page disagree about which exclusion "
+        "counters exist — the drift #1170 found, in the one place §9.3 can "
+        "least afford it"
+    )
+
+
+def test_the_goodbye_counters_are_zero_not_merely_present(world: dict) -> None:
+    """Present-but-wrong would be worse than absent: a reader trusts these.
+    Nothing was selected for this page, so nothing was withheld from it, and
+    zero is the exact completeness claim §9.3 reserves (R28)."""
+    head = world["board"].head
+    body = park_then_shutdown(
+        world, "/wait", {**PARKS, "since": head, "timeout": 8}).json()
+    assert body["sealed_excluded"] == 0
+    assert body["rotated_excluded"] == 0
+    assert body["participation_excluded"] == 0, (
+        "must be an integer zero, never the suppressed marker — bucketing "
+        "may not round a non-zero down to zero and there is no non-zero here"
+    )
+    assert body["withheld_scope"] in {"board", "slice"}

@@ -39,7 +39,7 @@ from .models import (
     Envelope,
     Grade,
 )
-from .counters import Scope, scope_name, withheld_counts
+from .counters import Scope, withheld_counts
 from .nsglob import in_subtree, ns_matches
 from .reductions import (
     descendants,
@@ -97,19 +97,36 @@ def goodbye_page(board: Board, since: int, scope: Scope) -> dict[str, Any]:
     The exclusion counters are deliberately zero rather than absent: nothing
     was withheld from this page because nothing was selected for it.
 
-    `withheld_scope` rides here for the same reason and takes the scope of
-    the query this page is answering, not a constant. A goodbye is still an
-    answer to `?ns=X`, and the clients declare the field REQUIRED (#662) —
-    so a page that omitted it would make every shutdown look like a
-    malformed board to the one caller who most needs a clean signal. Saying
-    `slice` over zeros is honest: it means *nothing was withheld from the
-    slice you asked about*, which is exactly what a goodbye page knows.
+    **AND THEY GO THROUGH `withheld_counts`, NOT A HAND-WRITTEN DICT — which
+    is the actual fix, not the two missing zeros** (quill's #1170). This page
+    listed `sealed_excluded` alone for four revisions while the paragraph
+    above promised all three, and R56 added `withheld_scope` beside the
+    omission without noticing it. A literal here is a second emission point
+    for a contract that #667 deliberately gave exactly one, so it drifts
+    every time the real one gains a field — silently, on the one page whose
+    whole job is to not be silent. Empty piles in, so every count is a
+    truthful zero *computed the same way every other page computes it*, and
+    the next field added to `withheld_counts` arrives here for free.
+
+    `withheld_scope` takes the scope of the query this page is answering, not
+    a constant. A goodbye is still an answer to `?ns=X`, and the clients
+    declare the field REQUIRED (#662) — so a page that omitted it would make
+    every shutdown look like a malformed board to the one caller who most
+    needs a clean signal. Saying `slice` over zeros is honest: it means
+    *nothing was withheld from the slice you asked about*, which is exactly
+    what a goodbye page knows.
+
+    `rotated=()` is passed EXPLICITLY rather than left to default. The
+    default omits the key, which is right for a surface that does not rotate
+    (`/search`, `/neighbourhood`) and wrong here: a shutdown page answering a
+    read of a rotating nest must still say that nothing was withheld from it
+    (#1173). Absent would mean "this surface has no horizon"; zero means
+    "the horizon took nothing from this page". Different claims.
     """
     return {
         "envelopes": [],
         "cursor": since,
-        "sealed_excluded": 0,
-        "withheld_scope": scope_name(scope),
+        **withheld_counts(scope=scope, sealed=(), private=(), rotated=()),
         "system_notice": board.system_notice,
     }
 
