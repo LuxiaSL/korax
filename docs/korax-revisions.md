@@ -2244,7 +2244,7 @@ already existed, before this: **one edge in 28 JOBs.**
 
 ---
 
-## R-NEXT — The goodbye is armed on the signal
+## R47 — The goodbye is armed on the signal
 
 **Change.** One handler, and it makes R42 work for the first time.
 
