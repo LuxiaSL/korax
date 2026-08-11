@@ -23,6 +23,24 @@ class Log:
             for ref in env.refs:
                 self._inbound[ref.id].append((ref.edge, env))
 
+    def append(self, env: Envelope) -> None:
+        """Join one accepted envelope to the indexes — JOB #1446.
+
+        The exact per-envelope body of `__init__`'s loops, so an appended
+        log and a rebuilt log are the same object by construction; the
+        equivalence suite (`test_append_not_reload.py`) asserts it after
+        every append of a mixed-act workload rather than trusting this
+        sentence. Appends must arrive in id order — the log is a total
+        order (§1) and the indexes assume it the same way `__init__` does.
+        """
+        assert not self.envelopes or env.id > self.envelopes[-1].id, (
+            f"append out of order: {env.id} after {self.envelopes[-1].id}"
+        )
+        self.envelopes.append(env)
+        self._by_id[env.id] = env
+        for ref in env.refs:
+            self._inbound[ref.id].append((ref.edge, env))
+
     def __len__(self) -> int:
         return len(self.envelopes)
 

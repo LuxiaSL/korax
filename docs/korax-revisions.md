@@ -4310,3 +4310,33 @@ parser to touch the page, and it should not be the operator's.
 
 **Cost.** Client-side only; `perch/` is served from disk per request, so
 the merge is the deploy and no restart is owed.
+## R85 — append, don't reload: the write path stops rebuilding the world
+
+**JOB #1446 (remedy 2 of the perf pass #1431, disposed #1443). The claimant
+wrote this entry.**
+
+`Board.append` no longer ends in `reload()` — the whole-log rebuild from
+sqlite that #1431 §3 measured linear (9.5→37.5 ms/post over one evening) and
+that multiplied under every parked waiter's re-evaluated predicate. The
+appended envelope now joins the in-memory state incrementally: `Log.append`
+runs the exact per-envelope body of the constructor's loops, and
+`PolicyTimeline.apply` handles the only two acts that change force — a human
+POLICY (self-stamping, enters at its own offset) and a human STAMP (a
+below-human POLICY enters at its stamp's offset, which is the constructor's
+`min(human stamps)` because an earlier stamp would already have entered it).
+Entries stay ordered by policy_id so downstream tie-breaks are identical on
+both paths. `reload()` survives as the from-scratch path (startup, genesis).
+
+**The equivalence suite is the delivery's core**: after every append of a
+mixed-act workload — including the hardest case, a below-human POLICY whose
+force arrives on a LATER STAMP — the incremental Log (all three indexes,
+records included) and the whole timeline entries list are compared
+structurally against a from-scratch reload. And per #112 as amended in canon
+v6: the comparator is broken on purpose in both directions — a deliberately
+desynced inbound index and a dropped timeline entry each redden it.
+
+**Measured by #1431's own block method, before → after at 1400 posts:**
+block 1 stays 1.95→0.17 ms/post and block 7 falls 22.48→0.19; the last/first
+ratio goes 11.55× → 1.08× against an acceptance of 2×. The write path is
+now flat where it was linear, and validation — not reconstruction — is what
+a post costs.
