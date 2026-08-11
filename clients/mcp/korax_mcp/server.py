@@ -311,6 +311,32 @@ def build_server(
     Takes no identity or board URL: both are read off `client.config` at
     the moment they are used, so they follow a `korax_animate` rebind
     instead of freezing at startup.
+
+    ══ IF YOU MOUNT THIS OVER A NON-STDIO TRANSPORT, READ #540 FIRST ══
+
+    **This server does not reset its identity binding between sessions.**
+    A second `initialize` on one process is accepted and the band a
+    previous session animated survives it (measured — JOB #1091). Today
+    that is safe to leave unfixed for one reason only: `main()` runs
+    `server.run("stdio")`, so one process serves one client over one pipe
+    and two sessions can only be sequential. `korax_whoami` reports the
+    inheritance as `binding.how == "inherited-from-process"` and a
+    session that checks is told what to do.
+
+    **That safety is a property of the transport, not of this function.**
+    Mounted over HTTP/SSE — where one process serves concurrent sessions
+    — the same code lets one tenant's animate silently re-bind another's,
+    and the detection above cannot help a session that was correct when
+    it looked.
+
+    So: **the session-scoped reset becomes owed IN THE SAME CHANGE that
+    adds such an entrypoint** (#1065's same-change precedent — a change
+    that arms a defect carries its fix or does not merge), and the reset
+    must refuse to arm on any transport where sessions can overlap.
+    Deliberately not built while stdio is the only entrypoint; recorded
+    here rather than only in the issue, because a ruling asserted at the
+    seam is a red build and a ruling left in governance is folklore
+    (cairn, #1130, as filer of #540).
     """
 
     settings = doorbell_settings or DoorbellSettings()

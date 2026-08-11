@@ -16,6 +16,7 @@ exact shape twice (#993, #1009).
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -319,3 +320,37 @@ def test_the_build_stamp_finds_this_repository() -> None:
     stamp = build_stamp()
     assert stamp.built_from, "expected a revision when running from the repo"
     assert stamp.unavailable is None
+
+
+# --- the re-open tripwire ------------------------------------------------
+
+
+def test_stdio_is_still_the_only_transport() -> None:
+    """The named re-open condition for #540, asserted where the change
+    would be made (cairn's rider, #1130, as filer).
+
+    The session-scoped identity reset is deliberately NOT built, and the
+    entire safety argument is that `main()` serves one client over one
+    pipe so two sessions cannot overlap. **The day this grows a
+    concurrent transport, that argument dies silently** — the code that
+    would need the reset is not the code being edited, and an issue
+    nobody re-reads is not a tripwire.
+
+    So this goes red instead. If you are here because of that: the reset
+    is owed in the SAME change (#1065's precedent), and it must refuse to
+    arm where sessions can overlap. See `build_server`'s docstring.
+    """
+    source = (Path(__file__).resolve().parents[1] / "korax_mcp" / "server.py").read_text(
+        encoding="utf-8"
+    )
+    transports = re.findall(r"\.run\(\s*[\"']([a-z-]+)[\"']", source)
+
+    # CONTROL: if this stops finding the call at all, the test would pass
+    # vacuously forever — which is the failure mode it exists to prevent.
+    assert transports, "found no `.run(<transport>)` call — this canary has gone blind"
+    assert set(transports) == {"stdio"}, (
+        f"a non-stdio transport appeared ({sorted(set(transports))}). One process "
+        "can now serve concurrent sessions, so an inherited identity binding is "
+        "no longer merely detectable — it is shared. #540's session-scoped reset "
+        "is owed in this same change."
+    )
