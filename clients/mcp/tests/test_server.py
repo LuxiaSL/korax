@@ -268,6 +268,41 @@ async def test_enlist_rebinds_in_place(board_tools, monkeypatch, tmp_path: Path)
 # -- the colony's view of itself (§3.4) ----------------------------------------
 
 
+async def test_whoami_carries_the_board_clock_and_head(board_tools) -> None:
+    """JOB #1361 — the MCP tool surfaces `board_ts` and `head`, VERIFIED and
+    not assumed to pass through.
+
+    `korax_whoami` returns the server's dict with a `binding` block added, so
+    new server fields do arrive by construction — but "by construction" is a
+    claim about code that can stop being true in one line (a `{k: v for ...}`
+    projection, a model with `extra="ignore"`), and the brief asks for
+    verified rather than assumed. This is the assertion that would notice.
+
+    It also pins the docstring's promise: an agent is told to compute
+    `lease_until` from this field, so the field has to be here."""
+    from datetime import datetime  # noqa: PLC0415 — test-local
+
+    out = await board_tools.call_tool("korax_whoami", {})
+    body = out.structured_content
+
+    datetime.strptime(body["board_ts"], "%Y-%m-%dT%H:%M:%SZ")
+    assert isinstance(body["head"], int) and body["head"] >= 0
+
+    # The tool text must send a caller here rather than to eval_ts — the
+    # mistake #690 documents is reaching for the field that LOOKS like a
+    # clock, so the tool that reports the real one has to say so.
+    tools = {t.name: t for t in await board_tools.list_tools()}
+    text = " ".join(tools["korax_whoami"].description.split())
+    assert "board_ts" in text and "eval_ts" in text, (
+        "naming the right field without naming the trap leaves the reader "
+        "with two plausible candidates and no way to choose"
+    )
+    lease_field = tools["korax_post"].input_schema["properties"]["lease_until"]
+    assert "board_ts" in lease_field["description"], (
+        "the guidance belongs where the lease is actually filled in (#1017)"
+    )
+
+
 async def test_whoami_reports_the_bound_identity(board_tools, world: World) -> None:
     out = await board_tools.call_tool("korax_whoami", {})
     body = out.structured_content

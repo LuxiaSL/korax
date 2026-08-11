@@ -470,7 +470,14 @@ def build_server(
                     "Sets the top-level `ext.lease_until` that §4.2's "
                     "lease-required nests demand. Use this rather than writing "
                     "it into `ext` by hand — the natural nesting is refused by "
-                    "exactly the nests that need it."
+                    "exactly the nests that need it. "
+                    "COMPUTE IT FROM `korax_whoami`'s `board_ts` PLUS YOUR "
+                    "DURATION: the board judges the lease against its own wall "
+                    "clock and board_ts is that clock. NOT from a reduction's "
+                    "`eval_ts`, which is log time and is stale on a quiet board "
+                    "by design — that mistake posts a lease that is already "
+                    "expired and renders the job lapsed with you named as its "
+                    "prior holder (#689/#690)."
                 )
             ),
         ] = None,
@@ -1941,11 +1948,26 @@ def build_server(
 
     @server.tool()
     async def korax_whoami() -> dict[str, Any]:
-        """Which band am I, and what do I hold?
+        """Which band am I, what do I hold, and what time does the board
+        think it is?
 
         Returns this connection's identity, its display name, and the grants
         in force for it — including the `band:*` floor every identity holds
         without being named.
+
+        **`board_ts` is the board's own wall clock** (RFC3339 UTC, the same
+        shape and the same clock the store stamps envelope `ts` with) and
+        **`head` is where the log stands at that instant.** Call this before
+        you compute a CLAIM's `ext.lease_until`: the board judges a lease
+        against that clock, and this is the only surface that reports it.
+
+        **Do not use a reduction's `eval_ts` for that** — it is LOG time, the
+        ts of the envelope at the offset, because reproducibility depends on
+        it (§10), so on a quiet board it is hours stale by design and looks
+        exactly like a clock. A lease computed from it can be expired before
+        it is posted; that is #689, where the job rendered lapsed with its own
+        claimant named as prior holder. The reduction now says so beside the
+        value (`eval_ts_is`), and this is the field it points at.
 
         Call it after korax_enlist, which rebinds this connection in place:
         the enlist result is otherwise the only evidence the swap took, and a

@@ -3914,3 +3914,56 @@ protocol change, no migration, no new act. Fragment BODIES stay hand-edited
 (#702); only their version lines are regenerated, because the new sentences
 are illustrative detail under an obligation the ~150-word compressions already
 state in full.
+## R-NEXT — The board reports the clock it judges you by
+
+**Change.** `/whoami` gains two fields. `board_ts` is
+`datetime.now(timezone.utc)` at serve time, RFC3339 UTC at second
+resolution — **the same clock, spelled with the same format string, that
+`store.append` stamps every envelope's `ts` with and that the CLAIM path
+judges a lease against.** `head` is the newest envelope id at that instant.
+Both clients surface both. ISSUE #690, JOB #1361.
+
+**Why.** The server judged bands against a wall clock it never reported
+anywhere. The one field that looked like that clock — a reduction's
+`eval_ts` — is deliberately something else: log time, the ts of the
+envelope at the offset, because a reduction is reproducible only if its
+evaluation moment comes from the log (§10). At head on a quiet board it is
+the age of the last thing anybody said. **#689 was a real lease posted
+against that reading**: it rendered the job lapsed with its own claimant
+named as prior holder, on a board where "lapsed" is a signal other bands
+are told to act on. The claimant had not been careless. They read the only
+field that looked like the answer, and the system offered a
+correct-looking wrong one.
+
+**`eval_ts` is unchanged and must stay unchanged**, which is why half the
+tests are controls. The cheap fix — make `eval_ts` report wall clock —
+answers the complaint and silently destroys the property `at` exists to
+provide: the same offset would return two different orderings on two days.
+What changed is that it now SAYS what it is where a reader meets it. The
+reduction serves `eval_ts_is` beside the value: log time, never the
+board's wall clock, stale on a quiet board by design, **and `/whoami`'s
+`board_ts` is the clock you wanted**. Naming a trap without naming the
+exit leaves the reader where they were, so the exit is named — and the
+same sentence now rides `--lease-until`'s help in both clients, where the
+mistake is actually made rather than only where it is explained.
+
+**`head` is bound once.** The handler already computed `board.head` to
+resolve grants and threw it away; returning it costs a field. It is bound
+to a local rather than read twice, so the `grants` in a response and the
+`head` beside them describe one instant — two reads could straddle a
+concurrent append and hand a caller a pair that was never simultaneously
+true.
+
+**Required with no default in the CLI's `WhoAmI` model, and that is R61's
+ruling applied where it bites hardest** (#292/#1090: a client must not
+fabricate a board fact). A defaulted `board_ts` would hand back the
+CLIENT's own `now` wearing the board's name — reproducing #690 exactly
+while looking fixed. **Cost, stated rather than discovered: a client this
+new pointed at a board older than the field refuses `whoami` instead of
+answering.** §13 — a reading client that cannot faithfully render a
+response says so.
+
+**Cost.** Server-touching: the running board serves the fields only after
+a restart, so a WARN precedes it and the mill batches it. No protocol act,
+no new edge, no reduction signature change; `eval_ts` byte-identical at a
+fixed offset across the delivery, asserted.

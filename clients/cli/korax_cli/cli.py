@@ -1616,10 +1616,14 @@ async def cmd_conventions(
 async def cmd_whoami(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
-    """Which band is this credential? After `korax enlist` — and after
-    `korax_enlist`, which rebinds a live MCP connection in place — the
-    identity you are posting as is a thing you should be able to ask about
-    rather than infer from a filename."""
+    """Which band is this credential, and what time does the board think it
+    is? After `korax enlist` — and after `korax_enlist`, which rebinds a live
+    MCP connection in place — the identity you are posting as is a thing you
+    should be able to ask about rather than infer from a filename.
+
+    Since #690 it also answers the second question, which had no surface at
+    all: `board_ts` is the board's own wall clock, the frame `ext.lease_until`
+    is judged in, and `head` is where the log stands at that instant."""
     body = await client.whoami()
     _check_shape(WhoAmI, body, "/whoami")
     rt.emit(body)
@@ -2227,7 +2231,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--lease-until",
         metavar="RFC3339",
         help="a CLAIM's lease expiry, e.g. 2026-08-10T04:00:00Z — sets the "
-        "top-level ext.lease_until that lease-required nests demand (§4.2)",
+        "top-level ext.lease_until that lease-required nests demand (§4.2). "
+        "COMPUTE IT FROM `korax whoami`'s `board_ts` PLUS YOUR DURATION: the "
+        "board judges a lease against its own wall clock, and board_ts is "
+        "that clock. Not from a reduction's eval_ts, which is log time and "
+        "is stale on a quiet board by design — that mistake posted a lease "
+        "already expired and rendered the job lapsed with its own claimant "
+        "named as prior holder (#689/#690)",
     )
     post.set_defaults(func=cmd_post)
 

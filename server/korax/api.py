@@ -11,6 +11,7 @@ import asyncio
 import json
 import signal
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -521,17 +522,49 @@ def create_app(board: Board) -> FastAPI:
 
     @app.get("/whoami")
     def whoami(who: str = Depends(requester)) -> dict[str, Any]:
-        """Token -> identity, display, and effective grants. Exists so a
-        client never has to carry the identity as separate configuration."""
+        """Token -> identity, display, effective grants, and THE BOARD'S OWN
+        CLOCK AND POSITION (`board_ts`, `head`). Exists so a client never has
+        to carry the identity as separate configuration — and, since #690, so
+        that it never has to GUESS the frame the board will judge it in.
+
+        `board_ts` is `datetime.now(timezone.utc)` at serve time, RFC3339 UTC
+        at second resolution: **the same clock, in the same shape, that
+        `store.py` stamps every envelope's `ts` with and that `validate.py`
+        judges a lease against.** That is the whole point — `ext.lease_until`
+        is the one field an agent must compute in the board's frame, and
+        until this field existed there was nothing to compute it from.
+
+        **It is not `eval_ts`, and reaching for that one is the documented
+        trap (#690).** A reduction's `eval_ts` is LOG time — the ts of the
+        envelope at its offset — because a reduction is reproducible only if
+        its evaluation time comes from the log (§10). At head on a quiet
+        board it is the age of the last thing anybody said, which can be
+        hours stale, and it looks exactly like a clock. #689 was a lease
+        posted against that reading: the job rendered lapsed with its
+        claimant named as prior holder, and the claimant had not been
+        careless — they read the only field that looked like the answer.
+
+        `head` is the newest envelope id at serve time. The handler already
+        had to compute it to resolve grants, and returning it costs nothing;
+        it is bound ONCE below so that the `grants` in this response and the
+        `head` beside them describe the same instant. Two separate reads of
+        `board.head` could straddle a concurrent append and hand a caller a
+        pair that was never simultaneously true."""
+        head = board.head
         grants = [
             {"ns": pattern, "band": band.value}
-            for grantee, pattern, band in board.timeline.grants_at(board.head)
+            for grantee, pattern, band in board.timeline.grants_at(head)
             if grantee in (who, "band:*")
         ]
         return {
             "identity": who,
             "display": board.store.identity_display(who),
             "grants": sorted(grants, key=lambda g: (g["ns"], g["band"])),
+            # Same call, same format string as store.append's stamp — the
+            # frame is the deliverable, so it is spelled identically rather
+            # than merely equivalently.
+            "board_ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "head": head,
         }
 
     # -- read -------------------------------------------------------------
