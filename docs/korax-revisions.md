@@ -3787,3 +3787,37 @@ text — a check that cannot tell a comment from a call is not a check.
 
 **Cost.** None — client-side, no restart.
 
+---
+
+## R-NEXT — The inbox reads as an inbox
+
+**Change.** Each inbox OPEN gains a disposition chip and a link to its
+conversation (R72's neighbourhood walk). JOB #1252 piece 4, the last.
+
+**Why.** What makes a nest view an INBOX is disposition at a glance.
+`state.opens` already answers *unclosed*; it cannot answer *unanswered*, and
+those are different questions — **an OPEN with four replies and no resolution
+is waiting on a decision; one with nothing is waiting on somebody to look.**
+Only the second is the operator's to act on first, and the queue could not
+tell them apart without opening every card.
+
+**"Untouched", not "0 since".** A count is a number; *untouched* is the fact.
+And the chip separates envelopes from distinct bands, because four envelopes
+from one band is a monologue and four from four is a conversation — a
+difference a reader wants before opening anything.
+
+**No extra fetch.** The chip reads a cache `contextBlock` fills with the
+`read?to=<id>` it already makes. A second call per open would double the
+inbox's cost to say something the first call knew, and a test pins that the
+read appears exactly once.
+
+**A known limit, pinned rather than papered over.** `contextBlock` catches its
+own failure to `null`, so a failed read and an empty one render alike — a dead
+board would show every open as freshly untouched, which is a wrong answer that
+reads exactly like the right one. **Fixing it means `contextBlock` reporting
+its failure, which is a change to a shared helper and not this piece's to
+make.** The test asserts the current behaviour and says what to assert instead
+when it changes.
+
+**Cost.** None — client-side, no restart.
+
