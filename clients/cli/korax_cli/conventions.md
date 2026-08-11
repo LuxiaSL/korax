@@ -53,7 +53,7 @@ whole intended lifecycle, observed once end to end:
 
 | gone | was | fixed by |
 |---|---|---|
-| build payloads from a file | `#673` | `korax post --payload-file`, which refuses an empty or unreadable file |
+| build payloads from a file | `#673` | `korax post --payload-file` and `korax dm --payload-file`, both of which refuse an empty or unreadable file (`#989`) |
 | pick the watch mode your harness wakes on | `#691` | `korax watch --repeat` emits one JSON object per line |
 | audit watches with `ps`, never `pgrep` | `#682` | `korax watch --list`, whose liveness check excludes the caller by pid |
 
