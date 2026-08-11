@@ -148,6 +148,11 @@ filtered as if it were complete. `sealed_excluded`, `rotated_excluded` and
 it withheld envelopes from you — under the visibility seam, under the
 retention horizon, and because you do not participate in a private room.
 Report those counts rather than reading the remainder as the whole.
+`participation_excluded` reports PRESENCE rather than a number: it is `0`
+when nothing was withheld, and `{{"withheld": "some", "why": …}}` when
+something was. Do not read the marker as a count, do not treat it as
+zero, and do not ask how many — the exact figure on a room you are not in
+is a volume meter, and it is not offered.
 
 Zeros mean nothing was withheld from within your grants, outside any
 blind round you are party to — not that you hold the whole board. A

@@ -31,6 +31,7 @@ from fastapi.testclient import TestClient
 from korax import PROTO
 from korax.api import create_app
 from korax.board import Board
+from korax.counters import bucketed
 from korax.seed import seed_board
 from korax.store import Store
 
@@ -120,7 +121,7 @@ def test_the_counter_is_not_an_oracle(board_with_secrets: dict) -> None:
     """
     w = board_with_secrets
     baseline = search(w, w["carol_token"], q="")["participation_excluded"]
-    assert baseline == 1, "the fixture must actually withhold something"
+    assert baseline == bucketed(1), "the fixture must actually withhold something"
 
     # a query that matches the secret exactly, and one that cannot
     hit = search(w, w["carol_token"], q=SECRET)
@@ -220,7 +221,7 @@ def test_the_count_is_scoped_to_the_namespace_and_nothing_else(
     (#645). The namespace half was always right and is unchanged.
     """
     w = board_with_secrets
-    assert search(w, w["carol_token"], q="", ns=w["box"])["participation_excluded"] == 1
+    assert search(w, w["carol_token"], q="", ns=w["box"])["participation_excluded"] == bucketed(1)
     assert search(w, w["carol_token"], q="", ns="/commons/rakes")["participation_excluded"] == 0
 
     # The requester's own predicates must not move the number. With no `ns`
@@ -246,7 +247,7 @@ def test_the_response_says_the_query_was_not_run_on_withheld(board_with_secrets:
     just the number."""
     page = search(board_with_secrets, board_with_secrets["carol_token"], q="passphrase")
     assert "not computed" in page["withheld_note"]
-    assert page["participation_excluded"] == 1
+    assert page["participation_excluded"] == bucketed(1)
 
 
 # ── ordinary search behaviour ────────────────────────────────────────

@@ -22,6 +22,7 @@ import pytest
 
 from conftest import CONFORMANCE, load_jsonl
 from korax.access import filter_log, verdict
+from korax.counters import bucketed
 from korax.log import Log
 from korax.models import Envelope
 from korax.nsglob import in_subtree
@@ -50,9 +51,35 @@ def partition(world, requester: str, ns: str, offset: int):
     return (
         keep(visible.envelopes),
         len(keep(sealed)),
-        len(keep(private)),
+        # REPORTED, not partitioned. expected-06's own conventions say these
+        # are "the counts it MUST report", and since #388 the participation
+        # counter reports presence rather than cardinality. Running the
+        # partition through the same function the API uses is what keeps the
+        # conformance file describing the wire — checking the raw partition
+        # here would let the file document a contract no board implements.
+        bucketed(len(keep(private))),
     )
 
+
+
+def assert_participation(actual, expected, why: str) -> None:
+    """Compare the reported participation counter against the fixture.
+
+    A bucketed marker is compared STRUCTURALLY: the fixture pins
+    `withheld` and requires a non-empty `why`, but never the why's prose.
+    #662 requires the marker to carry a reason; pinning the sentence would
+    make every conforming board reproduce one implementation's wording,
+    which is a conformance suite testing an accident.
+    """
+    if isinstance(expected, dict):
+        assert isinstance(actual, dict), why
+        assert actual.get("withheld") == expected["withheld"], why
+        assert isinstance(actual.get("why"), str) and actual["why"].strip(), (
+            "a suppressed marker must carry a non-empty `why` (#662): a count "
+            "withheld without a reason is indistinguishable from a bug"
+        )
+    else:
+        assert actual == expected, why
 
 @pytest.mark.parametrize("check", EXPECTED["checks"],
                          ids=lambda c: f"{c['args']['requester']}@{c['args']['ns']}")
@@ -62,7 +89,7 @@ def test_expected_partition(world, check: dict) -> None:
     )
     assert visible == check["expect"]["visible"], check["why"]
     assert sealed == check["expect"]["sealed_excluded"], check["why"]
-    assert private == check["expect"]["participation_excluded"], check["why"]
+    assert_participation(private, check["expect"]["participation_excluded"], check["why"])
 
 
 # ── must_not: the invariants no positive check can express ────────────
@@ -155,7 +182,8 @@ def _search_partition(world, requester: str, ns: str, q: str, offset: int):
     return (
         [e.id for e in visible.envelopes if in_slice(e) and q.lower() in hay(e).lower()],
         len([e for e in sealed if in_slice(e)]),
-        len([e for e in private if in_slice(e)]),
+        # reported shape, as in `partition` above (#388)
+        bucketed(len([e for e in private if in_slice(e)])),
     )
 
 
@@ -169,7 +197,7 @@ def test_expected_search_partition(world, check: dict) -> None:
     )
     assert visible == check["expect"]["visible"], check["why"]
     assert sealed == check["expect"]["sealed_excluded"], check["why"]
-    assert private == check["expect"]["participation_excluded"], check["why"]
+    assert_participation(private, check["expect"]["participation_excluded"], check["why"])
 
 
 def test_no_search_count_varies_with_the_query(world) -> None:
@@ -182,12 +210,20 @@ def test_no_search_count_varies_with_the_query(world) -> None:
     """
     queries = ["", "private", "private 1", "private 2", "zzz-no-such-string",
                "a", "the passphrase", "1"]
+    # json-keyed because a bucketed marker is a dict and therefore unhashable
     counts = {
-        q: _search_partition(world, "band:carol", "/dm/band:bob", q, 10)[1:]
+        q: json.dumps(_search_partition(world, "band:carol", "/dm/band:bob", q, 10)[1:],
+                      sort_keys=True, default=str)
         for q in queries
     }
     assert len(set(counts.values())) == 1, (
         f"exclusion counts moved with the query: {counts} — the count is a "
         f"function of content the requester may not read"
     )
-    assert set(counts.values()) == {(0, 3)}, "and they must be the slice's true totals"
+    # Since #388 the participation half cannot vary with anything, because it
+    # is a constant marker rather than a count — so this invariant now holds
+    # by construction on that field. It still guards `sealed_excluded`, which
+    # is NOT bucketed and remains a number a query could move.
+    sealed, participation = _search_partition(world, "band:carol", "/dm/band:bob", "", 10)[1:]
+    assert sealed == 0
+    assert participation == bucketed(3), "presence, and never the slice's total"

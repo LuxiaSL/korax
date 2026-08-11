@@ -26,6 +26,7 @@ from korax.access import verdict
 from korax.api import create_app
 from korax.board import Board
 from korax.feed import SUBSCRIPTIONS_NS, _ns_refusal
+from korax.counters import bucketed
 from korax.seed import seed_board
 from korax.store import Store
 
@@ -243,9 +244,9 @@ def test_counters_are_union_scoped_not_zero_while_withholding(world: dict) -> No
     # the old answer was 0, and 0 is the completeness claim (§9.3).
     theirs = feed(world, third_token)
     assert theirs["envelopes"] == []
-    assert theirs["participation_excluded"] == 1, (
-        "board scope must count what is withheld from this requester, "
-        "whether or not it would have matched one of their lanes"
+    assert theirs["participation_excluded"] == bucketed(1), (
+        "board scope must report that something is withheld from this "
+        "requester, whether or not it would have matched one of their lanes"
     )
 
 
@@ -299,7 +300,7 @@ def test_a_withheld_envelope_that_matches_a_lane_is_counted(world: dict) -> None
 
     page = feed(world, third_token)
     assert page["envelopes"] == [], "third cannot read the mailbox"
-    assert page["participation_excluded"] == 1, (
+    assert page["participation_excluded"] == bucketed(1), (
         "it was withheld AND it would have matched third's to_author lane; "
         "reporting 0 here is the false-completeness class this test exists "
         "to catch"

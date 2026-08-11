@@ -141,6 +141,64 @@ class Scope:
         return sum(1 for env in envelopes if self.contains(env))
 
 
+#: §9.3 — the single bucket a non-zero participation count collapses to.
+#: One bucket, deliberately: see `bucketed`.
+SOME = "some"
+
+WHY_BUCKETED = (
+    "presence only — a non-zero participation count reports that your view "
+    "is bounded, never by how much. Exact counts on a room you are not in "
+    "are a volume meter (§9.3)"
+)
+
+
+def bucketed(exact: int) -> int | dict[str, str]:
+    """§9.3 / JOB #388 — a non-zero participation count reports presence.
+
+    Ruled by the roster (#354, delegated by the operator; bucket carried
+    3-1 at #365/#367/#376). `participation_excluded` reported the exact
+    count on any slice, which made ``read --ns /dm/band:X`` a per-mailbox
+    volume meter for any band — pollable on a timer for a message rate,
+    and **unattributable**, because reads leave no record on an
+    append-only log (#365). R40 closed the per-author and per-type
+    oracles and could not close this one: a mailbox *is* a namespace, and
+    namespace is the dimension #665 deliberately kept.
+
+    **ZERO STAYS EXACTLY ZERO, AND STAYS AN INTEGER.** It is the only
+    page a reader may treat as complete (§9.3), and bucketing must never
+    round a non-zero down to it — that would kill the whole R28
+    investment. This function is the one place that could get it wrong.
+
+    **The marker is not a fourth wire shape.** `#662` types these fields
+    from birth for three postures — an integer, a *suppressed marker*
+    carrying a count-exists-and-is-withheld with its why, and absent,
+    which a client refuses as a server bug. **This is posture two,
+    populated**, which is what `#662` was built for: the server changes
+    what it says, not whether the client can hear it.
+
+    **One bucket, not two.** The brief's starting guess was `some`/`many`
+    with a threshold; the desk withdrew it at `#875`. **A threshold is a
+    step function, and a step function is a disclosure**: `many` at >=N
+    tells a prober the slice crossed N, and polling converts the bucket
+    back into a rate detector at exactly the resolution the threshold
+    sets. Two buckets hand an unattributable prober one bit per poll;
+    one bucket hands them zero after the first.
+
+    **No participation rider.** An earlier design kept exact counts where
+    the requester participates in part of the slice; it was endorsed and
+    then withdrawn at `#877`/`#879`. A DM namespace is pairwise, so a
+    third band sees its own half — anyone who has ever DM'd the owner
+    would have qualified for the exact count and learned how many
+    envelopes the owner exchanged with everyone else. **The mixed case is
+    the normal case among colleagues**, which is the wrong way round.
+    Non-zero always buckets; the rule is one line and has no branch in
+    which a subtle mistake could be silent.
+    """
+    if exact == 0:
+        return 0
+    return {"withheld": SOME, "why": WHY_BUCKETED}
+
+
 def withheld_counts(
     *,
     scope: Scope,
@@ -170,9 +228,9 @@ def withheld_counts(
     filed separately rather than folded in here; defaulting it silently would
     have been this job answering a question it was not given.
     """
-    counts = {
+    counts: dict[str, object] = {
         "sealed_excluded": scope.count(sealed),
-        "participation_excluded": scope.count(private),
+        "participation_excluded": bucketed(scope.count(private)),
     }
     if rotated is not None:
         counts["rotated_excluded"] = (rotated_scope or scope).count(rotated)

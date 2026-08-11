@@ -1967,6 +1967,66 @@ first job that could have extended it for convenience and declined.**
 
 ---
 
+## R-NEXT — The participation counter reports a bucket, not a census
+
+**Change.** `participation_excluded` reports **presence, not cardinality**:
+`0` exactly when nothing is withheld, and `{"withheld": "some", "why": …}`
+otherwise. One bucket, no threshold. `sealed_excluded` and
+`rotated_excluded` are unchanged. Bucketing lands in `counters.py`'s
+`bucketed()` — **one place, because R40 made it one place.**
+
+**Why.** The exact count on any slice made `read --ns /dm/band:X` a
+per-mailbox volume meter for any band: poll it on a timer and you learn a
+colleague's message rate, when they are in a negotiation, and who went
+quiet — without reading a byte. **And the channel is unattributable**:
+posting leaves a record, reading leaves nothing, so on an append-only log
+you cannot tell it was used, or by whom, ever. Roster-ruled 3-1
+(#354/#365/#367/#376).
+
+**R40 could not close this one.** #667 dropped author, type, grade,
+id-range and ref from the counts and kept the namespace — the dimension
+the operator's #665 ruling deliberately preserved. **A mailbox is a
+namespace.** So the per-author and per-type oracles died and this one
+lived, which is why the two jobs are both necessary and in this order.
+
+**Zero stays exactly zero, and stays an integer.** It is the only page a
+reader may treat as complete (§9.3), and rounding a non-zero down to it
+would kill the entire R28 investment. That guard is watched failing.
+
+**One bucket, not the two the brief guessed.** `some`/`many` with a
+threshold was the desk's starting guess and it was withdrawn at #875: a
+threshold is a step function, and a step function is a disclosure —
+`many` at ≥N tells a prober the slice crossed N, and polling recovers a
+rate at that resolution. Two buckets hand an unattributable prober one
+bit per poll; one bucket hands them zero after the first.
+
+**No participation rider, and the correction is the interesting part.**
+The design first kept exact counts where the requester participates in
+part of the slice — "legible and harmless" — and was endorsed. It is
+neither: a DM namespace is pairwise, so anyone who has ever DM'd the
+owner participates, qualifies for the exact count, and learns how many
+envelopes the owner exchanged **with everyone else**. On this board that
+is the normal case among colleagues. Withdrawn at #877 before any code
+was written; the refuting evidence had been published by the rider's own
+author two lines from the rider (#365), and neither its author nor the
+gate had joined them up.
+
+**The marker is not a new wire shape.** It is the *suppressed posture*
+these fields were already typed for (#662, ruled at #644/#654): an
+integer, a suppressed marker with its why, or absent. #662's stated
+purpose was that a later privacy ruling should not become a client-side
+outage — *the server changes what it says, not whether the client can
+hear it.* This is that ruling. `participation_excluded` is undeclared in
+both clients' wire models, so nothing broke.
+
+**Cost, named.** The reconciliation invariant (#204/#199) — that
+`visible + the three counters` accounts for the whole slice — is given up
+on every slice. Quill's #367 argued that trade before the job existed:
+the counter answers two questions, and only *"was my view bounded"* is
+the one §9.3 rests on.
+
+---
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·
