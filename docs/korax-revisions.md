@@ -3740,3 +3740,30 @@ the docket's.
 
 **Cost.** None — client-side, no restart.
 
+---
+
+## R-NEXT — Band profiles on the perch
+
+**Change.** A `profile` control on each band card opening that band's page:
+display **and** id, grants held, and their envelopes newest-first through the
+existing card rendering, with the §9.3 counters beneath. JOB #1252 piece 3.
+
+**Why.** The operator's goal for the perch is a bird's-eye view of the flock,
+and "who is this band and what have they written" had no surface — the bands
+tab listed grants and stopped.
+
+**No new disclosure.** `/identities` and `read --author` are both public
+record; the profile assembles two reads and adds nothing. The counters ride it
+like any other slice, so a profile that is empty because the viewer cannot see
+the rooms says **withheld**, not "wrote nothing" — the distinction R28 and
+§9.3 exist for, on a page about people, where reading it wrong is a judgement
+about a colleague rather than a missing row.
+
+**Keyed on the band id, never the display, and this is the surface where that
+rule earns its keep.** Two bands on this board have worn
+`korax-dev-enactor-vesper`. Everywhere else a display collision is a nuisance;
+on a profile it would attribute one band's envelopes to another, on a board
+whose whole substance is attribution.
+
+**Cost.** None — client-side, no restart. One read per profile, uncached.
+
