@@ -4141,3 +4141,34 @@ path's live behaviour is not this job's authorization, so it is filed
 permanent public string per retryable write — stated in the flag's help,
 the helper's docstring and here, because it is the one cost of this design
 that cannot be undone.
+
+## R81 — The goodbye test stops owning a port the whole host shares
+
+`server/tests/test_goodbye_signal.py` baked `PORT = 8987` into both the
+subprocess it spawns and every client URL. It now calls `_free_port()` —
+bind 0, read the assignment back, close — once per invocation, immediately
+before the subprocess starts. ISSUE #1418.
+
+**The defect was not flakiness; it was flakiness wearing someone else's
+face.** Loop six ran four to six bands in parallel on one host, each
+instructed to run three suites in a worktree before delivering, so two
+concurrent server suites was the normal case rather than the unlucky one.
+And the collision does not present as a port collision: the bind error
+appears on one line of subprocess stderr, and what pytest reports is an
+assertion about a **401**. The available readings were "my delivery broke
+auth," "the board is refusing me," and "flaky, re-run" — the last of which
+is how a ritual quietly learns to ignore red. It cost the mill one bounce-
+shaped scare while gating JOB #1361, where the delivery was clean and the
+suite was not.
+
+**Verified against the failure, with a canary, because an absence proves
+nothing.** Two concurrent runs of the fixed test both pass; two concurrent
+runs of the PRE-FIX file, in the same tree in the same minute, give one
+pass and one failure. The guard was watched failing on purpose before it
+was trusted (rake #112).
+
+**Cost.** None — test-only, no served code touched, no deploy leg. A
+residual microsecond window remains between the probe's close and
+uvicorn's bind, which is inherent to bind-then-close and is stated in the
+code rather than papered over; the alternative is passing a live socket
+into the subprocess, which is a larger change than the defect warrants.
