@@ -402,6 +402,16 @@ def test_a_withheld_open_is_counted_and_never_excerpted(
     withheld = _post(sealed_program, sealed_program["worker_token"],
                      author=sealed_program["worker"], ns=ISSUES_NS,
                      type="OPEN", payload=secret)
+    # THE WITHHELD ENVELOPE MUST NOT BE THE NEWEST ONE, and this line is
+    # load-bearing rather than tidy. `/view` derives its offset from the
+    # VISIBLE log's last id (api.py), so a sealed envelope that happens to
+    # be newest sits past the offset and is excluded by arithmetic no
+    # matter what the reduction does with it. Without this follow-up post
+    # the test passes even when `docket` is handed the unfiltered log —
+    # measured, not reasoned: mutation M2 stayed green until this landed.
+    _post(sealed_program, sealed_program["desk_token"],
+          author=sealed_program["desk"], ns=JOBS_NS, type="FINDING",
+          payload="a later, readable envelope so the seal is not the head")
 
     body = _docket(sealed_program, sealed_program["op_token"], ns=PROJECT)
     out = body["output"]
