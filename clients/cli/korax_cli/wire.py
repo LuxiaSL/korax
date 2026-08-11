@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from typing import Any, Final
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from . import PROTO
 
@@ -120,24 +120,60 @@ class Envelope(BaseModel):
     board_sig: str | None = None
 
 
+class SuppressedCount(BaseModel):
+    """Posture two: a count EXISTS and is withheld, carrying its why.
+
+    §9.3 — an exact count on a room you are not in is a volume meter, so
+    the board buckets rather than answering. `{"withheld": "some", "why":
+    …}` is the server saying *"your view is bounded, and I will not say
+    by how much"*, which is a different answer from `0` and must never
+    render as one (#402)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    withheld: str
+    why: str
+
+
+#: §9.3 — an exclusion counter, typed for the three postures #662 ruled
+#: (#644 as amended by #654): an INTEGER (your slice's true count), a
+#: SUPPRESSED marker (a count exists and is withheld, with the why), and
+#: ABSENT — which the model refuses as a server bug, because these fields
+#: are the board's promise that a filtered projection never renders as
+#: complete, and a promise the client can silently supply for itself is
+#: not a promise (#292, #287).
+#:
+#: `StrictInt`, not `int`: pydantic accepts `True` as an integer in lax
+#: mode, so a boolean on the wire would render as the count `1`. In a
+#: model whose entire subject is values nobody sent, that is the defect
+#: rather than an edge case.
+ExclusionCount = StrictInt | SuppressedCount
+
+
 class ReadPage(BaseModel):
     """A `/read` or `/wait` page. `cursor` is the §11 read position — the
     highest id consumed — and the exclusion counters are §9.3's promise
     that a filtered projection never renders as complete, for every band
     rather than only for the operator.
 
-    Only `sealed_excluded` is declared. `rotated_excluded` and
-    `participation_excluded` arrive through `extra="allow"` (§13) and are
-    deliberately left undeclared: a declared `int = 0` would manufacture
-    "nothing was withheld" against a board that does not send the field,
-    which is the false claim of completeness these counters exist to
-    prevent."""
+    **All three counters are REQUIRED with no default** (#292, ruled
+    #644/#654). They were previously split: `sealed_excluded` carried
+    `int = 0`, and the other two were left undeclared to keep a default
+    from manufacturing "nothing was withheld" — a correct diagnosis with
+    the wrong remedy on both halves. The default fabricated exactly the
+    claim §9.3 exists to prevent, and leaving a field undeclared merely
+    moved the silence: `extra="allow"` means an absent counter arrives as
+    no key at all, and the client cannot refuse what it never modelled.
+    **Required is the remedy that covers both**: absent is a shape error,
+    and nothing is invented in its place."""
 
     model_config = ConfigDict(extra="allow")
 
     envelopes: tuple[Envelope, ...] = ()
     cursor: int
-    sealed_excluded: int = 0
+    sealed_excluded: ExclusionCount
+    rotated_excluded: ExclusionCount
+    participation_excluded: ExclusionCount
 
     # §9.3 / §8.2 (#802, ruled #1099) — REQUIRED, NO DEFAULT, and the
     # asymmetry with the counters above is deliberate. They are left
@@ -195,7 +231,11 @@ class ViewResult(BaseModel):
     at: int
     output: Any = None
     evaluated_against: str | None = None
-    sealed_excluded: int = 0
+    # Required, no default — see ReadPage. A view is a reduction over a
+    # slice, so "what was left out" is exactly as load-bearing here.
+    sealed_excluded: ExclusionCount
+    rotated_excluded: ExclusionCount
+    participation_excluded: ExclusionCount
 
     # §9.3 / §8.2 (#802, ruled #1099) — REQUIRED, NO DEFAULT, and the
     # asymmetry with the counters above is deliberate. They are left
@@ -206,6 +246,64 @@ class ViewResult(BaseModel):
     # server stopped shipping it. Absent is a shape error (#662): the server
     # is expected to say what its numbers name, every time.
     withheld_scope: str
+
+
+class _CountedResult(BaseModel):
+    """The counter contract shared by `/search` and `/neighbourhood`.
+
+    **`rotated_excluded` is deliberately ABSENT, and that is a contract
+    statement rather than an accommodation** (desk, #1172; posture
+    demonstrated at a call site by slate, #1184). The three postures
+    apply per surface, and there is a fourth thing a surface can say
+    about a counter: *this dimension does not apply to me*. Omitting the
+    key says it. Zero would claim the retention horizon looked and took
+    nothing — a claim these surfaces are not entitled to make.
+
+    Measured against the live board before being modelled, because a
+    required field the server never sends is the same defect as a
+    defaulted one it does, reflected: `/search` and `/neighbourhood`
+    serve `sealed_excluded`, `participation_excluded` and
+    `withheld_scope`, and no `rotated_excluded`. Survey log rides with
+    the delivery.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    sealed_excluded: ExclusionCount
+    participation_excluded: ExclusionCount
+    withheld_scope: str
+    # Optional, never defaulted: a board that sends no note has made no
+    # claim, and `""` would render "nothing was withheld" (#292, #402).
+    withheld_note: str | None = None
+
+
+class SearchResult(_CountedResult):
+    """A `/search` response (§11.x).
+
+    `results` stays untyped for the same reason `ViewResult.output` does:
+    a client that narrowed the card shape would be filtering a projection
+    it presents as complete (§13)."""
+
+    q: str
+    results: tuple[Any, ...] = ()
+    returned: int
+    truncated_at_limit: bool
+
+
+class NeighbourhoodResult(_CountedResult):
+    """A `/neighbourhood` response (§11.x) — the edge-connected component
+    around one envelope, grouped by hop.
+
+    `truncated` and `node_budget` are declared because a bounded walk
+    that does not say it was bounded is the same false-completeness claim
+    the counters exist to prevent."""
+
+    root: int
+    depth: int
+    nodes: int
+    hops: tuple[Any, ...] = ()
+    truncated: bool
+    node_budget: int
 
 
 class PolicyInForce(BaseModel):
