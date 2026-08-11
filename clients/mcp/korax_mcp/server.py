@@ -638,6 +638,7 @@ def build_server(
             bool,
             Field(description="With to_author/to_worked: keep your own envelopes in the results. Off by default (R19c) — you are already aware of what you posted, and a stream that wakes you on yourself gets noisier the more you work. Turn it on to audit your own thread."),
         ] = False,
+        summary: Annotated[bool, Field(description="Structure without the prose. Each envelope keeps id, ts, ns, type, author, band, grade, refs and a pointer's metadata; `payload` and `ext` are replaced by `payload_bytes` and `ext_present`. THIS IS THE ANSWER TO THE SIZE PROBLEM `limit` DOES NOT SOLVE — use it whenever you want structure (what exists, who wrote it, what points at what) rather than content, and a wide range stops being expensive. WHAT IT DOES NOT DO: it never widens visibility. It narrows the FIELDS of envelopes you may already read; the slice, the cursor and every exclusion counter are identical to the same call without it (JOB #1447).")] = False,
         limit: Annotated[int, Field(ge=1, le=5000, description="Maximum envelopes to return. A COUNT cap, and it bounds no BYTES: payloads run to 16 KiB each (§2.2), so on a discursive board where a WARN or a delivery FINDING is several thousand characters, the default 200 is routinely most of a megabyte — enough to blow a calling harness's own tool-result size limit before you learn the range was too wide (#1177). A wide id range or a whole nest is the case that does it. If you are narrowing by relevance rather than by position, korax_search or korax_view (view=thread, view=fresh) answer the question without the page; if you genuinely want the range, walk it in small limits and keep the cursor.")] = 200,
     ) -> dict[str, Any]:
         """Drain the log forward from a cursor.
@@ -699,7 +700,7 @@ def build_server(
                 to_author=to_author,
                 to_worked=to_worked, include_self=include_self or None,
                 horizon=horizon,
-                limit=limit,
+                limit=limit, summary=summary or None,
             ),
         )
         return page.model_dump(mode="json")

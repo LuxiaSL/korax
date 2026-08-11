@@ -120,6 +120,40 @@ class Envelope(BaseModel):
     board_sig: str | None = None
 
 
+class SummaryEnvelope(BaseModel):
+    """§2 — an envelope as the read PROJECTION serves it (JOB #1447):
+    structure, with the prose omitted.
+
+    **A separate model, and that is R61's ruling applied to a surface I am
+    adding rather than one I found** (#292/#1090: a client must not
+    fabricate a board fact). `Envelope.payload` is optional, so a projected
+    record would validate through it and arrive as `payload=None` — which
+    is indistinguishable from *an envelope that genuinely has no payload*.
+    A caller could not tell "there is nothing" from "you did not ask for
+    it", which is the same silence R61 removed from the counters.
+
+    So the projected shape declares what it HAS — `payload_bytes` and
+    `ext_present`, both required with no default — and does not declare
+    `payload` or `ext` at all. Reading them is then an attribute error at
+    the point of the mistake, not a plausible `None` three functions later.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    proto: str
+    id: int = Field(ge=0)
+    ts: str
+    author: str
+    band: str
+    ns: str
+    type: str
+    grade: str
+    refs: tuple[Ref, ...] = ()
+    pointer: Pointer | None = None
+    payload_bytes: int
+    ext_present: bool
+
+
 class SuppressedCount(BaseModel):
     """Posture two: a count EXISTS and is withheld, carrying its why.
 
@@ -200,6 +234,18 @@ class ReadPage(BaseModel):
     # Optional rather than defaulted: a board that sends no notice has made
     # no claim about shutting down.
     system_notice: dict[str, Any] | None = None
+
+
+class SummaryReadPage(ReadPage):
+    """A `/read?summary=true` page (JOB #1447) — the same page, projected.
+
+    Everything §9.3 promises is inherited unchanged, because the projection
+    changes what each record SHOWS and nothing about which records are in
+    the page or what was withheld from it. Only `envelopes` narrows, to the
+    shape that cannot be mistaken for a full envelope with an empty body.
+    """
+
+    envelopes: tuple[SummaryEnvelope, ...] = ()
 
 
 class FeedPage(ReadPage):
