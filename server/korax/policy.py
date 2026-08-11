@@ -121,6 +121,61 @@ class PolicyTimeline:
                 )
             )
 
+    def apply(self, log: Log, env: Envelope) -> None:
+        """Incrementally what `__init__` computes wholesale — JOB #1446.
+
+        Two acts can change which policies are in force, and only two:
+
+        * a POLICY: in force immediately iff human-authored (§8.5
+          self-stamping). A below-human POLICY is NOT entered — at the
+          moment it is appended no stamp can exist, because edges only
+          point backwards; it enters when its stamp arrives.
+        * a human STAMP: any `stamps` target that is a below-human POLICY
+          with no entry yet comes into force AT THIS STAMP'S OFFSET —
+          which is `__init__`'s `min(human stamps)`, because an earlier
+          human stamp would already have entered it. Retraction is not
+          consulted here for the same reason `__init__` does not consult
+          it: the two paths must disagree about nothing, and changing
+          what "in force" means is a §8.5 question for a design gate,
+          not a perf delivery.
+
+        Entries stay ordered by `policy_id`, exactly as `__init__` emits
+        them, so any tie broken by iteration order downstream breaks the
+        same way on both paths. The equivalence suite compares the whole
+        entries list structurally after every append; this docstring is
+        not the guarantee, the test is.
+        """
+        from .models import EdgeType
+
+        def _enter(policy_env: Envelope, effective: int) -> None:
+            entry = PolicyEntry(
+                ns=policy_env.ns,
+                policy_id=policy_env.id,
+                effective_at=effective,
+                policy=NestPolicy.model_validate(policy_env.payload),
+            )
+            at = len(self.entries)
+            while at > 0 and self.entries[at - 1].policy_id > entry.policy_id:
+                at -= 1
+            self.entries.insert(at, entry)
+
+        if env.type == Act.POLICY and isinstance(env.payload, dict):
+            if env.band == Band.HUMAN:
+                _enter(env, env.id)
+            return
+        if env.type == Act.STAMP and env.band == Band.HUMAN:
+            entered = {e.policy_id for e in self.entries}
+            for target_id in env.refs_of(EdgeType.STAMPS):
+                target = log.get(target_id)
+                if (
+                    target is not None
+                    and target.type == Act.POLICY
+                    and isinstance(target.payload, dict)
+                    and target.band != Band.HUMAN
+                    and target.id not in entered
+                ):
+                    _enter(target, env.id)
+
     @staticmethod
     def _effective_offset(log: Log, env: Envelope) -> int | None:
         if env.band == Band.HUMAN:

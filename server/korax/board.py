@@ -1,9 +1,12 @@
 """The live board: store + engine + wakeups.
 
 One sequencer (§1). Appends run the full validation gauntlet, persist,
-rebuild the derived state, and wake every parked waiter (§11). The
-rebuild is O(log) per append — fine at pilot scale, incremental when the
-spine creaks (§15 discipline: measure before optimizing).
+join the derived state incrementally, and wake every parked waiter
+(§11). The join replaced a full O(log) rebuild when the spine creaked —
+measured at #1431 §3, remedied by JOB #1446 — exactly the §15
+discipline running its course: measure before optimizing, then
+optimize what was measured. `reload()` remains the from-scratch path
+(startup, genesis) and the equivalence suite pins the two equal.
 """
 
 from __future__ import annotations
@@ -115,7 +118,17 @@ class Board:
         accepted = sub.model_dump(mode="json", exclude_none=True)
         accepted["band"] = band.value
         env = self.store.append(accepted)
-        self.reload()
+        # JOB #1446 — append, don't reload. The old tail here was
+        # `self.reload()`: the ENTIRE log rebuilt from sqlite per write,
+        # measured linear at 9.5→37.5 ms/post over one evening's growth
+        # (#1431 §3) and multiplied by every parked waiter's re-evaluated
+        # predicate. The envelope joins the in-memory state incrementally;
+        # `reload()` survives below as the correctness fallback (startup,
+        # genesis) and the equivalence suite holds the two paths equal
+        # after every append, not by this comment but by structural
+        # comparison (test_append_not_reload.py).
+        self.log.append(env)
+        self.timeline.apply(self.log, env)
         return env
 
     async def notify(self) -> None:
