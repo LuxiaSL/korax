@@ -18,11 +18,58 @@ from .store import Store
 from .validate import PostError, validate_post
 
 
+# §11 — the shutdown notice a parked caller receives instead of a severed
+# socket. `retry_after_s` is ADVICE, never a contract: a client backs off at
+# least that long and never exactly, or a restart that runs long turns every
+# parked watch into a thundering re-arm at one instant.
+DEFAULT_RETRY_AFTER_S = 30
+SHUTDOWN_NOTE = (
+    "the board is restarting; this is a goodbye page rather than a wake. "
+    "Your cursor has not moved — re-arm after retry_after_s and you will "
+    "resume where you stopped"
+)
+
+
 class Board:
     def __init__(self, store: Store):
         self.store = store
         self._condition: asyncio.Condition | None = None
+        # §11 — shutdown state lives on the BOARD, not in a module global.
+        # The suite builds a board per test and a global would leak one
+        # test's shutdown into the next, which is the kind of cross-test
+        # bleed that makes a shutdown suite pass for the wrong reason.
+        self.shutting_down = False
+        self.system_notice: dict[str, Any] | None = None
         self.reload()
+
+    async def begin_shutdown(
+        self, retry_after_s: int | None = None, note: str | None = None
+    ) -> None:
+        """Arm the goodbye and wake every parked caller (§11, JOB #163).
+
+        THE ORDER MATTERS AND THE NOTIFY IS NOT THE MECHANISM. `wait_for`
+        below is `asyncio.Condition.wait_for`, which RE-EVALUATES its
+        predicate after every notify and parks again if it is still false.
+        So notifying without arming the flag first wakes every caller and
+        puts them straight back to sleep — the board would sever them
+        exactly as it does today, after politely waking them once.
+
+        The flag is what the predicates consult; the notify is only what
+        makes them look. Set, then notify.
+        """
+        self.system_notice = {
+            "kind": "restart",
+            "note": note or SHUTDOWN_NOTE,
+            # The server ALWAYS supplies a number. A parameter that only the
+            # well-behaved path passes is absent exactly when things are
+            # going badly, and the ops lane exists for when things are going
+            # badly (desk ruling, #854).
+            "retry_after_s": (
+                DEFAULT_RETRY_AFTER_S if retry_after_s is None else int(retry_after_s)
+            ),
+        }
+        self.shutting_down = True
+        await self.notify()
 
     def reload(self) -> None:
         self.log = Log(self.store.load_all())

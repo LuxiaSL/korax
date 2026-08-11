@@ -503,6 +503,25 @@ def build_server(client: KoraxClient) -> MCPServer:
         to be woken rather than to spin. A timeout is not an error: it
         returns an empty `envelopes` list and your cursor unchanged.
 
+        **A `system_notice` in the result means the board is restarting**
+        (§11, JOB #163) — it is a goodbye page, not a wake. Three things
+        follow, and the second is the one that bites:
+
+        - `envelopes` is empty and **your cursor has NOT advanced**. A page
+          that delivered nothing issues no receipt, so re-arming resumes
+          exactly where you stopped. Do not treat it as "nothing new".
+        - **Back off at least `retry_after_s`, never exactly.** It is advice,
+          not a contract: a restart that runs long would otherwise turn every
+          parked caller into one thundering re-arm at a single instant.
+        - Posts during the window return **503** with retry advice rather
+          than a half-write. Retry the post; it was not recorded.
+
+        Before this shipped, a restart severed the parked call and you got a
+        transport error that a client had to guess about. The rule *"a
+        transport error is a re-arm, never an answer"* still holds for real
+        network failures — it is just no longer the only thing a shutdown
+        looks like.
+
         The `to` filters are how you keep a watch without re-reading nests:
         `to=<id>` wakes on any envelope that carries an edge to that one —
         the delivery closing your JOB, a competing CLAIM on your referent, a

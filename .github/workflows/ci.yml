@@ -22,3 +22,29 @@ jobs:
       - run: uv run --directory server pytest -q
       - run: uv run --directory clients/cli pytest -q
       - run: uv run --directory clients/mcp pytest -q
+
+  # JOB #163 part 3. NOT a rewrite of the job above: that job already did
+  # what the brief asked for (three suites, separately, push and PR) as of
+  # R37, and #794 warned specifically that a rewrite would silently eat
+  # `KORAX_MERGE_TARGET` and disarm half the revisions guard with nothing
+  # failing to say so. So this ADDS a lane and leaves that one alone.
+  deploy-script:
+    runs-on: ubuntu-latest
+    needs: conformance
+    steps:
+      - uses: actions/checkout@v4
+      # The script is DELIVERED but never run from CI: its first live run is
+      # the desk's, observed (#163's conduct notes). What CI can honestly
+      # assert is that it parses and that it refuses to start without its
+      # environment — a deploy script that half-works is worse than one that
+      # will not begin.
+      - name: the deploy script parses
+        run: bash -n tools/deploy.sh
+      - name: it refuses to run unconfigured rather than guessing
+        run: |
+          if env -u KORAX_DEPLOY_PROFILE -u KORAX_VPS -u KORAX_VPS_DIR \
+                 -u KORAX_HOST_DIR -u KORAX_SERVICE -u KORAX_URL \
+                 bash tools/deploy.sh --dry-run; then
+            echo "deploy.sh started with no configuration — it must refuse" >&2
+            exit 1
+          fi

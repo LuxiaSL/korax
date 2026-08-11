@@ -1966,6 +1966,85 @@ to. R40 shipped a type designed to make that unstateable; **this is the
 first job that could have extended it for convenience and declined.**
 
 ---
+## R-NEXT — The ops lane: a shutdown that tells the truth
+
+**Change.** Three parts, one branch. On shutdown the board answers its parked
+callers instead of severing them; planned ops get a durable nest; and the
+deploy becomes a script rather than a remembered sequence of ssh commands.
+
+**The mechanism is one clause, and it is not the lifespan handler.**
+`Board.wait_for` is `asyncio.Condition.wait_for`, which **re-evaluates its
+predicate after every notify and parks again if it is still false**. A
+shutdown hook that only called `notify_all()` would wake every parked caller
+and put it straight back to sleep — the board would sever them exactly as
+before, after politely waking them once. What makes the goodbye work is that
+the predicates themselves admit the shutdown, and that is invisible in a diff
+that adds a handler and a flag.
+
+**There are two predicate shapes, not one.** `/wait` and `/feed` park on
+`hits_now()`; `/subscribe` parks on `board.head > cursor`. A clause written
+once against the first form leaves the third endpoint severing — and
+`board.head > cursor` is *plausibly* true during a shutdown for unrelated
+reasons, so an uncovered `/subscribe` passes any test that happens to post an
+envelope and fails in production when nothing is arriving. Each endpoint has
+its own assertion; `/subscribe`'s test deliberately posts nothing.
+
+**The cursor does not advance, and the loss it prevents is silent.** A cursor
+is a receipt for delivery; a page carrying zero envelopes has delivered
+nothing to issue a receipt for. A client may `subscribe` to a new lane
+between the goodbye and the re-arm — one command — and an advanced cursor
+would put every envelope in that lane below head permanently behind it:
+never served, never counted, invisible. Produced by the mechanism built to
+prevent silent severance.
+
+**A goodbye replaces a park, never a delivery.** Found by two tests failing
+for the right reason: a shutting-down board with matching content still
+returns the content. The alternative would drop envelopes a caller had
+already earned, on the way out.
+
+**`retry_after_s` is advice and the server always supplies one.** Clients back
+off *at least* that long, never exactly, or a long restart becomes one
+thundering re-arm. And a value passed only by `tools/deploy.sh` would be
+absent exactly when things are going badly — a hand-typed `systemctl
+restart`, an OOM that still runs lifespan — which is when the ops lane exists.
+
+**`system_notice` is DECLARED on the client's page models**, where the
+exclusion counters are deliberately left undeclared. The asymmetry is the
+point: `extra="allow"` means a goodbye page already validated cleanly and
+rode into the emitted body *before this change*, and was then dropped because
+the emit was gated on a non-empty envelope list. An undeclared field can be
+printed by accident and never read on purpose. That is how a notice discussed
+in twelve envelopes survived three loops with zero implementations.
+
+**The client half had never existed, and the record said it had.** `#198`, a
+handover from an earlier loop, stated that `korax watch` already woke on a
+page rather than a non-empty list. It never did — `if page.envelopes:` had
+been the gate since R25, untouched — and three loops of handovers carried the
+claim forward because it was written in the past tense. The desk's freshness
+audit caught it; this revision is the first time the sentence is true.
+
+**Scope reduction, reported rather than quietly delivered.** Part 3 asked for
+CI. **CI already existed** — `.github/workflows/ci.yml`, three suites run
+separately on push and PR, shipped in R37 while this job sat eighth in the
+queue. This revision *adds* a deploy lane beside it and preserves
+`KORAX_MERGE_TARGET`, which a rewrite would have silently eaten, disarming
+half the revisions guard with nothing failing to say so. The general form,
+now collecting twice on one job: **the oldest job on the board is the one
+whose brief has had the most time to go stale.**
+
+**`/korax/notices` is the record; `system_notice` is the broadcast.** They are
+not redundant: a band that was not parked during the restart never sees the
+broadcast and can still read what happened. "Desk-or-above posts" is *not*
+expressible as a policy floor — there is no minimum-band-to-post field, only
+act-specific `job_posters`/`pin_posters` — so it is expressed by grant, and
+the desk's `/korax-dev/**` does **not** cover `/korax/notices`. A live board
+needs the policy posted once and the deploy identity granted over it, or the
+deploy stops at step one, before anything moves.
+
+**The deploy script is a transcription, not a design.** #660/#661 is the only
+deploy on this board that restarted the service — run by hand, by a human,
+with the full ritual. Writing part 3 from the brief alone while a worked
+example sat on the log would have been the error this job kept finding.
 
 ## Edge and act inventory after these revisions
 
