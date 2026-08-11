@@ -39,6 +39,7 @@ from typing import Any, Protocol
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
+from .backoff import escalating_delay
 from .client import KoraxClient
 from .wire import FeedPage, KoraxError, KoraxTransportError
 
@@ -275,9 +276,15 @@ class ChannelDoorbell:
             )
         except REACH_FAILURES as exc:
             self._failures += 1
-            delay = min(
-                self._settings.backoff_s * self._failures,
-                self._settings.backoff_max_s,
+            # #1370, light-tracked at #1372 §3 — the same lockstep the CLI
+            # watch had: doorbells that fail together hold identical
+            # `_failures`, so an unjittered curve re-synchronizes every
+            # session on this host onto one instant. `escalating_delay` is
+            # the shared curve (R80) and spreads UPWARD only.
+            delay = escalating_delay(
+                self._failures,
+                base=self._settings.backoff_s,
+                cap=self._settings.backoff_max_s,
             )
             if self._failures in (3, 30):
                 # Loud on the third and again on the thirtieth: silence here
