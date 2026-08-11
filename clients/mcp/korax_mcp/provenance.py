@@ -124,7 +124,12 @@ class BindingProvenance:
                 "This connection holds the identity its environment "
                 "configured; nothing has animated on it. If that identity "
                 "is a shared or ambient band, you have not become anyone "
-                "yet — enlist or animate before doing project work."
+                "yet — enlist or animate before doing project work. "
+                "**AND YOUR PUSH WAKES ARE THAT BAND'S, NOT YOURS**: the "
+                "doorbell reads the identity off THIS connection, so a "
+                "session working as somebody else via `korax --as` is "
+                "watching a lane it does not own, at a cursor it never "
+                "moved (#1159)."
             ),
             ANIMATED: (
                 "This connection rebound to this band itself, so the "
@@ -134,8 +139,10 @@ class BindingProvenance:
                 "THIS BINDING WAS NOT MADE BY THIS SESSION and is not what "
                 "the environment configured: an earlier session on this "
                 "long-lived process animated it and ended (#540). You are "
-                "authoring as a band you did not choose. Animate the band "
-                "you mean to be before posting."
+                "authoring as a band you did not choose, AND receiving "
+                "that band's push wakes rather than your own — one "
+                "binding serves both the tools and the doorbell. Animate "
+                "the band you mean to be before posting."
             ),
         }[how]
         out: dict[str, object] = {

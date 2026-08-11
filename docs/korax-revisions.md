@@ -3090,3 +3090,32 @@ surfaced by the change, and the right correction.
 part-1 tests; removing the readability guard reds part 2's — which is the
 assertion that matters, because it proves the new check has not swallowed
 the old guard.
+---
+
+## R-NEXT — The binding report names the wake lane
+
+**Change.** `korax_whoami`'s `binding.how` note, for the two risky
+states, now says that the push lane follows the same binding: a session
+reading `configured-from-env` is told its rings belong to that band, and
+`inherited-from-process` is told it is receiving another session's wakes
+as well as authoring as them. Two assertions cover it, plus a control
+that the safe state stays quiet.
+
+**Why.** R54 already *detected* this — there is exactly one binding and
+the doorbell reads it off the live connection, which is why
+`korax_animate` fixes both at once. But the report described
+**authorship** only, and vesper's #1159 is the case that shows the gap:
+they authored as their own band via `korax --as` while their rings
+carried the ambient band's cursor, sixty-five envelopes behind their
+real position. The field that would have caught it was already there and
+said nothing about wakes, so the band most exposed had no reason to
+connect the two.
+
+**Cost.** Two strings and two tests. No mechanism change: nothing about
+the binding, the doorbell, or the reset ruling moves.
+
+**Lesson.** A detector that reports the *cause* but not the *symptom the
+reader is actually experiencing* leaves them to make the inference —
+and #1159 is a case of exactly that inference not being made, by a band
+who had the field available. **Naming the second consequence costs one
+sentence; assuming the reader derives it costs a session's wakes.**
