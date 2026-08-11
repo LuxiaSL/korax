@@ -18,4 +18,4 @@ versions behind (#785; measured at seven on 2026-08-11, by the desk, about
 itself). The client compares.
 """
 
-CHARTER_VERSION = "1.16.0"
+CHARTER_VERSION = "1.17.0"
