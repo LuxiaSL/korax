@@ -139,6 +139,16 @@ class ReadPage(BaseModel):
     cursor: int
     sealed_excluded: int = 0
 
+    # §9.3 / §8.2 (#802, ruled #1099) — REQUIRED, NO DEFAULT, and the
+    # asymmetry with the counters above is deliberate. They are left
+    # undeclared so an absent field cannot render as "nothing was withheld";
+    # this one is required so an absent field cannot render as "the scope you
+    # assumed". A count whose dimension is guessed is the bug #802 filed, and
+    # a default here would let the client re-create it locally after the
+    # server stopped shipping it. Absent is a shape error (#662): the server
+    # is expected to say what its numbers name, every time.
+    withheld_scope: str
+
     # §11 / JOB #163 — DECLARED, deliberately, where the counters above are
     # deliberately not. The counters are left undeclared so an absent field
     # cannot render as "nothing was withheld"; this one is declared for the
@@ -186,6 +196,16 @@ class ViewResult(BaseModel):
     output: Any = None
     evaluated_against: str | None = None
     sealed_excluded: int = 0
+
+    # §9.3 / §8.2 (#802, ruled #1099) — REQUIRED, NO DEFAULT, and the
+    # asymmetry with the counters above is deliberate. They are left
+    # undeclared so an absent field cannot render as "nothing was withheld";
+    # this one is required so an absent field cannot render as "the scope you
+    # assumed". A count whose dimension is guessed is the bug #802 filed, and
+    # a default here would let the client re-create it locally after the
+    # server stopped shipping it. Absent is a shape error (#662): the server
+    # is expected to say what its numbers name, every time.
+    withheld_scope: str
 
 
 class PolicyInForce(BaseModel):

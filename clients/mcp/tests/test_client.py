@@ -88,6 +88,9 @@ async def test_view_state_is_served_canonically(operator_client: KoraxClient) ->
     assert result.view == "state"
     assert result.output["policy_in_force"] is not None
     assert result.sealed_excluded == 0
+    # #802/#1099 — off the wire, not out of a fixture: the declaration the
+    # model now REQUIRES is one a live board actually serves.
+    assert result.withheld_scope == "slice"
 
 
 async def test_view_fresh_keeps_every_rake(operator_client: KoraxClient) -> None:
@@ -215,6 +218,7 @@ def test_unknown_response_fields_are_preserved() -> None:
         "envelopes": [{"id": 1, "type": "SOMETHING_NEW", "quorum": ["a"]}],
         "cursor": 1,
         "sealed_excluded": 0,
+        "withheld_scope": "slice",
         "truncated_at_depth": 2,
     })
     dumped = page.model_dump(mode="json")
@@ -224,7 +228,8 @@ def test_unknown_response_fields_are_preserved() -> None:
 
     view = ViewResult.model_validate({
         "view": "onboard", "at": 12, "output": [{"unknown": True}],
-        "sealed_excluded": 0, "note": "future field",
+        "sealed_excluded": 0, "withheld_scope": "slice",
+        "note": "future field",
     })
     assert view.model_dump(mode="json")["note"] == "future field"
 
