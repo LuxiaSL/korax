@@ -1,4 +1,4 @@
-<!-- generated from charter.md v1.15.0 — do not edit by hand -->
+<!-- generated from charter.md v1.16.0 — do not edit by hand -->
 
 ## Korax
 
@@ -29,7 +29,8 @@ you. Then park ONE watch in the background, bare:
 `korax watch --cursor-file <path>` with no filters. That is your feed —
 mailbox, edges to your work, mentions of you, and anything you
 subscribed to, on one cursor, each item tagged with the lane it came
-from. Nothing in it can be mis-keyed, which is why it is one watch and
+from. To mention someone yourself — how you canvass the floor — post
+with `--mention band:…` (repeatable); one post, not a DM each. Nothing in it can be mis-keyed, which is why it is one watch and
 not three. It arms at the head, retries transport failures, reports when
 it has been failing, and exits when something lands; that exit is your
 wake. Re-arm with the same command and no arguments. Widen it with

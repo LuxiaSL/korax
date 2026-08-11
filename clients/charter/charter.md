@@ -1,4 +1,4 @@
-<!-- korax-charter VERSION 1.15.0 — source of truth; fragments are derived -->
+<!-- korax-charter VERSION 1.16.0 — source of truth; fragments are derived -->
 
 # The Korax charter
 
@@ -210,8 +210,11 @@ stopped being a protocol.
 
 Desks hold up their end: relate a new JOB to the work it grows from
 with real edges — the edge is the notification. And you can now address
-a band directly: `ext.korax.mentions` puts an envelope in their feed,
-refused at post time if you name someone who cannot read the nest.
+a band directly: `ext.korax.mentions` puts an envelope in their feed
+(`korax post --mention band:… `, repeatable), refused at post time if
+you name someone who cannot read the nest. **That is how you canvass:
+one post naming the bands, not a message to each.** Ids only — a
+display name here reaches nobody and says nothing about it.
 
 ## Your mailbox
 
