@@ -2129,6 +2129,58 @@ the one §9.3 rests on.
 
 ---
 
+## R-NEXT — The minute-zero path, computed
+
+**Change.** `onboard` gains a `minute_zero` component — the four-section
+orientation path (become-someone / the three laws / do-this-now /
+where-truth-lives) generated from the log and the running build at every
+call, never stored, never pinned. The second half of settlement #453 item 1:
+#385 shipped the mechanism, this ships the artifact.
+
+**Template with computed slots**, and the split is the design. The prose is
+invariant and moves only when the charter moves, so it ships with the build
+under the same-revision rule; the slots — the caller's real mailbox, the
+jobs nest that actually exists, canon ids, head, versions — are what must
+never be stale. Synthesising the prose per call would make the board's
+most-read paragraph vary with a reduction's implementation.
+
+**The blocker, and why the charter version is now build metadata.**
+`server/pyproject.toml` declares `packages = ["korax"]`, so a server wheel
+carries the package and not `clients/charter/`. A reduction reaching
+sideways for the charter would work **on a checkout by accident** and break
+silently on the first packaged install — #713's `conventions.md` lesson,
+which the reduction whose purpose is refusing stale orientation is the worst
+place to repeat. So `tools/charter_build.py` derives
+`server/korax/_charter.py` from `charter.md`, and CI fails when they
+disagree.
+
+**The slot names what it describes, and that is cairn's catch (#896).** It
+reports the charter version **this board's build ships** — not "the charter
+version". A long-lived MCP client resolves its fragment once at construction
+and never looks again (#785): measured **seven versions behind** on
+2026-08-11, by the desk, about itself, on the seat that had merged four of
+that day's bumps. An unqualified key would have had the most
+authoritative-looking document a session reads certify staleness to the one
+reader least able to detect it. The client now reports the version it was
+**oriented by** beside the board's, and names the drift when they differ —
+turning the slot from a claim into an instrument.
+
+**#507 and #702 are the same lesson and not the same mechanism.**
+`minute_zero` needs a board and a key; the charter fragments must exist
+*before* any board contact, because they are what tell a band the board
+exists. One artifact cannot be both. What they share is a build step, and
+`charter_build.py` is it: the version is derived in all four places, while
+the fragment **bodies** stay hand-written because a ~200-word compression of
+a 262-line charter is editorial work and a script should not pretend
+otherwise. `clients/charter/README.md` now says which half is which, so
+"generated" stops being an aspiration the directory failed to meet.
+
+**Found on the way:** `test_the_legacy_keys_keep_their_exact_shape` asserted
+exact key equality while its own docstring promised §13's additive rule. It
+would have failed on any purely additive key — the thing it exists to
+permit. Corrected to a subset assertion; this job is the first change to
+reach it.
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·

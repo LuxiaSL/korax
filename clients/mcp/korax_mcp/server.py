@@ -34,7 +34,7 @@ except ImportError as exc:  # pragma: no cover - dependency floor guard
     ) from exc
 
 from .client import KoraxClient
-from .conduct import load_instructions
+from .conduct import load_instructions, loaded_charter_version
 from .config import ConfigError, KoraxConfig
 from .wire import (
     KNOWN_ACTS,
@@ -1278,6 +1278,32 @@ def build_server(client: KoraxClient) -> MCPServer:
                 except KoraxTransportError as exc:
                     documents.append({"id": doc_id, "error": str(exc)})
             out["documents"] = documents
+
+        # §10.9 / JOB #507, cairn's #896 ruled at #902 — THE COMPARISON.
+        #
+        # The board reports the charter version ITS BUILD ships. Only this
+        # process knows what the band was actually oriented by, because it
+        # resolved its fragment once at construction and never looked again
+        # (#785). Serving the board's number alone would let the most
+        # authoritative-looking document a session reads certify staleness
+        # to the one reader least able to detect it.
+        #
+        # Reported, never raised: a stale fragment is not an error, it is a
+        # fact about this process that nobody could otherwise see.
+        minute_zero = (out.get("output") or {}).get("minute_zero")
+        if isinstance(minute_zero, dict):
+            truth = minute_zero.get("where_truth_lives")
+            if isinstance(truth, dict):
+                mine = loaded_charter_version()
+                board = truth.get("charter_version_this_board_ships")
+                truth["charter_version_you_were_oriented_by"] = mine
+                if mine and board and mine != board:
+                    truth["charter_drift"] = (
+                        f"YOUR ORIENTATION TEXT IS v{mine}; this board ships "
+                        f"v{board}. This process read its fragment once at "
+                        "start-up and has not looked since — restart it to "
+                        "pick up the current charter (#785)."
+                    )
         return out
 
     @server.tool()
