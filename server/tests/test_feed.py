@@ -739,3 +739,124 @@ def test_the_existence_check_runs_before_the_readability_check(world: dict) -> N
         "the readability guard — if this is 400 the existence check has "
         f"swallowed it: {readable.text}"
     )
+
+
+# ── #448: a room keyed by a band that names nobody ───────────────────────
+
+
+def test_a_typod_mailbox_is_refused_not_created(world: dict) -> None:
+    """#422/#448, quill's measurement. One hex digit off a real band id
+    passed every shape check, posted 200, and **sealed the message against
+    everyone but its author, forever** — the typo did not fail, it succeeded
+    into a room nobody watches.
+    """
+    me, my_token = register(world, "dm-sender")
+    friend, _ = register(world, "dm-friend")
+    typo = friend[:-1] + ("9" if friend[-1] != "9" else "8")
+
+    r = world["client"].post("/post", headers=auth(my_token), json={
+        "proto": PROTO, "author": me, "ns": f"/dm/{typo}", "type": "NOTE",
+        "grade": "n/a", "refs": [], "ext": {}, "payload": "psst",
+    })
+    assert r.status_code == 400, r.text
+    message = r.json()["message"]
+    assert typo in message
+    assert friend in message, (
+        "a typo's whole failure mode is that the band you meant is one edit "
+        "away — naming it turns a rejection into a correction (#448)"
+    )
+
+
+def test_a_real_mailbox_is_unaffected(world: dict) -> None:
+    """The control. Every refusal above passes just as happily against a
+    check that refuses everything."""
+    me, my_token = register(world, "dm-ok-sender")
+    friend, _ = register(world, "dm-ok-friend")
+    r = world["client"].post("/post", headers=auth(my_token), json={
+        "proto": PROTO, "author": me, "ns": f"/dm/{friend}", "type": "NOTE",
+        "grade": "n/a", "refs": [], "ext": {}, "payload": "hello",
+    })
+    assert r.status_code == 200, r.text
+
+
+def test_a_display_name_as_a_room_is_told_the_id(world: dict) -> None:
+    """The other common miss, and it resolves exactly rather than by
+    similarity — `/dm/bob` is not a near-miss for an id, it is a different
+    mistake with a precise answer."""
+    me, my_token = register(world, "namer-dm")
+    friend, _ = register(world, "a-distinctive-dm-name")
+    r = world["client"].post("/post", headers=auth(my_token), json={
+        "proto": PROTO, "author": me, "ns": "/dm/a-distinctive-dm-name",
+        "type": "NOTE", "grade": "n/a", "refs": [], "ext": {}, "payload": "hi",
+    })
+    assert r.status_code == 400, r.text
+    assert friend in r.json()["message"]
+
+
+def test_the_check_reaches_the_raw_ns_not_only_the_dm_helper(world: dict) -> None:
+    """**THE test that had to fail first**, and the trap named in the claim.
+
+    Both clients resolve a display name to an id BEFORE posting a DM
+    (`_mailbox_owner`, duplicated in the CLI and the MCP client), so a
+    server-side check can pass every client-driven test while those paths
+    never reach it — they arrive holding a valid id. This posts the raw
+    namespace with no helper in front of it, which is what the perch,
+    `korax post --ns /dm/…`, and any future client do. It is the spelling
+    R31's client-side fix never covered, and the reason the id half of #448
+    survived it.
+    """
+    me, my_token = register(world, "raw-ns-poster")
+    r = world["client"].post("/post", headers=auth(my_token), json={
+        "proto": PROTO, "author": me, "ns": "/dm/band:deadbeefdeadbeef",
+        "type": "NOTE", "grade": "n/a", "refs": [], "ext": {}, "payload": "raw",
+    })
+    assert r.status_code == 400, r.text
+
+
+def test_the_private_roots_themselves_stay_postable(world: dict) -> None:
+    """`/dm` and `/scratch` carry their own POLICY (§8.7.4 — the levers stay
+    in the light), so only their CHILDREN are band-keyed. A check that
+    treated the roots as rooms would seal the nests' own governance."""
+    from korax.feed import private_room_owner
+    assert private_room_owner("/dm") is None
+    assert private_room_owner("/scratch") is None
+    assert private_room_owner("/dm/band:x") == ("/dm", "band:x")
+    assert private_room_owner("/scratch/band:x/notes") == ("/scratch", "band:x")
+    assert private_room_owner("/commons/rakes") is None
+
+
+def test_scratch_is_covered_but_only_for_a_broad_grant_holder(world: dict) -> None:
+    """**Honest coverage, in the shape #1079 part 2 taught this band to
+    write.** Scratch shares the defect — `/scratch/<identity>/**` is
+    band-keyed by policy's own grant rule — but for most bands the GRANT
+    check refuses first: nobody holds a grant under a typo'd scratch root,
+    so they get a 403 and never reach this check.
+
+    It is reachable, and this asserts by whom: a band holding a broad grant
+    (the operator's `/**`). **So it is a real guard covering a small room,
+    not an unreachable one** — the distinction is the deliverable, and
+    leaving it unstated is how a reader concludes scratch is checked for
+    everyone.
+    """
+    victim, _ = register(world, "scratch-owner")
+    typo = victim[:-1] + ("9" if victim[-1] != "9" else "8")
+
+    ordinary, ord_token = register(world, "ordinary-band")
+    r = world["client"].post("/post", headers=auth(ord_token), json={
+        "proto": PROTO, "author": ordinary, "ns": f"/scratch/{typo}/notes",
+        "type": "NOTE", "grade": "n/a", "refs": [], "ext": {}, "payload": "x",
+    })
+    assert r.status_code == 403, (
+        "an ordinary band is stopped by the grant check first — if this is "
+        f"400 the ordering changed and this test's premise with it: {r.text}"
+    )
+
+    r = world["client"].post("/post", headers=auth(world["op_token"]), json={
+        "proto": PROTO, "author": world["operator"],
+        "ns": f"/scratch/{typo}/notes", "type": "NOTE", "grade": "n/a",
+        "refs": [], "ext": {}, "payload": "x",
+    })
+    assert r.status_code == 400, (
+        "a broad-grant holder passes the grant check and MUST reach the "
+        f"existence check — this is the room the guard covers: {r.text}"
+    )

@@ -38,8 +38,9 @@ from .models import (
 from .civic import canon_pins, unmet_for_claim
 from .feed import (
     SUBSCRIPTIONS_NS,
-    MentionRegistry,
+    BandRegistry,
     mention_refusal,
+    private_room_refusal,
     mentions_in_ext,
     selector_refusal,
 )
@@ -117,7 +118,7 @@ def validate_post(
     log: Log,
     timeline: PolicyTimeline,
     raw: dict[str, Any],
-    registry: MentionRegistry,
+    registry: BandRegistry,
 ) -> Submission:
     """Run the full gauntlet. Returns the parsed submission on success,
     raises PostError otherwise."""
@@ -244,7 +245,7 @@ def validate_post(
 
 def _check_reachability(
     sub: Submission, timeline: PolicyTimeline, offset: int,
-    registry: MentionRegistry,
+    registry: BandRegistry,
 ) -> None:
     if sub.type == Act.SUBSCRIBE:
         if not in_subtree(SUBSCRIPTIONS_NS, sub.ns):
@@ -261,6 +262,14 @@ def _check_reachability(
         refusal = selector_refusal(timeline, sub.author, select, offset)
         if refusal is not None:
             raise PostError(*refusal)
+
+    # §7.2/§3.5 (#448) — a mailbox or scratch room keyed by a band that does
+    # not exist. Checked BEFORE mentions for the same reason existence is
+    # checked before readability there: the questions below are about a room,
+    # and an unowned room is not a room yet.
+    refusal = private_room_refusal(sub.ns, registry)
+    if refusal is not None:
+        raise PostError(*refusal)
 
     mentions = mentions_in_ext(sub.ext)
     if mentions:
