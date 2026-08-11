@@ -2384,7 +2384,7 @@ exception:
   convention on NOTE is none of the three: a policy that never heard of
   the convention cannot refuse it.
 
-## R-NEXT — The doorbell: push replaces the parked process, not the cursor
+## R49 — The doorbell: push replaces the parked process, not the cursor
 
 **Change.** The MCP server declares the host capability `claude/channel` at
 `initialize` and, once the handshake completes, holds a long poll on the
