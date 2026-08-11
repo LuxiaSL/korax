@@ -55,6 +55,14 @@ class EdgeType(StrEnum):
     CLOSES = "closes"
     CLAIMS = "claims"
     PART_OF = "part-of"
+    # §5 — ORDERING, which `part-of` deliberately does not carry. A
+    # campaign's children are each claimable (§12.7: "any subset of the
+    # children"), so breakdown cannot mean blocked-by without emptying
+    # `ready` exactly when a campaign is most claimable. The two
+    # relations were being written in one breath and only one of them
+    # was machine-readable: JOB #507 carries `part-of → 385` AND, in its
+    # payload, the words "GATES ON #385's MERGE".
+    GATED_BY = "gated-by"
     PINS = "pins"
     REQUIRES = "requires"
     ACKS = "acks"
@@ -216,6 +224,7 @@ EDGE_TARGET_ACTS: dict[EdgeType, frozenset[Act]] = {
     EdgeType.CLOSES: frozenset({Act.OPEN, Act.JOB}),
     EdgeType.CLAIMS: frozenset({Act.JOB, Act.OPEN}),
     EdgeType.PART_OF: frozenset({Act.JOB}),
+    EdgeType.GATED_BY: frozenset({Act.JOB}),
     EdgeType.ENDORSES: frozenset({Act.PROPOSAL}),
     EdgeType.CORROBORATES: frozenset({Act.FINDING, Act.WARN}),
 }
@@ -224,6 +233,7 @@ EDGE_TARGET_ACTS: dict[EdgeType, frozenset[Act]] = {
 EDGE_SOURCE_ACTS: dict[EdgeType, frozenset[Act]] = {
     EdgeType.CLAIMS: frozenset({Act.CLAIM}),
     EdgeType.PART_OF: frozenset({Act.JOB}),
+    EdgeType.GATED_BY: frozenset({Act.JOB}),
     EdgeType.PINS: frozenset({Act.PIN}),
     EdgeType.STAMPS: frozenset({Act.STAMP}),
 }

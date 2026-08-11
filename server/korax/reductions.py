@@ -770,6 +770,52 @@ def docket(
     }
 
 
+def _job_replacements(log: Log, job_id: int, offset: int) -> list[int]:
+    """JOBs that SUPERSEDE this one — X1's forwarding address."""
+    return sorted(
+        e.id for e in log.inbound(job_id, EdgeType.SUPERSEDES, offset)
+        if e.type == Act.JOB
+    )
+
+
+def _job_released(log: Log, job_id: int, offset: int) -> bool:
+    """Is this JOB finished with, for the purpose of releasing what it
+    gates? Closed or replaced — the same two dispositions `jobs` uses to
+    take a job out of `open`, asked in one place so a blocker cannot be
+    'done' to one caller and 'live' to another.
+
+    Deliberately NOT "has a live holder": a job someone is working is
+    emphatically not finished, and a taken blocker must keep blocking.
+    """
+    if log.inbound(job_id, EdgeType.CLOSES, offset):
+        return True
+    return bool(_job_replacements(log, job_id, offset))
+
+
+def _blockers(log: Log, job: Envelope, offset: int) -> list[int]:
+    """This JOB's LIVE blockers — `gated-by` targets not yet released.
+
+    `gated-by` and not `part-of`: §12.7 makes a campaign's children each
+    claimable ("the parent to take the lot, or any subset of the
+    children"), so reading breakdown as blocking would empty `ready`
+    exactly when a campaign is most claimable. The two relations were
+    being written in one breath with only one of them machine-readable
+    (#507: `part-of → 385` in its refs, "GATES ON #385's MERGE" in its
+    payload) — this is the second one getting a carrier.
+
+    A blocker outside `ns` still blocks: ordering is ordering, and the
+    log is consulted directly rather than the subtree scan, so a job
+    gated on another project's work reports honestly instead of
+    reporting free.
+    """
+    return sorted(
+        target for target in job.refs_of(EdgeType.GATED_BY)
+        if target <= offset
+        and log.get(target) is not None
+        and not _job_released(log, target, offset)
+    )
+
+
 def jobs(log: Log, timeline: PolicyTimeline, offset: int, ns: str) -> dict[str, Any]:
     """§10.8 — open / taken / delivered / lapsed, as the part-of forest.
     Lapsed is rendered distinctly from open: picked-up-and-dropped is
@@ -786,6 +832,7 @@ def jobs(log: Log, timeline: PolicyTimeline, offset: int, ns: str) -> dict[str, 
 
     open_, taken, delivered, lapsed, inadmissible = [], [], [], [], []
     superseded = []
+    blocked_by: dict[str, list[int]] = {}
     for job in sorted(all_jobs, key=lambda e: e.id):
         # X1 — being REPLACED is a disposition, and `closes` was the only
         # one this reduction could see. A re-pinned JOB sat in `open`
@@ -795,15 +842,21 @@ def jobs(log: Log, timeline: PolicyTimeline, offset: int, ns: str) -> dict[str, 
         # slightly false so a reduction would say something true. Its own
         # bucket, carrying the forwarding address: a reader holding the
         # old id deserves to be sent on, not to have it vanish.
-        replacements = sorted(
-            e.id for e in log.inbound(job.id, EdgeType.SUPERSEDES, offset)
-            if e.type == Act.JOB
-        )
+        replacements = _job_replacements(log, job.id, offset)  # shared with _job_released
         if replacements:
             superseded.append({"job": job.id, "by": replacements[0]})
             continue
+        # Every job still in play gets its blockers, not only the open
+        # ones: a TAKEN job whose blocker is live is a claimant working
+        # ahead of their substrate, and a LAPSED one carries its blockers
+        # to whoever picks it up next.
+        live_blockers = _blockers(log, job, offset)
+        if live_blockers:
+            blocked_by[str(job.id)] = live_blockers
+
         closers = log.inbound(job.id, EdgeType.CLOSES, offset)
         if closers:
+            blocked_by.pop(str(job.id), None)  # finished work is not blocked
             _, job_pol = timeline.policy_at(job.ns, job.id)
             delivered.append(
                 _delivery(log, job, closers, offset, job_pol.grades is not False)
@@ -847,4 +900,15 @@ def jobs(log: Log, timeline: PolicyTimeline, offset: int, ns: str) -> dict[str, 
         "superseded": superseded,
         "lapsed": lapsed,
         "inadmissible_claims": sorted(inadmissible),
+        # §10.8 — ordering, from `gated-by` only. `forest` above is
+        # `part-of` and answers a different question (what is this work
+        # part of); these two keys must never be derived from each other.
+        "blocked_by": blocked_by,
+        # Open, unheld, and nothing live in front of it. LAPSED jobs are
+        # claimable too and are deliberately NOT folded in: picked-up-and-
+        # dropped is information the next taker wants, and `lapsed`
+        # carries `prior_holders` and a release reason that `ready` would
+        # flatten away. A reader asking "everything I could take now"
+        # unions the two and keeps both stories.
+        "ready": [j for j in open_ if str(j) not in blocked_by],
     }
