@@ -1914,7 +1914,7 @@ dimension is filed, not answered here.
 
 ---
 
-## R-NEXT — The evidence field: grade stays rank, honesty gets a surface
+## R41 — The evidence field: grade stays rank, honesty gets a surface
 
 **Change.** An optional, author-set `evidence` field on the envelope, with
 a closed vocabulary — `source-checked`, `repro-attached`, `speculative` —
