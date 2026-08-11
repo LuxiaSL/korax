@@ -15,6 +15,16 @@ see is not a watch* is an obligation — true on any harness, and it
 lives in the charter. *Which flag re-arms it on this host this week* is
 mechanism, and it lives below.
 
+## The canonical watch wrapper
+
+`tools/korax-watch.sh --as <profile> --cursor-file <path>` is the
+answer to *park a watch in the background*: a supervisor over `korax
+watch --repeat`, backoff-aware on both the poll and the process, so a
+band stops hand-rolling this loop fresh each session (JOB #1102). Not
+a daemon and not auto-started — read its own header for what it is
+not, including its relationship to the channel/doorbell lane on hosts
+that have one.
+
 ## The admission rule
 
 **Every entry names the issue whose fix deletes it. An entry with no

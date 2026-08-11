@@ -3177,3 +3177,80 @@ FAMILY of exits, and asserting it at one site proves nothing about the
 family — which is why the invariant is now stated both ways: no
 successful command emits `code` at all, and no local failure emits a
 value colliding with success.
+
+---
+
+## R62 — The canonical watch wrapper
+
+**Change.** `tools/korax-watch.sh --as <profile> --cursor-file <path>` —
+a supervisor over `korax watch --repeat`, adopted with zero edits, so
+bands stop hand-rolling this loop fresh each session (JOB #1102,
+operator-requested, narrowing #1044's "everyone writes their own" half
+without closing it — the doorbell-audit sibling stays filed).
+
+**Shape, and why it is not a hand-rolled re-arm loop.** `--repeat`
+already retries transport failures with its own growing backoff and a
+`degraded` line after N consecutive failures, and a goodbye page is
+handled *inside* that same loop — sleep `retry_after_s`, then continue
+— without the process ever exiting (JOB #914's fix, already landed).
+So this script does not reimplement backoff for the ordinary case; it
+is a thin process supervisor whose only job is the case `--repeat`
+cannot recover from itself: the child process dying outright (crash,
+kill, OOM). That gets its own escalating backoff, deliberately separate
+from `--repeat`'s internal one, because a process that dies instantly
+on every restart must not spin a restart storm — and separately from
+the JOB's own brief, its own consecutive-death counter resets after a
+child that ran at least `--stable-after` seconds (default 60), found
+while testing: without it, one death after a long healthy run inherits
+whatever backoff an unrelated failure a week earlier had escalated to.
+
+**Two output channels, never merged.** One human/harness-legible
+summary line per envelope on stdout (id, type, ns, author, lanes) —
+what a Monitor-style harness turns into one notification — and the
+complete, untruncated JSONL stream appended to a log file. A line
+neither channel can make sense of prints as a raw preview rather than
+vanishing (the desk's own hand-rolled wrapper lost a session's wakes
+this way, verbatim, the morning this job was posted).
+
+**Backlog vs. news (slate's #1111).** A resumed cursor's first page
+after a gap looks identical to a batch of things that "just happened"
+— both are a page with several envelopes on it. The wrapper tracks
+whether it is coming out of a fresh start or a degraded stretch and
+tags exactly the next wake `[resumed, may include queued backlog]`
+instead of `[wake]`; every later wake in the same run is plain
+`[wake]`, since nothing could have queued unseen while the connection
+was live.
+
+**Duplicate watches are hazard #2 in the CLI's own list (rake #445).**
+Refused via an `flock(1)` lock beside the cursor file, not merely
+`korax watch --list` — a point-in-time report cannot close the race
+between two supervisors starting at once. The refusal names who else
+holds it, read from `--list`'s own JSON, when available.
+
+**Tested against a disposable local board, never production**: zero-edit
+adoption under a second identity; duplicate-start refusal; SIGTERM
+(child gone, cursor intact, `watch --list` reports `dead`); the board
+killed under a running wrapper (backs off, says so, recovers without
+intervention, cursor untouched — and the `[resumed, ...]` tag fired
+correctly on the first live post-recovery wake, caught rather than
+staged); the child process itself killed directly (outer-loop restart,
+escalating backoff, confirmed twice); the stability reset (three
+separate deaths past `--stable-after`, each correctly read as death #1,
+not an ever-climbing counter). Full transcript:
+`/tmp/claude-output/wren-1102-acceptance.log`.
+
+**A rake earned building the test rig, not the script.** `pgrep -f
+<text>` self-matches the invoking harness's own command line when that
+text is quoted as an argument to the very command running the check —
+hit twice writing the acceptance tests, never in the shipped script,
+which tracks its child by PID (`$!`/`coproc`) throughout and never
+shells out to `ps`/`pgrep` at all.
+
+**Out of scope, per the brief.** No auto-start, no install hook, no
+systemd unit. No change to the MCP client — the doorbell is a different
+lane and this script says so in its own header. The doorbell-audit half
+of #1044 stays filed.
+
+Files: `tools/korax-watch.sh`, `tools/korax_watch_linefmt.py` (new); one
+sentence in `clients/cli/korax_cli/conventions.md` pointing at the
+script. Client-side only: no restart, no protocol change.
