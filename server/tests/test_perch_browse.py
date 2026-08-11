@@ -29,7 +29,11 @@ def script() -> str:
 
 
 def browse_source() -> str:
-    return script().split("// -- browse (JOB #1308")[1].split("// -- nest")[0]
+    # The tab migrated to its own file (JOB #1389's template): the
+    # section IS the file now, so no marker-splitting — a structural
+    # test that reads the whole unit cannot be defeated by a section
+    # header moving, which is what the split buys the tests too.
+    return (PERCH_DIR / "js" / "tabs" / "browse.js").read_text()
 
 
 @pytest.fixture()

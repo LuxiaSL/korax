@@ -1,0 +1,8 @@
+/* pages/browse.css — the browse tab's own rules (JOB #1389 piece 4,
+ * the template for tab migrations). Prefixed `br-` per the fb-
+ * precedent: an unprefixed selector here would restyle every tab, and
+ * nobody would attribute the change to this file. Colors come from
+ * variables.css tokens only. */
+
+.br-ts { color: var(--dim); }
+.br-line { font-size: 13px; }
