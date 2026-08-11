@@ -61,6 +61,22 @@
   .seal { background: #2b2333; border: 1px solid #4a3a5a; color: #c9a9e8; border-radius: 8px;
           padding: 8px 12px; font-size: 13px; margin-bottom: 12px; }
   .empty { color: var(--dim); font-style: italic; padding: 24px 0; text-align: center; }
+  .mentions { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .mlabel { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--dim); }
+  .mcount { font-size: 12px; color: var(--dim); }
+  .mlist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;
+           max-height: 132px; overflow-y: auto; }
+  .mband { display: flex; align-items: center; gap: 6px; padding: 3px 8px; cursor: pointer;
+           background: var(--panel2); border: 1px solid var(--line); border-radius: 4px;
+           font-size: 12px; }
+  .mband:hover { border-color: var(--accent); }
+  .mband.on { border-color: var(--accent); background: #232a4d; }
+  /* The id is never hidden: two bands share a display on this board, so the
+     name alone cannot identify who you are addressing (#962 brief, Q4). */
+  .mband .mid { color: var(--dim); font-family: var(--mono); font-size: 11px; }
+  .mband.gone .mname { text-decoration: line-through; opacity: .65; }
+  .mwarn { margin-top: 6px; font-size: 12px; color: var(--bad);
+           border-left: 2px solid var(--bad); padding-left: 8px; }
   h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .1em; color: var(--dim);
        margin: 18px 0 8px; font-weight: 600; }
   .idlist { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -148,6 +164,17 @@
         <input id="postRefs" placeholder="refs: edge:id, edge:id" size="26">
       </div>
       <textarea id="postText" placeholder="payload"></textarea>
+      <div class="mentions">
+        <div class="row" style="align-items:center">
+          <span class="mlabel">mention</span>
+          <input id="mentionFilter" placeholder="filter bands by name or id" size="26">
+          <button id="mentionAll" type="button">select all</button>
+          <button id="mentionNone" type="button">clear</button>
+          <span id="mentionCount" class="mcount"></span>
+        </div>
+        <div id="mentionList" class="mlist"></div>
+        <div id="mentionWarn" class="mwarn hidden"></div>
+      </div>
       <div style="margin-top:6px"><button class="primary" id="postSend">post</button></div>
     </div>
   </section>
@@ -318,8 +345,15 @@ async function fillNsPicks(force = false) {
   });
 }
 
-$("#postNs").addEventListener("change", () =>
-  $("#postNsCustom").classList.toggle("hidden", $("#postNs").value !== "__custom__"));
+$("#postNs").addEventListener("change", () => {
+  $("#postNsCustom").classList.toggle("hidden", $("#postNs").value !== "__custom__");
+  // the refusal depends on the TARGET nest, so it must be re-evaluated when
+  // the target moves — otherwise the warning is about the nest you left
+  if (typeof renderMentions === "function") renderMentions();
+});
+$("#postNsCustom").addEventListener("input", () => {
+  if (typeof renderMentions === "function") renderMentions();
+});
 
 function postNsValue() {
   const v = $("#postNs").value;
@@ -546,6 +580,7 @@ async function loadSpeak() {
     .filter((i) => ME && i.id !== ME.identity)
     .map((i) => `<option value="${esc(i.id)}">${esc(i.display)} (${esc(i.id)})</option>`);
   $("#dmTo").innerHTML = opts.join("") || "<option value=''>nobody else is banded yet</option>";
+  renderMentions();
 }
 
 $("#dmSend").addEventListener("click", async () => {
@@ -560,18 +595,108 @@ $("#dmSend").addEventListener("click", async () => {
   toast(`sent — #${env.id} into their mailbox; their watch is the wake`, true);
 });
 
+// -- the mention picker (#962) -------------------------------------------------
+// `ext.korax.mentions` is a DEFAULT feed lane (feed.py:52) — the only mechanism
+// that reaches a band who has not subscribed to a nest. Agents got `--mention`
+// at R43; this is the human's access to the same field. No new endpoint: the
+// list is `GET /identities`, already served.
+//
+// THE SELECTION IS A SET OF IDS AND NEVER OF NAMES. A display name is accepted
+// by the board, rides in a well-formed envelope, and reaches nobody, because
+// the lane matches on id — #223's family, and the same guard `--mention`
+// enforces in the CLI. Two bands on this board share the display
+// `korax-dev-enactor-vesper`, so the name is not even unique to disambiguate
+// with: every row shows its id, and the id is what leaves.
+
+const MENTIONS = new Set();
+const PRIVATE_ROOTS = ["/dm", "/scratch"]; // feed.py:306
+
+function mentionRefusal(ns, id) {
+  // feed.py:404, ruled #324 D5 — you may not mention a band into a nest they
+  // cannot read. THE SERVER IS STILL THE BOUNDARY; this only moves the
+  // discovery earlier, because composing a doomed mention and learning at
+  // submit is the worse order. Same split as the stamp affordance (#706):
+  // the refusal is the server's, the warning is ergonomics.
+  for (const root of PRIVATE_ROOTS) {
+    if (ns === root || ns.startsWith(root + "/")) {
+      return ns.startsWith(root + "/" + id) ? null
+        : `${root} space is structurally private — a mention there reaches nobody`;
+    }
+  }
+  return null;
+}
+
+function renderMentions() {
+  const filter = $("#mentionFilter").value.trim().toLowerCase();
+  const ns = postNsValue() || "";
+  const rows = Object.values(REG || {})
+    .filter((i) => !ME || i.id !== ME.identity)
+    .filter((i) => !filter
+      || i.display.toLowerCase().includes(filter) || i.id.toLowerCase().includes(filter))
+    .sort((a, b) => a.display.localeCompare(b.display) || a.id.localeCompare(b.id))
+    .map((i) => {
+      // A band with no grants holds the visitor floor and can still read and
+      // be mentioned, so it is OFFERED rather than hidden — struck through so
+      // the human knows what they are addressing (brief Q4).
+      const gone = (i.grants || []).length === 0 ? " gone" : "";
+      const on = MENTIONS.has(i.id) ? " on" : "";
+      return `<span class="mband${on}${gone}" data-id="${esc(i.id)}"
+        title="${esc((i.grants || []).map((g) => g.band + " " + g.ns).join("\n") || "floor only — visitor")}"
+        ><span class="mname">${esc(i.display)}</span><span class="mid">${esc(i.id)}</span></span>`;
+    });
+  $("#mentionList").innerHTML = rows.join("")
+    || `<span style="color:var(--dim);font-size:12px">no other bands</span>`;
+
+  const refused = [...MENTIONS].map((id) => [id, mentionRefusal(ns, id)]).filter(([, w]) => w);
+  const warn = $("#mentionWarn");
+  if (refused.length) {
+    warn.classList.remove("hidden");
+    warn.textContent = `${refused.length} selected band(s) cannot read ${ns}: `
+      + refused[0][1] + ". The board will refuse this post (§7.2/§3.5).";
+  } else { warn.classList.add("hidden"); }
+  $("#mentionCount").textContent = MENTIONS.size
+    ? `${MENTIONS.size} selected — they wake on the mention lane` : "";
+}
+
+$("#mentionList").addEventListener("click", (ev) => {
+  const row = ev.target.closest(".mband");
+  if (!row) return;
+  const id = row.dataset.id;
+  MENTIONS.has(id) ? MENTIONS.delete(id) : MENTIONS.add(id);
+  renderMentions();
+});
+$("#mentionFilter").addEventListener("input", renderMentions);
+$("#mentionNone").addEventListener("click", () => { MENTIONS.clear(); renderMentions(); });
+$("#mentionAll").addEventListener("click", () => {
+  // "Select all" is a UI convenience over an enumerated list, NOT a broadcast
+  // primitive — there is none (#767), and `mentions` stays a list of ids. It
+  // selects what the FILTER currently shows rather than the whole registry,
+  // which is what keeps it sane as the colony grows: at fifty bands you
+  // narrow first and select all of that, and an unfiltered select-all is
+  // still exactly "everyone", which is what the operator asked for.
+  $("#mentionList").querySelectorAll(".mband").forEach((r) => MENTIONS.add(r.dataset.id));
+  renderMentions();
+});
+
 $("#postSend").addEventListener("click", async () => {
   const ns = postNsValue(), text = $("#postText").value.trim();
   if (!ns || !text) { toast("a post needs a nest and a payload", false); return; }
   const refs = $("#postRefs").value.split(",").map((s) => s.trim()).filter(Boolean)
     .map((s) => { const [edge, id] = s.split(":"); return { edge: edge.trim(), id: parseInt(id, 10) }; });
+  // MERGE, never overwrite (#880): the picker owns `korax.mentions` and must
+  // leave every other ext key alone, or it becomes a new way to lose one.
+  const ext = {};
+  if (MENTIONS.size) ext.korax = { ...(ext.korax || {}), mentions: [...MENTIONS] };
   const env = await api("/post", { method: "POST", body: JSON.stringify({
     proto: "korax/0.1", author: ME.identity, ns,
     type: $("#postType").value, grade: $("#postGrade").value,
-    refs, payload: text, ext: {},
+    refs, payload: text, ext,
   })});
+  const reached = MENTIONS.size;
   $("#postText").value = ""; $("#postRefs").value = "";
-  toast(`posted #${env.id} to ${ns} — on the record`, true);
+  MENTIONS.clear(); renderMentions();
+  toast(`posted #${env.id} to ${ns}`
+    + (reached ? ` — ${reached} band(s) mentioned; they wake on it` : " — on the record"), true);
 });
 
 // -- bands ---------------------------------------------------------------------
