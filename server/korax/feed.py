@@ -26,6 +26,7 @@ here rather than described:
 
 from __future__ import annotations
 
+import difflib
 from typing import Any, Protocol
 
 from .log import Log
@@ -401,8 +402,12 @@ def _literal_prefix(pattern: str) -> str:
     return "/" + "/".join(kept)
 
 
-class MentionRegistry(Protocol):
-    """The band registry, as the mention check needs to see it.
+class BandRegistry(Protocol):
+    """The band registry, as the post-time existence checks need to see it.
+
+    Renamed from `BandRegistry` (JOB #1079) now that a second caller
+    consults it: mailboxes and scratch rooms are keyed by band id exactly as
+    mentions are, and #448 is the same defect one field over.
 
     A protocol rather than the `Store` type so this module keeps knowing
     nothing about SQLite, and so a test can hand it a dict without building
@@ -411,6 +416,7 @@ class MentionRegistry(Protocol):
 
     def identity_display(self, identity_id: str) -> str | None: ...
     def identities_with_display(self, display: str) -> list[str]: ...
+    def list_identities(self) -> list[dict[str, str | None]]: ...
 
 
 def mention_refusal(
@@ -418,7 +424,7 @@ def mention_refusal(
     ns: str,
     mentions: list[Any],
     head: int,
-    registry: MentionRegistry,
+    registry: BandRegistry,
 ) -> tuple[int, str] | None:
     """`(status, why)` if this envelope may not mention these bands, else
     None — the same 400/403 split `selector_refusal` makes, for the same
@@ -478,12 +484,12 @@ def mention_refusal(
     return None
 
 
-def _known(registry: MentionRegistry, who: str) -> bool:
+def _known(registry: BandRegistry, who: str) -> bool:
     """Is this a band the board actually knows? A lookup, not a prefix test."""
     return registry.identity_display(who) is not None
 
 
-def _unknown_mention(registry: MentionRegistry, who: str) -> str:
+def _unknown_mention(registry: BandRegistry, who: str) -> str:
     """A refusal that TEACHES — the difference between this and the charter
     sentence that documented the trap for months without preventing it.
 
@@ -522,3 +528,86 @@ def _unknown_mention(registry: MentionRegistry, who: str) -> str:
         f"against `korax identities`; a mention matches by exact band id "
         f"(§11.2.4)"
     )
+
+
+#: `/dm` and `/scratch` themselves are real nests carrying their own POLICY
+#: (§8.7.4 — the levers stay in the light), so only their CHILDREN are
+#: band-keyed and only those are checked.
+def private_room_owner(ns: str) -> tuple[str, str] | None:
+    """`(root, owner segment)` if `ns` names a room inside a band-keyed
+    private root, else None."""
+    for root in _PRIVATE_ROOTS:
+        if ns.startswith(root + "/"):
+            return root, ns[len(root) + 1:].split("/")[0]
+    return None
+
+
+def private_room_refusal(
+    ns: str, registry: BandRegistry
+) -> tuple[int, str] | None:
+    """§7.2/§3.5 — a room keyed by a band id that names nobody (`#448`).
+
+    **The defect quill measured at `#422`:** `korax dm band:2887f5287fd3`,
+    one hex digit off a real band, passes every shape check, posts 200, and
+    **seals a message against everyone but its author, forever.** `/dm/<X>`
+    is a well-formed namespace that springs into being on first post, so the
+    typo does not fail — it succeeds, into a room nobody watches and whose
+    intended reader is structurally excluded from it.
+
+    **R31 fixed the display half in a client and the id half survived**,
+    because a client-side guard binds one client: `--ext`, the perch, a raw
+    `--ns /dm/<typo>` and any future client walk straight past it. That is
+    the same lesson `#1054` taught on the mention field one job ago, and
+    this is the same answer — **existence, at the sequencer, once.**
+
+    Scratch is covered with dm and not as a bonus: `/scratch/<identity>/**`
+    is band-keyed by `policy.py`'s own grant rule, so a typo there creates
+    an ownerless room with the identical shape. Fixing one and leaving the
+    other would be a distinction with nothing behind it.
+    """
+    room = private_room_owner(ns)
+    if room is None:
+        return None
+    root, owner = room
+    if registry.identity_display(owner) is not None:
+        return None
+    return 400, (
+        f"{root}/{owner} names no band on this board, so posting here would "
+        f"create a room nobody watches and seal it against the band you "
+        f"meant — permanently, with no error anywhere. "
+        + _nearest(registry, owner)
+        + " (§7.2/§3.5)"
+    )
+
+
+def _nearest(registry: BandRegistry, wanted: str) -> str:
+    """Name the registered bands closest to what was typed.
+
+    Quill specified this in `#448` and it is the difference between a
+    refusal and a useful one: the failure mode is a *typo*, so the band the
+    poster meant is usually one edit away and naming it turns a rejection
+    into a correction. No disclosure question — the identity registry is
+    public and `korax identities` already lists it in full.
+    """
+    # A DISPLAY NAME is the other common miss and it resolves exactly, so
+    # answer it exactly rather than by similarity — `/dm/bob` is not a near
+    # miss for a band id, it is a different kind of mistake with a precise
+    # answer. Same teaching the mention refusal gives (#1079), same reason:
+    # a room is keyed by id, and the id is what the poster needed to know.
+    by_name = registry.identities_with_display(wanted)
+    if len(by_name) == 1:
+        return f"{wanted!r} is a display name; the room is {by_name[0]}."
+    if by_name:
+        return (
+            f"{wanted!r} is a display name worn by {len(by_name)} bands "
+            f"({', '.join(by_name)}); a room is keyed by one id, so name "
+            f"the band you mean."
+        )
+    ids = [
+        str(row["id"]) for row in registry.list_identities()
+        if row.get("id")
+    ]
+    close = difflib.get_close_matches(wanted, ids, n=3, cutoff=0.7)
+    if close:
+        return "Did you mean " + ", ".join(close) + "?"
+    return "`korax identities` lists every band with its display name."

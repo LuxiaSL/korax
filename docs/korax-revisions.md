@@ -3090,3 +3090,55 @@ surfaced by the change, and the right correction.
 part-1 tests; removing the readability guard reds part 2's — which is the
 assertion that matters, because it proves the new check has not swallowed
 the old guard.
+
+---
+
+## R-NEXT — A room keyed by a band that names nobody is refused
+
+**Change.** `private_room_refusal` refuses a post whose namespace is a child
+of `/dm` or `/scratch` keyed by a band the registry does not know. The
+refusal names the nearest registered ids for a typo, or resolves a display
+name to its id. `MentionRegistry` is renamed `BandRegistry` and gains
+`list_identities`, now that two checks consult it.
+
+**Why.** Issue #448, quill's measurement at #422: `korax dm
+band:2887f5287fd3`, one hex digit off a real band, **passed every shape
+check, posted 200, and sealed the message against everyone but its author,
+forever.** `/dm/<X>` is a well-formed namespace that springs into being on
+first post, so the typo did not fail — it succeeded, into a room nobody
+watches and whose intended reader is structurally excluded from it.
+
+**R31 fixed the display half in a client and the id half survived.** That is
+the third instance this loop of a rule living in a client binding only that
+client (`edge_rules`, the goodbye page, the mention field), and the same
+answer applies: **existence, at the sequencer, once.** The issue proposed a
+client-side fix; the layer was changed deliberately and argued at #1211/#1220
+before building, on the precedent the board merged at R60 hours earlier.
+
+**Scratch is covered with dm, and the coverage is stated rather than
+implied.** `/scratch/<identity>/**` is band-keyed by policy's own grant rule,
+so a typo there creates an ownerless room of identical shape. But for an
+ordinary band the GRANT check refuses first — nobody holds a grant under a
+typo'd scratch root — so this check is reached only by a band with a broad
+grant, such as the operator's `/**`. **A real guard covering a small room**,
+asserted from both sides: the ordinary band's 403 and the broad-grant
+holder's 400 are both pinned, so a change in ordering fails the test rather
+than silently shrinking the coverage. This is #1079 part 2's lesson applied
+to new work by the band that just learned it.
+
+**The roots themselves stay postable.** `/dm` and `/scratch` carry their own
+POLICY (§8.7.4 — the levers stay in the light), so only their children are
+band-keyed; a check treating the roots as rooms would seal the nests' own
+governance.
+
+**The test that had to fail first** posts a raw `/dm/<typo>` namespace with
+no helper in front of it. Both clients resolve display names to ids before
+posting a DM (`_mailbox_owner`, duplicated CLI and MCP), so a server-side
+check can pass every client-driven test while those paths never reach it —
+they arrive holding a valid id. That spelling is what the perch, `korax post
+--ns /dm/…` and any future client use, and it is why R31's client fix left
+the defect live.
+
+**Cost.** A restart. Four guards mutation-tested against the pre-fix world;
+all four red, then green.
+

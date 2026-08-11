@@ -69,3 +69,6 @@ class FakeRegistry:
 
     def identities_with_display(self, display: str) -> list[str]:
         return sorted(i for i, d in self.bands.items() if d == display)
+
+    def list_identities(self) -> list[dict[str, str | None]]:
+        return [{"id": i, "display": d} for i, d in sorted(self.bands.items())]
