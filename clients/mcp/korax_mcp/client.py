@@ -11,14 +11,16 @@ an in-process board over ASGI, with no socket and no fixture server.
 
 from __future__ import annotations
 
+import asyncio
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from types import TracebackType
 from typing import Any, TypeVar
 
 import httpx
 from pydantic import BaseModel
 
+from . import backoff
 from .config import KoraxConfig
 from .wire import (
     ConformanceReport,
@@ -38,6 +40,72 @@ from .wire import (
 # A long-poll must not be cut off by the transport before the board's own
 # deadline; §11's contract is that `wait` returns at `timeout`, empty.
 WAIT_SLACK_SECONDS = 15.0
+
+#: Bounded retry (#1362 D5) — the CLI's `DEFAULT_ATTEMPTS`, and the
+#: contract test holds the two together.
+DEFAULT_ATTEMPTS = 5
+
+#: `/read` caps `limit` at 500.
+_PROBE_PAGE = 500
+
+_CLEAN = "clean"          # provably not appended — retry freely
+_AMBIGUOUS = "ambiguous"  # unknown — probe before doing anything
+_REFUSED = "refused"      # considered and rejected — never retry
+
+
+def _with_idem(envelope: Mapping[str, Any], idem: str) -> dict[str, Any]:
+    """`envelope` + `ext.korax.idem`, leaving the rest of `ext` alone."""
+    out = dict(envelope)
+    ext = dict(out.get("ext") or {})
+    korax_ext = dict(ext.get("korax") or {})
+    korax_ext["idem"] = idem
+    ext["korax"] = korax_ext
+    out["ext"] = ext
+    return out
+
+
+def _idem_of(envelope: Mapping[str, Any]) -> str | None:
+    ext = envelope.get("ext")
+    if not isinstance(ext, Mapping):
+        return None
+    korax_ext = ext.get("korax")
+    if not isinstance(korax_ext, Mapping):
+        return None
+    value = korax_ext.get("idem")
+    return value if isinstance(value, str) else None
+
+
+def _classify(exc: Exception) -> str:
+    """Whether `exc` proves the envelope was not appended.
+
+    A 503 raised by the board's own shutdown branch happens BEFORE the
+    store is touched, so it is provably clean — but only when the BOARD
+    is what answered. A bodiless 5xx is an intermediary talking and
+    cannot tell you whether the append ran, so the presence of a decoded
+    body, not the status alone, decides.
+    """
+    if isinstance(exc, KoraxTransportError):
+        return _AMBIGUOUS  # no verdict was ever reached
+    status = getattr(exc, "status", None)
+    if not isinstance(status, int):
+        return _AMBIGUOUS
+    if status == 503 and getattr(exc, "body", None):
+        return _CLEAN
+    if status >= 500:
+        return _AMBIGUOUS
+    return _REFUSED
+
+
+def _retry_after(exc: Exception) -> object:
+    body = getattr(exc, "body", None)
+    if not isinstance(body, Mapping):
+        return None
+    if "retry_after_s" in body:
+        return body["retry_after_s"]
+    notice = body.get("system_notice")
+    if isinstance(notice, Mapping):
+        return notice.get("retry_after_s")
+    return None
 
 M = TypeVar("M", bound=BaseModel)
 
@@ -183,8 +251,16 @@ class KoraxClient:
         refs: Sequence[Mapping[str, Any]] | None = None,
         pointer: Mapping[str, Any] | None = None,
         ext: Mapping[str, Any] | None = None,
+        idem: str | None = None,
+        attempts: int = DEFAULT_ATTEMPTS,
     ) -> EnvelopeJSON:
-        """Append one envelope. Returns the accepted record, id and all."""
+        """Append one envelope. Returns the accepted record, id and all.
+
+        `idem` opts into restart-survivable retry (#1205): pass a key and
+        an ambiguous failure is resolved by finding out whether the write
+        landed, rather than by reposting and hoping. Omit it and this is
+        one attempt with no key added — unchanged.
+        """
         submission = Submission(
             proto=self.config.proto,
             author=self.config.require_identity(),
@@ -197,13 +273,136 @@ class KoraxClient:
             pointer=Pointer.model_validate(pointer) if pointer is not None else None,
             ext=dict(ext or {}),
         )
-        accepted = await self._request("POST", "/post", body=submission.to_wire())
+        wire = submission.to_wire()
+        if idem is None:
+            accepted = await self._request("POST", "/post", body=wire)
+        else:
+            accepted = await self._post_with_retry(
+                wire, idem=idem, author=submission.author, attempts=attempts
+            )
         if not isinstance(accepted, dict):
             raise KoraxTransportError(
                 "POST /post: expected the accepted envelope, got "
                 f"{accepted.__class__.__name__}"
             )
         return accepted
+
+    async def _post_with_retry(
+        self,
+        wire: Mapping[str, Any],
+        *,
+        idem: str,
+        author: str,
+        attempts: int = DEFAULT_ATTEMPTS,
+        sleep: "Callable[[float], Any] | None" = None,
+    ) -> Any:
+        """Post, and survive a restart without appending twice (#1205).
+
+        `idem` is required HERE rather than on `post`, which is the same
+        sequencing rule the CLI enforces (#1362 D3): reaching this code
+        at all means a key exists, so "retry without idempotency" is not
+        a state this client can be in. `post(idem=None)` is one attempt,
+        no key, exactly today's behaviour.
+
+        **The key is permanent, public, attributable envelope content**
+        on an append-only log. Nothing removes it.
+        """
+        submission = _with_idem(wire, idem)
+        last_probe: list[dict[str, Any]] = []
+        pause = sleep or asyncio.sleep
+
+        for attempt in range(1, max(1, attempts) + 1):
+            try:
+                return await self._request("POST", "/post", body=submission)
+            except (KoraxError, KoraxTransportError) as exc:
+                disposition = _classify(exc)
+                if disposition == _REFUSED:
+                    raise  # the board considered it and said no
+                if attempt >= attempts:
+                    raise KoraxTransportError(
+                        f"{exc} — gave up after {attempts} attempts. idem key "
+                        f"{idem!r}: search for it before reposting; this client "
+                        "no longer knows whether the write landed "
+                        f"(last probe matched {[e.get('id') for e in last_probe]})"
+                    ) from exc
+                if disposition == _CLEAN:
+                    await pause(backoff.notice_delay(_retry_after(exc)))
+                    continue
+
+                # The probe gets its OWN retry and must never fall through
+                # to a repost: during a restart the write fails and the
+                # probe is unavailable in the same window, so "probe failed,
+                # loop round" would re-POST a write that may already have
+                # landed. A probe that cannot run means wait and look again.
+                landed = None
+                for look in range(1, attempts + 1):
+                    try:
+                        landed = await self._probe_idem(
+                            author=author,
+                            ns=str(submission.get("ns") or ""),
+                            idem=idem,
+                        )
+                        break
+                    except (KoraxError, KoraxTransportError) as probe_exc:
+                        if look >= attempts:
+                            raise KoraxTransportError(
+                                "UNDETERMINED: the write may or may not have "
+                                f"landed ({exc}), and the board could not be "
+                                f"asked ({probe_exc}). Nothing was reposted. "
+                                f"idem key {idem!r} — search for it when the "
+                                "board is back; if it is absent, retry with the "
+                                "same key and this resolves itself."
+                            ) from probe_exc
+                        await pause(backoff.escalating_delay(look))
+                assert landed is not None
+                last_probe = landed
+                if len(landed) == 1:
+                    return landed[0]
+                if len(landed) > 1:
+                    raise KoraxTransportError(
+                        f"AMBIGUOUS: {len(landed)} envelopes carry idem key "
+                        f"{idem!r} (ids {[e.get('id') for e in landed]}). This "
+                        "should be impossible — one key, one write. Refusing to "
+                        "guess which is yours or to post another; read them and "
+                        "supersede by hand if one is a duplicate."
+                    ) from exc
+                await pause(backoff.escalating_delay(attempt))
+
+        raise KoraxTransportError("retry loop ended without a verdict")
+
+    async def _probe_idem(
+        self, *, author: str, ns: str, idem: str
+    ) -> list[dict[str, Any]]:
+        """Every envelope of `author` in `ns` carrying `idem`.
+
+        Pages to the end rather than guessing a window: the match is an
+        exact string, so the bound need only be wide enough and never
+        precise — which is why no clock is involved anywhere here.
+
+        A probe that cannot run raises rather than returning `[]`. **"I
+        could not look" must never be reported as "it did not land"** —
+        that is the reading that appends the duplicate.
+        """
+        found: list[dict[str, Any]] = []
+        since = -1
+        while True:
+            # `read` returns a parsed `ReadPage`, NOT a dict — this client
+            # models its wire shapes. Treating it as a Mapping made the probe
+            # return "nothing found" unconditionally, which is the one wrong
+            # answer that appends a duplicate: caught by the sibling test
+            # asserting the board holds exactly one envelope, not by anything
+            # the probe itself said.
+            page = await self.read(ns=ns or None, author=author, since=since,
+                                   limit=_PROBE_PAGE)
+            envelopes = page.envelopes
+            if not envelopes:
+                return found
+            found.extend(e for e in envelopes if _idem_of(e) == idem)
+            if page.cursor <= since:
+                return found  # a board that will not advance: stop, do not spin
+            since = page.cursor
+            if len(envelopes) < _PROBE_PAGE:
+                return found
 
     # -- read (§9, §11) -----------------------------------------------------
 

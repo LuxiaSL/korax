@@ -35,7 +35,14 @@ import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from . import PROTO, conventions
-from .client import DEFAULT_TIMEOUT, LOCAL_FAILURE, ApiError, KoraxClient
+from .backoff import NO_JITTER, escalating_delay, notice_delay
+from .client import (
+    DEFAULT_ATTEMPTS,
+    DEFAULT_TIMEOUT,
+    LOCAL_FAILURE,
+    ApiError,
+    KoraxClient,
+)
 from .cursor import START, load_cursor, save_cursor
 from .wire import (
     Envelope,
@@ -160,10 +167,56 @@ async def cmd_post(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
     submission = build_submission(args, config, rt)
-    body = await client.post_envelope(submission.to_wire())
+    wire = submission.to_wire()
+
+    idem = getattr(args, "idem", None)
+    if not (idem or getattr(args, "retry", False)):
+        # Unchanged path, deliberately reachable: a caller who has not asked
+        # for retry gets exactly today's behaviour, one attempt, no key, and
+        # no permanent field added to their envelope on their behalf.
+        body = await client.post_envelope(wire)
+        _check_shape(Envelope, body, "/post")
+        rt.emit(body)
+        return 0
+
+    key = idem or _mint_idem()
+    # The same resolver every other command uses. Safe for the probe for a
+    # structural reason rather than a careful one: `board.append` refuses
+    # 403 unless `author` IS the authenticated identity (board.py:106), so
+    # an identity that disagrees with the token cannot have produced a
+    # landed envelope — there is no wrong-author probe that could return a
+    # false "did not land". A 403 is `_REFUSED` and never retried anyway.
+    author = await _resolve_author(args, client, config)
+    body = await client.post_with_retry(
+        wire,
+        idem=key,
+        author=author,
+        attempts=args.attempts,
+        on_event=lambda event: rt.warn(
+            f"[retry] attempt {event.get('attempt')}: {event.get('retry')} — "
+            f"{event.get('detail')}"
+            + (f" (#{event['id']})" if event.get("id") else "")
+            + f"  idem={key}"
+        ),
+    )
     _check_shape(Envelope, body, "/post")
     rt.emit(body)
     return 0
+
+
+def _mint_idem() -> str:
+    """A fresh idempotency key.
+
+    `uuid4().hex` and not a content hash: two byte-identical envelopes
+    are a legitimate thing to want (a repeated ack, the same one-word
+    WARN twice), and a content-derived key would silently collapse the
+    second into the first — recovering a write nobody made.
+    """
+    import uuid
+
+    return uuid.uuid4().hex
+
+
 
 
 _GLOB_SEGMENTS = frozenset({"*", "**"})
@@ -670,7 +723,20 @@ async def cmd_watch(
                 })
                 if args.exit_on_degrade:
                     return 1
-            await asyncio.sleep(min(args.backoff * failures, args.backoff_max))
+            # JOB #1362 D5 — the curve lives in `backoff.py` now and the
+            # write path's retry helper calls the same function. `fraction=
+            # NO_JITTER` keeps this path's sleeps EXACTLY as they have always
+            # been: lifting a curve is not licence to change the behaviour of
+            # the mechanism every band's session depends on. The herd this
+            # leaves in place is #1369/#1370, filed rather than fixed here.
+            await asyncio.sleep(
+                escalating_delay(
+                    failures,
+                    base=args.backoff,
+                    cap=args.backoff_max,
+                    fraction=NO_JITTER,
+                )
+            )
             continue
 
         failures = 0
@@ -706,9 +772,14 @@ async def cmd_watch(
                 # never exactly: a restart that runs long would otherwise
                 # turn every parked watch into a thundering re-arm at one
                 # instant.
-                delay = notice.get("retry_after_s")
+                # …and the number-handling (a board that sends null, a
+                # string, or nothing still produces a wait) is now in
+                # `notice_delay`. `fraction=NO_JITTER` again: the comment
+                # above has demanded a spread since it was written and the
+                # code beneath it never had one, which is exactly the defect
+                # #1370 asks to be ruled on — it is not this job's to take.
                 await asyncio.sleep(
-                    float(delay) if isinstance(delay, (int, float)) else 30.0
+                    notice_delay(notice.get("retry_after_s"), fraction=NO_JITTER)
                 )
         # an empty page with no notice is the long poll expiring: re-arm,
         # say nothing
@@ -2238,6 +2309,32 @@ def build_parser() -> argparse.ArgumentParser:
         "is stale on a quiet board by design — that mistake posted a lease "
         "already expired and rendered the job lapsed with its own claimant "
         "named as prior holder (#689/#690)",
+    )
+    post.add_argument(
+        "--retry",
+        action="store_true",
+        help="survive a board restart: mint an idempotency key, and on an "
+        "ambiguous failure (a bodiless 502, a timeout) find out whether the "
+        "write landed before deciding to repost (#1205). THE KEY IS "
+        "PERMANENT, PUBLIC, ATTRIBUTABLE envelope content — it rides in "
+        "ext.korax.idem on an append-only log and nothing will remove it. "
+        "Without this flag a post is one attempt and adds no key",
+    )
+    post.add_argument(
+        "--idem",
+        metavar="KEY",
+        help="the idempotency key to use, instead of a fresh one; implies "
+        "--retry. Pass the key from a previous run's give-up message to "
+        "resume it safely — same key, so a write that landed is found "
+        "rather than duplicated",
+    )
+    post.add_argument(
+        "--attempts",
+        type=int,
+        default=DEFAULT_ATTEMPTS,
+        help=f"give up after N attempts (default {DEFAULT_ATTEMPTS}); the "
+        "give-up message carries the key and the last probe result so the "
+        "write can be finished by hand",
     )
     post.set_defaults(func=cmd_post)
 
