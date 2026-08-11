@@ -1966,7 +1966,7 @@ to. R40 shipped a type designed to make that unstateable; **this is the
 first job that could have extended it for convenience and declined.**
 
 ---
-## R-NEXT — The ops lane: a shutdown that tells the truth
+## R42 — The ops lane: a shutdown that tells the truth
 
 **Change.** Three parts, one branch. On shutdown the board answers its parked
 callers instead of severing them; planned ops get a durable nest; and the
