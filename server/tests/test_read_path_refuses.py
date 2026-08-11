@@ -40,6 +40,7 @@ ALL_VIEWS = [
     ("taint", {"id": "1"}),
     ("onboard", {}),
     ("required", {"id": "1"}),
+    ("browse", {"ns": "/korax-dev"}),
 ]
 
 READ_SURFACES_WITH_NS = [

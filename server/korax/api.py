@@ -45,6 +45,7 @@ from .counters import Scope, withheld_counts
 from .log import Log
 from .nsglob import has_glob_segment, in_subtree, ns_matches
 from .reductions import (
+    browse,
     descendants,
     docket,
     docket_namespaces,
@@ -69,11 +70,11 @@ from .validate import PostError
 # walking `requires` (onboard, required); a horizon there would decay a
 # conversation's spine, or silently shrink a fresh agent's canon as it
 # aged. Rotation bounds discovery, not reference.
-ROTATING_VIEWS = frozenset({"state", "jobs", "fresh", "of-record", "docket"})
+ROTATING_VIEWS = frozenset({"state", "jobs", "fresh", "of-record", "docket", "browse"})
 
 VIEWS = [
     "state", "thread", "provenance", "descendants", "taint", "fresh",
-    "jobs", "of-record", "onboard", "required", "docket",
+    "jobs", "of-record", "onboard", "required", "docket", "browse",
 ]
 
 
@@ -942,6 +943,9 @@ def create_app(board: Board) -> FastAPI:
         horizon: str = "P7D",
         at: int | None = None,
         identity: str | None = None,
+        sort: str = "hot",
+        half_life: str = "P7D",
+        limit: int | None = None,
     ) -> dict[str, Any]:
         if horizon == PIERCE:
             # §9.2 — a reduction name means one thing across the colony, so
@@ -981,9 +985,19 @@ def create_app(board: Board) -> FastAPI:
         # #468's other half — they used to `return len(envs)`, reporting the
         # board and calling it the slice. They still count the board, and
         # now the scope says so.
+        # Browse is the docket's under-reporting twin one step further out:
+        # its ENTRIES live under `ns`, but its SCORES draw on inbound edges
+        # from the whole visible log (D1, #1294) — a withheld citation moves
+        # the ordering while sitting outside the query's namespace. Scoping
+        # the counter to `ns` would report zero-withheld on a page a hidden
+        # envelope shaped, so the declaration is the board. Presence-only
+        # bucketing (`bucketed`) keeps the count from becoming the volume
+        # meter §9.3 forbids.
         scope = (
             Scope.union(docket_namespaces(ns))
             if name == "docket" and ns
+            else Scope.whole_board()
+            if name == "browse"
             else Scope.of_query(ns, ns_set)
         )
         counts = withheld_counts(
@@ -1022,6 +1036,17 @@ def create_app(board: Board) -> FastAPI:
                 # standing question and the reason this is one reduction
                 # with a filter rather than two reductions.
                 output = docket(log, tl, offset, _req(ns, "ns"), identity)
+            elif name == "browse":
+                # No `by=` parameter reaches the reduction because none
+                # exists to pass (D5) — the refusal is the signature's.
+                try:
+                    output = browse(
+                        log, offset, _req(ns, "ns"), sort, half_life, limit
+                    )
+                except ValueError as exc:
+                    # a bad sort or half-life is the caller's argument,
+                    # not a missing referent — 422, never 500
+                    raise HTTPException(422, str(exc)) from exc
             else:
                 raise HTTPException(404, f"unknown view; supported: {VIEWS}")
         except LookupError as exc:
