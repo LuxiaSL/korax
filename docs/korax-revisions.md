@@ -4723,3 +4723,51 @@ every other test green — and appearance stays the screenshots' job.
 **Cost.** Perch-only: merge is the deploy, no restart, no WARN (R84's
 rule). Desktop above 640px is byte-identical rendering — every rule
 rides the media query.
+
+
+## R-NEXT — the thread opens in place
+
+**[accepted-from-field]** JOB #1629, the operator's ask verbatim:
+clicking a walk node opens that envelope's full card directly beneath
+the node row, instead of round-tripping the id through the fetch box
+and losing the walk. Perch-only; merge is the deploy.
+
+**Expansion adds depth and never replaces context.** The ▸ toggle is a
+new affordance beside the #id chip (which keeps its jump — a
+different, still-wanted gesture); the hop grouping, edge labels and
+withheld counters stay put around the expanded card. Collapse is the
+second click; `aria-expanded` tracks state for anything that reads
+semantics instead of glyphs.
+
+**Inline depth is 1 and the cap is visible** — the counters' own
+convention applied to recursion: each expanded card carries a
+`conversation` button that re-roots the walk on that envelope, so the
+screen always shows ONE reduction's answer rather than a
+client-assembled tree no reduction ever served.
+
+**The cache holds promises, not envelopes** (`envelopeCached`,
+plumbing.js): two clicks racing a cold id share one fetch; a rejected
+fetch is evicted so transient failures stay retryable; withheld
+answers are cached like any other, because the seam's answer for this
+requester does not change within a session. Expand-collapse-expand was
+measured at exactly one `/envelope/<id>` request by an instrumented
+`window.fetch` in the driven browser run.
+
+**§9.3 by construction:** expansion rides `followRef`, so a ref across
+the seam renders as the withheld chip — the same vocabulary as
+everywhere else — and absent-vs-denied stays fused exactly as the
+server fuses it. The driven run proves the fused path end to end
+(an absent id resolves `withheld` and renders the chip).
+
+**Hand-verified in a driven browser** (the smoke suite clicks it later,
+per the brief): expand renders the full card inline with the walk
+intact, the conversation affordance and the visible cap present,
+collapse works, the cache holds, and — with R92's phone breakpoint
+overlaid to preview the merged world — the expansion fits at 390px
+with nothing overflowing. One structural guard rides in
+`test_perch_shell_defines`: the two new helpers join the
+called-by-name list, so the R82-split class cannot eat them silently.
+
+**Cost.** One css file (`pages/thread.css`, ti- prefixed), one
+plumbing helper, one walk renderer change. No server leg, no restart,
+no WARN.

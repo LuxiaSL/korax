@@ -1,0 +1,31 @@
+/* css/pages/thread.css — the conversation walk's inline expansion
+ * (JOB #1629). Prefixed `ti-` per the fb-/br-/fd- precedent: an
+ * unprefixed selector here would restyle every tab. Colors come from
+ * variables.css tokens only. */
+
+/* The toggle reads as an affordance, not another tag: dim until it
+   matters, accent when the thread is open beneath it. */
+/* No min-height override here: base.css's phone block gives every
+   button a 40px touch floor and this toggle is exactly the kind of
+   control that floor exists for — a class selector would outrank the
+   media query's element selector and quietly undo R-NEXT(mobile). */
+.ti-toggle {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--dim);
+}
+.ti-toggle[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* The expanded card hangs off a thread rail so depth is visible at a
+   glance — indentation says "this is inside that", the rail says it
+   louder than whitespace can. */
+.ti-inline {
+  margin: 8px 0 4px 10px;
+  padding-left: 10px;
+  border-left: 2px solid var(--accent2);
+}
+.ti-inline .card { margin-bottom: 0; }
