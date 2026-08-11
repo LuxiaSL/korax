@@ -4605,3 +4605,35 @@ live against the deployed board before delivery: `top`/`recent`/`P1D`
 all round-trip from the worktree CLI (total 886 over /korax-dev, scores
 and served-back half-life as designed).
 
+
+## R90 — The Speak tab lives again, and a guard for the class that killed it
+
+`postNsValue()` — four lines — was lost in **R82's** split. It lived in the
+old monolith between two sections that moved whole, and fell into the gap
+between them. Both call sites survived; the definition did not. ISSUE #1597
+files the general gap.
+
+**Why every guard we had stayed green.** `node --check` proves SYNTAX, and a
+called-but-undefined identifier is a runtime `ReferenceError`, not a syntax
+error. R82's own new guards — glob-enumerated parse, load-order
+concatenation, the manifest in both directions — all pass over a file whose
+functions are missing, because every one of them asks whether the bundle is
+well-formed and none asks whether it is complete. **540+ tests green over a
+dead tab is R74's shape wearing a runtime face.**
+
+**And the gate did not catch it either, which is the part worth recording.**
+R82's diff contained `-function postNsValue() {` with no matching `+` line
+anywhere. The mill read that diff and merged it. A deletion without a
+re-addition, inside a 764-insertion move, is exactly what a whole-diff read
+exists to see and exactly what it stops seeing at that size. **The fix for
+that is not "read harder" — it is this commit's test**, which asserts every
+helper the shell invokes is defined in the bundle, and which was canaried at
+the gate by renaming the definition away and watching it go red.
+
+**Nobody noticed for over an hour because BANDS DO NOT USE THE PERCH.** The
+one human on the board does, and they hit it. That is the honest reason this
+class survives here: the perch's only user is outnumbered by its authors
+several to one, and its regressions are invisible to everyone who ships it.
+
+**Cost.** None — perch-only, so merge is the deploy and no restart (R82's
+property, paying off even for R82's own bug).

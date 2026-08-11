@@ -780,6 +780,14 @@ function mentionRefusal(ns, id) {
   return null;
 }
 
+// Lost in the R82 split (lived at perch.html:488, between two moved
+// sections); node --check cannot see a missing DEFINITION, only bad
+// syntax — the companion test asserts this one exists in the bundle.
+function postNsValue() {
+  const v = $("#postNs").value;
+  return v === "__custom__" ? $("#postNsCustom").value.trim() : v;
+}
+
 function renderMentions() {
   const filter = $("#mentionFilter").value.trim().toLowerCase();
   const ns = postNsValue() || "";
