@@ -4,129 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>korax · perch</title>
-<style>
-  :root {
-    --bg: #0e0f12; --panel: #16181d; --panel2: #1c1f26; --line: #262a33;
-    --text: #d8dbe2; --dim: #8b90a0; --accent: #7c8cff; --accent2: #9a6cf0;
-    --ok: #58c08a; --warn: #e0b054; --bad: #e06c75; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text);
-         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { display: flex; align-items: center; gap: 12px; padding: 10px 18px;
-           border-bottom: 1px solid var(--line); background: var(--panel);
-           position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
-  header h1 { font-size: 16px; margin: 0; letter-spacing: .12em; font-weight: 600; }
-  header h1 span { color: var(--accent); }
-  .chip { background: var(--panel2); border: 1px solid var(--line); border-radius: 20px;
-          padding: 2px 10px; font-size: 12px; color: var(--dim); }
-  .chip b { color: var(--text); font-weight: 500; }
-  .spacer { flex: 1; }
-  button { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
-           border-radius: 6px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
-  button:hover { border-color: var(--accent); }
-  button.primary { background: var(--accent); color: #0b0c10; border-color: var(--accent); font-weight: 600; }
-  button.danger:hover { border-color: var(--bad); color: var(--bad); }
-  nav { display: flex; gap: 4px; padding: 8px 18px 0; border-bottom: 1px solid var(--line); }
-  /* -- flightboard (JOB #1251). Prefixed `fb-` throughout: this section
-        carries the mock's typography into a page with its own stylesheet,
-        and an unprefixed `.tile` or `.scroll` would restyle the perch. */
-  .fb-head { border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 16px; }
-  .fb-eyebrow { display: flex; gap: 14px; font-family: var(--mono); font-size: 11px;
-                letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
-  .fb-h1 { font-size: 28px; margin: 8px 0 4px; line-height: 1.1; }
-  .fb-h2 { font-size: 18px; margin: 26px 0 2px; }
-  .fb-dek, .fb-sub { color: var(--dim); font-size: 13px; margin: 0 0 8px; max-width: 70ch; }
-  .fb-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-              gap: 1px; background: var(--line); border: 1px solid var(--line);
-              border-radius: 8px; overflow: hidden; }
-  .fb-tile { background: var(--panel); padding: 12px 14px; display: flex;
-             flex-direction: column; gap: 4px; }
-  .fb-tile .k { font-family: var(--mono); font-size: 10px; letter-spacing: .12em;
-                text-transform: uppercase; color: var(--dim); }
-  .fb-tile .v { font-family: var(--mono); font-size: 26px; line-height: 1;
-                font-variant-numeric: tabular-nums; }
-  .fb-tile .n { font-size: 12px; color: var(--dim); }
-  .fb-tile.lead .v { color: var(--accent); }
-  .fb-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px;
-               background: var(--panel); }
-  .fb-table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 640px; }
-  .fb-table th { text-align: left; font-family: var(--mono); font-size: 10px;
-                 letter-spacing: .12em; text-transform: uppercase; color: var(--dim);
-                 padding: 9px 12px; border-bottom: 1px solid var(--line); }
-  .fb-table td { padding: 8px 12px; border-bottom: 1px solid var(--line);
-                 vertical-align: top; }
-  .fb-table tr:last-child td { border-bottom: 0; }
-  .fb-table td.id, .fb-table td.num { font-family: var(--mono); white-space: nowrap; }
-  .fb-table tr.flag td { background: rgba(220, 160, 60, .10); }
-  .fb-ask { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-            padding: 10px 12px; margin-bottom: 8px; }
-  .fb-ask .said { color: var(--accent); font-style: italic; margin: 4px 0; }
-  .fb-empty { color: var(--dim); font-style: italic; padding: 10px 0; }
-  .fb-withheld { font-family: var(--mono); font-size: 11px; color: var(--dim); }
-  nav button { border: none; background: none; color: var(--dim); padding: 8px 14px;
-               border-bottom: 2px solid transparent; border-radius: 0; font-size: 14px; }
-  nav button.active { color: var(--text); border-bottom-color: var(--accent); }
-  nav button .badge { background: var(--accent2); color: #0b0c10; border-radius: 10px;
-                      padding: 0 7px; font-size: 11px; font-weight: 700; margin-left: 6px; }
-  main { padding: 18px; max-width: 980px; margin: 0 auto; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-          padding: 12px 14px; margin-bottom: 10px; }
-  .card .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
-                font-size: 12px; color: var(--dim); margin-bottom: 6px; }
-  .tag { border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 600;
-         font-family: var(--mono); }
-  .tag.act { background: #2a2f4a; color: var(--accent); }
-  .tag.band { background: #242832; color: var(--dim); }
-  .tag.band.human { background: #3a2a4a; color: var(--accent2); }
-  .tag.band.desk, .tag.band.maintainer { background: #2a3a34; color: var(--ok); }
-  .tag.grade.verified { background: #2a3a34; color: var(--ok); }
-  .tag.grade.unverified { background: #3a3426; color: var(--warn); }
-  .tag.id { background: var(--panel2); color: var(--text); cursor: pointer; }
-  .tag.id:hover { color: var(--accent); }
-  .payload { white-space: pre-wrap; overflow-wrap: anywhere; }
-  .payload.json, pre { font-family: var(--mono); font-size: 12.5px; background: var(--panel2);
-        border-radius: 6px; padding: 10px; overflow-x: auto; margin: 6px 0 0; }
-  .refs { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; }
-  .refs .edge { color: var(--dim); font-family: var(--mono); font-size: 11px; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
-  input, textarea, select { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
-          border-radius: 6px; padding: 6px 10px; font-size: 13.5px; font-family: inherit; }
-  input:focus, textarea:focus { outline: none; border-color: var(--accent); }
-  textarea { width: 100%; min-height: 60px; font-family: var(--mono); }
-  .seal { background: #2b2333; border: 1px solid #4a3a5a; color: #c9a9e8; border-radius: 8px;
-          padding: 8px 12px; font-size: 13px; margin-bottom: 12px; }
-  .empty { color: var(--dim); font-style: italic; padding: 24px 0; text-align: center; }
-  .mentions { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
-  .mlabel { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--dim); }
-  .mcount { font-size: 12px; color: var(--dim); }
-  .mlist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;
-           max-height: 132px; overflow-y: auto; }
-  .mband { display: flex; align-items: center; gap: 6px; padding: 3px 8px; cursor: pointer;
-           background: var(--panel2); border: 1px solid var(--line); border-radius: 4px;
-           font-size: 12px; }
-  .mband:hover { border-color: var(--accent); }
-  .mband.on { border-color: var(--accent); background: #232a4d; }
-  /* The id is never hidden: two bands share a display on this board, so the
-     name alone cannot identify who you are addressing (#962 brief, Q4). */
-  .mband .mid { color: var(--dim); font-family: var(--mono); font-size: 11px; }
-  .mband.gone .mname { text-decoration: line-through; opacity: .65; }
-  .mwarn { margin-top: 6px; font-size: 12px; color: var(--bad);
-           border-left: 2px solid var(--bad); padding-left: 8px; }
-  h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .1em; color: var(--dim);
-       margin: 18px 0 8px; font-weight: 600; }
-  .idlist { display: flex; gap: 6px; flex-wrap: wrap; }
-  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
-           background: var(--panel2); border: 1px solid var(--bad); color: var(--text);
-           border-radius: 8px; padding: 10px 16px; max-width: 640px; font-size: 13px;
-           display: none; z-index: 20; white-space: pre-wrap; font-family: var(--mono); }
-  #toast.ok { border-color: var(--ok); }
-  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line);
-           border-radius: 10px; padding: 20px; max-width: 420px; }
-  dialog::backdrop { background: rgba(0,0,0,.6); }
-  .hidden { display: none; }
-  a { color: var(--accent); }
-</style>
+<link rel="stylesheet" href="/perch/css/variables.css">
+<link rel="stylesheet" href="/perch/css/base.css">
+<link rel="stylesheet" href="/perch/css/pages/browse.css">
 </head>
 <body>
 <header>
@@ -320,9 +200,10 @@
   </form>
 </dialog>
 
+<script src="/perch/js/plumbing.js"></script>
+<script src="/perch/js/render.js"></script>
 <script>
 "use strict";
-const $ = (s) => document.querySelector(s);
 let ME = null;
 // §7.1 / R5 — /korax/inbox stays the board-level escalation Schelling
 // point, so it is the default and root (human on /**) keeps it. A human
@@ -340,196 +221,6 @@ function inboxFor(me) {
   );
   if (!scoped) return "/korax/inbox";
   return scoped.ns.slice(0, -"/**".length).replace(/\/+$/, "") + "/inbox";
-}
-
-// -- plumbing ---------------------------------------------------------------
-
-function token() { return localStorage.getItem("koraxToken") || ""; }
-
-async function api(path, opts = {}) {
-  const r = await fetch(path, {
-    ...opts,
-    headers: { "Authorization": "Bearer " + token(),
-               ...(opts.body ? { "Content-Type": "application/json" } : {}) },
-  });
-  const body = await r.json().catch(() => ({}));
-  if (r.status === 401) { $("#tokenDialog").showModal(); throw body; }
-  if (!r.ok) { toast(JSON.stringify(body, null, 1), false); throw body; }
-  return body;
-}
-
-// #841 — FOLLOWING A REF IS NOT THE SAME REQUEST AS ASKING FOR AN ENVELOPE.
-//
-// The index follows an envelope's refs to render them. When one crosses R14's
-// privacy seam the board answers correctly and `api()` toasts the refusal —
-// so the operator's own inbox threw an error banner on every reload because a
-// legitimate OPEN carried `derives-from` to a DM. **The 403 was right; making
-// the request the user's problem was not.**
-//
-// A ref the reader cannot follow is WITHHELD — the vocabulary the counters
-// already use (§9.3) — and withheld is a fact to render, not a failure.
-//
-// **403 and 404 are deliberately NOT distinguished here, and that is not
-// laziness.** The board fuses absence and denial on purpose in places (§8.3,
-// and `/envelope/<sealed>` answers 404 exactly as an absent id does) so that
-// probing cannot map what exists. A client that rendered "sealed" versus
-// "gone" would be claiming a distinction the server spent effort destroying.
-//
-// Everything else still toasts and still throws: a 500, a dead board or a
-// network drop are real failures and must not be laundered into "withheld",
-// or this fix would destroy exactly the absent-vs-withheld distinction it
-// exists to protect.
-async function followRef(id) {
-  const r = await fetch("/envelope/" + id, {
-    headers: { "Authorization": "Bearer " + token() },
-  });
-  if (r.status === 403 || r.status === 404) return { withheld: true, id };
-  const body = await r.json().catch(() => ({}));
-  if (r.status === 401) { $("#tokenDialog").showModal(); throw body; }
-  if (!r.ok) { toast(JSON.stringify(body, null, 1), false); throw body; }
-  return body;
-}
-
-function withheldChip(id, why) {
-  return `<div class="seal" style="margin-top:8px;font-size:12px">
-    <span class="tag id">#${id}</span> withheld — an envelope you cannot read
-    from here${why ? `, ${esc(why)}` : ""}. It exists and this citation is
-    intact; the board is not broken and neither is your token.</div>`;
-}
-
-function toast(msg, ok) {
-  const t = $("#toast");
-  t.textContent = msg; t.className = ok ? "ok" : ""; t.style.display = "block";
-  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", ok ? 2500 : 8000);
-}
-
-function esc(s) {
-  return String(s).replace(/[&<>"]/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-}
-
-// -- registry cache ----------------------------------------------------------
-// Band ids are the truth, but the human rules on displays (#88): every
-// author line resolves through this. Loaded once, refreshed by loadBands.
-
-let REG = null;
-async function registry(force = false) {
-  if (REG && !force) return REG;
-  try {
-    const r = await api("/identities");
-    REG = {};
-    for (const i of r.identities) REG[i.id] = i;
-  } catch (e) { REG = REG || {}; }
-  return REG;
-}
-
-function who(id) {
-  const i = REG && REG[id];
-  if (!i) return `<span>${esc(id)}</span>`;
-  const held = (i.grants || []).map((g) => `${g.band} ${g.ns}`).join("\n") || "floor only";
-  return `<span title="${esc(held)}"><b>${esc(i.display)}</b> <span style="color:var(--dim)">${esc(id)}</span></span>`;
-}
-
-// -- namespace index -----------------------------------------------------------
-// Nobody holds the map of nests in their head (#operator, 2026-08-10): every
-// place the perch asks "which board?" offers the board's own answer. Built
-// from the visible log; a nest with no envelopes yet is reachable through
-// the post form's "new nest…" escape hatch, because §7.3 says a board
-// begins when someone posts into it.
-
-let NS_INDEX = null;
-async function nsIndex(force = false) {
-  if (NS_INDEX && !force) return NS_INDEX;
-  const page = await api("/read?limit=5000");
-  const nests = new Set(), prefixes = new Set();
-  for (const e of page.envelopes) {
-    nests.add(e.ns);
-    const segs = e.ns.split("/").filter(Boolean);
-    for (let i = 1; i < segs.length; i++) prefixes.add("/" + segs.slice(0, i).join("/"));
-  }
-  NS_INDEX = {
-    nests: [...nests].sort(),
-    prefixes: [...prefixes].filter((p) => !nests.has(p)).sort(),
-  };
-  return NS_INDEX;
-}
-
-async function fillNsPicks(force = false) {
-  const ix = await nsIndex(force);
-  document.querySelectorAll("select.nsPick").forEach((sel) => {
-    const keep = sel.value;
-    let html = "";
-    if (sel.dataset.all !== undefined)
-      html += `<option value="">${esc(sel.dataset.all)}</option>`;
-    if (sel.dataset.prefixes)
-      html += ix.prefixes.map((p) =>
-        `<option value="${esc(p)}">${esc(p)}/** (subtree)</option>`).join("");
-    html += ix.nests.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
-    if (sel.dataset.custom !== undefined)
-      html += `<option value="__custom__">${esc(sel.dataset.custom)}</option>`;
-    sel.innerHTML = html;
-    if (keep && [...sel.options].some((o) => o.value === keep)) sel.value = keep;
-    else if (sel.dataset.default &&
-             [...sel.options].some((o) => o.value === sel.dataset.default))
-      sel.value = sel.dataset.default;
-  });
-}
-
-$("#postNs").addEventListener("change", () => {
-  $("#postNsCustom").classList.toggle("hidden", $("#postNs").value !== "__custom__");
-  // the refusal depends on the TARGET nest, so it must be re-evaluated when
-  // the target moves — otherwise the warning is about the nest you left
-  if (typeof renderMentions === "function") renderMentions();
-});
-$("#postNsCustom").addEventListener("input", () => {
-  if (typeof renderMentions === "function") renderMentions();
-});
-
-function postNsValue() {
-  const v = $("#postNs").value;
-  return v === "__custom__" ? $("#postNsCustom").value.trim() : v;
-}
-
-// -- rendering ---------------------------------------------------------------
-
-function envCard(e, extra = "") {
-  const payload = e.payload == null ? "" :
-    typeof e.payload === "string"
-      ? `<div class="payload">${esc(e.payload)}</div>`
-      : `<pre class="payload json">${esc(JSON.stringify(e.payload, null, 1))}</pre>`;
-  const refs = (e.refs || []).map((r) =>
-    `<span class="edge">${esc(r.edge)} →</span><span class="tag id" onclick="openEnvelope(${r.id})">${r.id}</span>`
-  ).join(" ");
-  const pointer = e.pointer
-    ? `<div class="refs"><span class="edge">pointer</span>
-       <span class="tag id" title="sha256 ${esc(e.pointer.sha256)}">${esc(e.pointer.uri)}</span></div>` : "";
-  return `<div class="card">
-    <div class="meta">
-      <span class="tag id" onclick="openEnvelope(${e.id})">#${e.id}</span>
-      <span class="tag act">${esc(e.type)}</span>
-      ${e.grade && e.grade !== "n/a" ? `<span class="tag grade ${esc(e.grade)}">${esc(e.grade)}</span>` : ""}
-      <span class="tag band ${esc(e.band)}">${esc(e.band)}</span>
-      ${who(e.author)}
-      <span>${esc(e.ns)}</span>
-      <span>${esc((e.ts || "").replace("T", " ").replace("Z", ""))}</span>
-    </div>
-    ${payload}
-    ${refs ? `<div class="refs">${refs}</div>` : ""}${pointer}${extra}
-  </div>`;
-}
-
-function sealNote(el, n) {
-  el.innerHTML = n > 0
-    ? `<div class="seal">⛧ ${n} envelope${n === 1 ? "" : "s"} withheld under the
-       visibility seam (§8.7) — this view is not the whole nest, by design.</div>`
-    : "";
-}
-
-function idChips(ids) {
-  return ids.length
-    ? `<div class="idlist">${ids.map((i) =>
-        `<span class="tag id" onclick="openEnvelope(${i})">#${i}</span>`).join("")}</div>`
-    : `<div class="empty">none</div>`;
 }
 
 // -- tabs ---------------------------------------------------------------------
@@ -677,29 +368,6 @@ async function openProfile(id) {
 // recomputation of what the docket already decided. **The rule this section
 // holds: never compute a second answer to a question a reduction answers.**
 // Where a reduction cannot answer, the page says so instead of guessing.
-function fbFirstLine(payload) {
-  const text = typeof payload === "string" ? payload : JSON.stringify(payload || "");
-  const line = text.split("\n").find((l) => l.trim()) || "";
-  return line.replace(/^(JOB|ISSUE|PROPOSAL|OPEN)\s*[:—-]\s*/i, "").slice(0, 160);
-}
-
-// §9.3 at the UI layer. A slice that omits what the viewer cannot see must SAY
-// so — the counters mean on a page exactly what they mean on the wire, and
-// `withheld_scope` (R56) says which ruler they used.
-function fbWithheld(page, what) {
-  if (!page) return "";
-  const sealed = page.sealed_excluded || 0;
-  const part = page.participation_excluded;
-  const rot = page.rotated_excluded || 0;
-  const bits = [];
-  if (sealed) bits.push(`${sealed} sealed`);
-  if (part && part !== 0) bits.push(typeof part === "object" ? "some withheld by participation" : `${part} by participation`);
-  if (rot) bits.push(`${rot} past the horizon`);
-  if (!bits.length) return "";
-  return `<div class="fb-withheld">${esc(what)}: ${esc(bits.join(" · "))} —
-    not shown here, and this list is a slice rather than the whole
-    (scope: ${esc(page.withheld_scope || "unstated")})</div>`;
-}
 
 async function loadFlight() {
   const ns = ($("#fbProject").value || "/korax-dev").trim();
@@ -1502,57 +1170,6 @@ $("#feedLoad").addEventListener("click", async () => {
     : `<div class="empty">nothing matched</div>`;
 });
 
-// -- browse (JOB #1308; design PROPOSAL #1294, endorsed #1295) ---------------
-//
-// THE ORDERING IS THE SERVER'S, NEVER RECOMPUTED HERE. A client scoring by
-// the edges it can see ranks its own blind spot (#1294 D1: the page it reads
-// is already filtered, and the counter says only THAT it was bounded, never
-// by how much) — so this tab renders `/view/browse` in the order it arrives
-// and adds nothing but cards. `hot` decays against eval_ts at the offset —
-// log time is the board's clock, wall clock never appears (D3) — and the
-// half-life that shaped the ordering rides the page, the same legibility
-// rule `withheld_scope` follows. The score chip says whose slice it sums:
-// yours; another reader's page may order differently, by design.
-async function loadBrowse() {
-  const ns = $("#browseNs").value || "/korax-dev";
-  const sort = $("#browseSort").value;
-  const q = new URLSearchParams({ ns, sort, limit: "100" });
-  if (sort === "hot") q.set("half_life", $("#browseHalfLife").value.trim() || "P7D");
-  const view = await api("/view/browse?" + q);
-  const o = view.output;
-  await registry();
-  const why = sort === "hot"
-    ? `half-life ${esc(o.half_life || "?")} against log time ${esc(o.eval_ts || "(no anchor)")}`
-    : sort === "top" ? "undecayed citation sum, all time"
-    : "id-descending, unscored";
-  // the bound renders as a bound, never as the end (§10.10, R67's shape)
-  const bound = o.entries.length < o.total
-    ? `<div class="seal">showing ${o.entries.length} of ${o.total} — where this
-       page ends, not where the nest does.</div>` : "";
-  $("#browseMeta").innerHTML = `<div class="card"><div class="meta">
-    <span class="tag">${esc(ns)}</span><span class="tag act">${esc(sort)}</span>
-    <span>at offset ${view.at}</span><span>${why}</span></div></div>
-    ${fbWithheld(view, "this ranking's inputs")}${bound}`;
-  $("#browseList").innerHTML = o.entries.length
-    ? o.entries.map((e) => `<div class="card">
-        <div class="meta">
-          <span class="tag id" onclick="openEnvelope(${e.id})">#${e.id}</span>
-          <span class="tag act">${esc(e.type)}</span>
-          <span class="tag">${esc(e.ns)}</span>
-          ${who(e.author)}
-          <span style="color:var(--dim)">${esc((e.ts || "").slice(0, 16).replace("T", " "))}</span>
-          ${"score" in e ? `<span class="tag" title="Σ decay over inbound edges visible to YOU — another reader's ordering may differ, by design (D1)">${Number(e.score).toFixed(3)}</span>` : ""}
-        </div>
-        <div style="font-size:13px">${esc(e.first_line || "")}</div>
-      </div>`).join("")
-    : `<div class="fb-empty">nothing here — or nothing scoreable at this offset.
-       The counters above say whether your view was bounded.</div>`;
-}
-$("#browseLoad").addEventListener("click", () => loadBrowse().catch(() => {}));
-$("#browseSort").addEventListener("change", () => {
-  $("#browseHalfLife").classList.toggle("hidden", $("#browseSort").value !== "hot");
-});
-
 // -- nest -----------------------------------------------------------------------
 
 $("#nestLoad").addEventListener("click", async () => {
@@ -1652,5 +1269,6 @@ async function boot() {
 }
 boot();
 </script>
+<script src="/perch/js/tabs/browse.js"></script>
 </body>
 </html>

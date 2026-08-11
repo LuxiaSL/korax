@@ -1,0 +1,124 @@
+/* base.css — element defaults, layout, and the shared components
+ * (#1385 D1, JOB #1389). Everything here styles vocabulary more than
+ * one tab speaks: cards, tags, seals, the withheld line, forms, nav.
+ * Tab-specific rules migrate OUT of this file into css/pages/<tab>.css
+ * as their tab's JS moves — the fb-* block below rides here until the
+ * flight tab's own migration takes it. Colors come from variables.css
+ * tokens only. */
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+       font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 10px 18px;
+         border-bottom: 1px solid var(--line); background: var(--panel);
+         position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+header h1 { font-size: 16px; margin: 0; letter-spacing: .12em; font-weight: 600; }
+header h1 span { color: var(--accent); }
+.chip { background: var(--panel2); border: 1px solid var(--line); border-radius: 20px;
+        padding: 2px 10px; font-size: 12px; color: var(--dim); }
+.chip b { color: var(--text); font-weight: 500; }
+.spacer { flex: 1; }
+button { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+         border-radius: 6px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: #0b0c10; border-color: var(--accent); font-weight: 600; }
+button.danger:hover { border-color: var(--bad); color: var(--bad); }
+nav { display: flex; gap: 4px; padding: 8px 18px 0; border-bottom: 1px solid var(--line); }
+/* -- flightboard (JOB #1251). Prefixed `fb-` throughout: this section
+      carries the mock's typography into a page with its own stylesheet,
+      and an unprefixed `.tile` or `.scroll` would restyle the perch. */
+.fb-head { border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 16px; }
+.fb-eyebrow { display: flex; gap: 14px; font-family: var(--mono); font-size: 11px;
+              letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+.fb-h1 { font-size: 28px; margin: 8px 0 4px; line-height: 1.1; }
+.fb-h2 { font-size: 18px; margin: 26px 0 2px; }
+.fb-dek, .fb-sub { color: var(--dim); font-size: 13px; margin: 0 0 8px; max-width: 70ch; }
+.fb-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 1px; background: var(--line); border: 1px solid var(--line);
+            border-radius: 8px; overflow: hidden; }
+.fb-tile { background: var(--panel); padding: 12px 14px; display: flex;
+           flex-direction: column; gap: 4px; }
+.fb-tile .k { font-family: var(--mono); font-size: 10px; letter-spacing: .12em;
+              text-transform: uppercase; color: var(--dim); }
+.fb-tile .v { font-family: var(--mono); font-size: 26px; line-height: 1;
+              font-variant-numeric: tabular-nums; }
+.fb-tile .n { font-size: 12px; color: var(--dim); }
+.fb-tile.lead .v { color: var(--accent); }
+.fb-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px;
+             background: var(--panel); }
+.fb-table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 640px; }
+.fb-table th { text-align: left; font-family: var(--mono); font-size: 10px;
+               letter-spacing: .12em; text-transform: uppercase; color: var(--dim);
+               padding: 9px 12px; border-bottom: 1px solid var(--line); }
+.fb-table td { padding: 8px 12px; border-bottom: 1px solid var(--line);
+               vertical-align: top; }
+.fb-table tr:last-child td { border-bottom: 0; }
+.fb-table td.id, .fb-table td.num { font-family: var(--mono); white-space: nowrap; }
+.fb-table tr.flag td { background: rgba(220, 160, 60, .10); }
+.fb-ask { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+          padding: 10px 12px; margin-bottom: 8px; }
+.fb-ask .said { color: var(--accent); font-style: italic; margin: 4px 0; }
+.fb-empty { color: var(--dim); font-style: italic; padding: 10px 0; }
+.fb-withheld { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+nav button { border: none; background: none; color: var(--dim); padding: 8px 14px;
+             border-bottom: 2px solid transparent; border-radius: 0; font-size: 14px; }
+nav button.active { color: var(--text); border-bottom-color: var(--accent); }
+nav button .badge { background: var(--accent2); color: #0b0c10; border-radius: 10px;
+                    padding: 0 7px; font-size: 11px; font-weight: 700; margin-left: 6px; }
+main { padding: 18px; max-width: 980px; margin: 0 auto; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+        padding: 12px 14px; margin-bottom: 10px; }
+.card .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+              font-size: 12px; color: var(--dim); margin-bottom: 6px; }
+.tag { border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 600;
+       font-family: var(--mono); }
+.tag.act { background: #2a2f4a; color: var(--accent); }
+.tag.band { background: #242832; color: var(--dim); }
+.tag.band.human { background: #3a2a4a; color: var(--accent2); }
+.tag.band.desk, .tag.band.maintainer { background: #2a3a34; color: var(--ok); }
+.tag.grade.verified { background: #2a3a34; color: var(--ok); }
+.tag.grade.unverified { background: #3a3426; color: var(--warn); }
+.tag.id { background: var(--panel2); color: var(--text); cursor: pointer; }
+.tag.id:hover { color: var(--accent); }
+.payload { white-space: pre-wrap; overflow-wrap: anywhere; }
+.payload.json, pre { font-family: var(--mono); font-size: 12.5px; background: var(--panel2);
+      border-radius: 6px; padding: 10px; overflow-x: auto; margin: 6px 0 0; }
+.refs { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.refs .edge { color: var(--dim); font-family: var(--mono); font-size: 11px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+input, textarea, select { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+        border-radius: 6px; padding: 6px 10px; font-size: 13.5px; font-family: inherit; }
+input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+textarea { width: 100%; min-height: 60px; font-family: var(--mono); }
+.seal { background: #2b2333; border: 1px solid #4a3a5a; color: #c9a9e8; border-radius: 8px;
+        padding: 8px 12px; font-size: 13px; margin-bottom: 12px; }
+.empty { color: var(--dim); font-style: italic; padding: 24px 0; text-align: center; }
+.mentions { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+.mlabel { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--dim); }
+.mcount { font-size: 12px; color: var(--dim); }
+.mlist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;
+         max-height: 132px; overflow-y: auto; }
+.mband { display: flex; align-items: center; gap: 6px; padding: 3px 8px; cursor: pointer;
+         background: var(--panel2); border: 1px solid var(--line); border-radius: 4px;
+         font-size: 12px; }
+.mband:hover { border-color: var(--accent); }
+.mband.on { border-color: var(--accent); background: #232a4d; }
+/* The id is never hidden: two bands share a display on this board, so the
+   name alone cannot identify who you are addressing (#962 brief, Q4). */
+.mband .mid { color: var(--dim); font-family: var(--mono); font-size: 11px; }
+.mband.gone .mname { text-decoration: line-through; opacity: .65; }
+.mwarn { margin-top: 6px; font-size: 12px; color: var(--bad);
+         border-left: 2px solid var(--bad); padding-left: 8px; }
+h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .1em; color: var(--dim);
+     margin: 18px 0 8px; font-weight: 600; }
+.idlist { display: flex; gap: 6px; flex-wrap: wrap; }
+#toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+         background: var(--panel2); border: 1px solid var(--bad); color: var(--text);
+         border-radius: 8px; padding: 10px 16px; max-width: 640px; font-size: 13px;
+         display: none; z-index: 20; white-space: pre-wrap; font-family: var(--mono); }
+#toast.ok { border-color: var(--ok); }
+dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+         border-radius: 10px; padding: 20px; max-width: 420px; }
+dialog::backdrop { background: rgba(0,0,0,.6); }
+.hidden { display: none; }
+a { color: var(--accent); }

@@ -21,17 +21,19 @@ from korax.board import Board
 from korax.seed import seed_board
 from korax.store import Store
 
-PERCH = Path(__file__).resolve().parents[1] / "korax" / "perch.html"
+from perch_source import PERCH_DIR, markup as _markup, script as _script
 
 
 def script() -> str:
-    blocks = re.findall(r"<script[^>]*>(.*?)</script>", PERCH.read_text(), re.S)
-    assert blocks
-    return "\n".join(blocks)
+    return _script()
 
 
 def browse_source() -> str:
-    return script().split("// -- browse (JOB #1308")[1].split("// -- nest")[0]
+    # The tab migrated to its own file (JOB #1389's template): the
+    # section IS the file now, so no marker-splitting — a structural
+    # test that reads the whole unit cannot be defeated by a section
+    # header moving, which is what the split buys the tests too.
+    return (PERCH_DIR / "js" / "tabs" / "browse.js").read_text()
 
 
 @pytest.fixture()

@@ -20,14 +20,12 @@ from pathlib import Path
 
 import pytest
 
-PERCH = Path(__file__).resolve().parents[1] / "korax" / "perch.html"
+from perch_source import PERCH_DIR, markup as _markup, script as _script
 NODE = shutil.which("node")
 
 
 def script() -> str:
-    blocks = re.findall(r"<script[^>]*>(.*?)</script>", PERCH.read_text(), re.S)
-    assert blocks
-    return "\n".join(blocks)
+    return _script()
 
 
 def run_chip(page: object) -> str:

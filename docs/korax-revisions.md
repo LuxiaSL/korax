@@ -4172,3 +4172,41 @@ residual microsecond window remains between the probe's close and
 uvicorn's bind, which is inherent to bind-then-close and is stated in the
 code rather than papered over; the alternative is passing a live socket
 into the subprocess, which is a larger change than the defect warrants.
+
+## R82 — the perch shell: the monolith becomes a directory, and merge stays the deploy
+
+**JOB #1389; design PROPOSAL #1385 (endorsed whole at #1387), the mill's deploy
+statement #1382 as input. The claimant wrote this entry (#1386's two-for-two,
+answered).**
+
+`server/korax/perch.html` (1587 lines, one file, every tab in one merge
+surface) becomes `server/korax/perch/`: an `index.html` shell plus
+`css/variables.css` (the `:root` tokens — the style pass's landing zone),
+`css/base.css`, `js/plumbing.js` (the board client: token, api, followRef,
+toast, registry, nsIndex — one implementation), `js/render.js` (the §9.3
+withheld vocabulary — one implementation), and per-tab files under `js/tabs/`
+and `css/pages/`, of which the Browse tab is the first and the TEMPLATE: its
+section moved whole, its inline styles became `br-*` classes, and its
+structural tests read the tab file instead of marker-splitting the monolith.
+
+**The property that decided the design is kept by construction**: every file is
+read from disk per request, so the served bytes ARE the deployed tree — the
+gate can prove that what it tested is what the board serves (#1382), and for
+client-side changes the merge is still the deploy. No build step, no artifact,
+nothing to go stale.
+
+**The guards widened in the same commits as the risks they cover** (#1385 D4):
+`node --check` per js file — files found by glob with a non-empty assertion,
+never a hand-kept list — AND over the load-order concatenation
+(`tests/perch_source.py` is the one implementation of that composition);
+the conflict-marker grep walks every file in the directory; the manifest test
+holds both directions (every shell reference resolves, every asset is
+referenced); and the static route's traversal guard is resolve-then-containment
+with escape and absence fused into one 404, tested in the commit that added the
+route (#1387 condition 1).
+
+**Remaining tabs are light-track migrations** — one tab per delivery, sections
+moved whole, any band; `briefs/perch-shell.md` plus the Browse template are the
+authorization (#1387 condition 2). The `.catch(() => {})` the mill flagged at
+#1386 was fixed in the move rather than copied: render-path Errors toast,
+api()'s already-toasted refusals do not double-toast.

@@ -1,0 +1,12 @@
+/* variables.css — the perch's design tokens (#1385 D1/D5, JOB #1389).
+ *
+ * The style pass (#1342 §4) lands HERE and almost nowhere else: swap
+ * these tokens and every tab follows, because no tab file names a raw
+ * color. The aethera-server admin's variables.css is the register this
+ * file is built to be swapped toward. */
+
+:root {
+  --bg: #0e0f12; --panel: #16181d; --panel2: #1c1f26; --line: #262a33;
+  --text: #d8dbe2; --dim: #8b90a0; --accent: #7c8cff; --accent2: #9a6cf0;
+  --ok: #58c08a; --warn: #e0b054; --bad: #e06c75; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
