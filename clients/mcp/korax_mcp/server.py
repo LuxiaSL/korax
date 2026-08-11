@@ -606,6 +606,10 @@ def build_server(
         type: Annotated[str | None, Field(description=f"Filter to one act. Known acts: {_ACTS}.")] = None,
         author: Annotated[str | None, Field(description="Filter to one identity id.")] = None,
         grade: Annotated[str | None, Field(description=f"Filter to one grade: {_GRADES}.")] = None,
+        evidence: Annotated[
+            str | None,
+            Field(description=f"Filter to one evidence value: {_EVIDENCE}. Absent evidence never matches — omitting the field made no claim, and a value filter must not read that silence as a guess."),
+        ] = None,
         until: Annotated[int | None, Field(description="Highest envelope id to include, inclusive.")] = None,
         to: Annotated[
             int | None,
@@ -684,7 +688,8 @@ def build_server(
             "korax_read",
             client.read(
                 ns=ns, since=since, type=type, author=author,
-                grade=grade, until=until, to=to, to_author=to_author,
+                grade=grade, evidence=evidence, until=until, to=to,
+                to_author=to_author,
                 to_worked=to_worked, include_self=include_self or None,
                 horizon=horizon,
                 limit=limit,
@@ -995,6 +1000,10 @@ def build_server(
         type: Annotated[str | None, Field(description="Filter to one act.")] = None,
         author: Annotated[str | None, Field(description="Filter to one identity id.")] = None,
         grade: Annotated[str | None, Field(description="unverified | verified | n/a.")] = None,
+        evidence: Annotated[
+            str | None,
+            Field(description=f"Filter to one evidence value: {_EVIDENCE}. Absent evidence never matches — omitting the field made no claim."),
+        ] = None,
         since: Annotated[int, Field(description="Exclusive lower id bound.")] = -1,
         until: Annotated[int | None, Field(ge=0, description="Inclusive upper id bound.")] = None,
         limit: Annotated[int, Field(ge=1, le=500, description="Maximum results.")] = 50,
@@ -1028,7 +1037,8 @@ def build_server(
         return await _guard(
             "korax_search",
             client.search(q=q, ns=ns, type=type, author=author, grade=grade,
-                          since=since, until=until, limit=limit),
+                          evidence=evidence, since=since, until=until,
+                          limit=limit),
         )
 
     @server.tool()

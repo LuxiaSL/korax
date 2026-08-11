@@ -157,3 +157,83 @@ def test_evidence_does_not_change_what_grade_a_band_may_assert(
         "stating evidence changed the grade decision — evidence is method, "
         "grade is rank, and they must not be reachable from each other"
     )
+
+
+# -- JOB #1078 — evidence gets a reader ------------------------------------
+#
+# The field existed and nothing consumed it (#1046 FLAG 1). These tests
+# hold the read-side contract: `--evidence`/`evidence=` on /read and
+# /search filters like `grade` already does, with one difference that
+# `grade` never had to prove — the field is OPTIONAL on the envelope, so
+# a value filter must never match an envelope that made no claim at all.
+
+
+@pytest.mark.parametrize("value", [e.value for e in Evidence])
+def test_read_filters_by_evidence(scene: dict, value: str) -> None:
+    """Each evidence value narrows /read to exactly the envelopes stating
+    it — mirroring `--grade`, now that `--evidence` exists to ask with."""
+    ids_by_value: dict[str, int] = {}
+    for v in Evidence:
+        out = _post(scene, scene["poster_token"],
+                    _rakes(scene["poster"], evidence=v.value))
+        ids_by_value[v.value] = out["id"]
+
+    page = scene["client"].get(
+        "/read", headers=auth(scene["poster_token"]),
+        params={"ns": "/commons/offtopic", "evidence": value},
+    ).json()
+    got = {e["id"] for e in page["envelopes"]}
+    assert got == {ids_by_value[value]}, (
+        f"evidence={value!r} on /read returned {got}, expected exactly "
+        f"{{{ids_by_value[value]}}}"
+    )
+
+
+@pytest.mark.parametrize("value", [e.value for e in Evidence])
+def test_read_evidence_filter_excludes_absent(scene: dict, value: str) -> None:
+    """The assertion the brief names as most likely to be written vacuously
+    (#112): filtering for a value must not silently fold in envelopes that
+    made no claim. The fixture pairs each value with an absent-evidence
+    sibling so a build that treats None as a wildcard fails this, not just
+    a differently-worded version of the value-vs-value test above."""
+    matching = _post(scene, scene["poster_token"],
+                     _rakes(scene["poster"], evidence=value))
+    silent = _post(scene, scene["poster_token"], _rakes(scene["poster"]))
+    assert "evidence" not in silent  # sanity: truly absent, not a stray value
+
+    page = scene["client"].get(
+        "/read", headers=auth(scene["poster_token"]),
+        params={"ns": "/commons/offtopic", "evidence": value},
+    ).json()
+    got = {e["id"] for e in page["envelopes"]}
+    assert matching["id"] in got
+    assert silent["id"] not in got, (
+        f"evidence={value!r} matched an envelope with no evidence at all "
+        "(#402) — absent silently became a claim"
+    )
+
+
+def test_search_filters_by_evidence(scene: dict) -> None:
+    """Parity with /read: `evidence` scopes the structural predicate that
+    both selects results and computes the exclusion counts (§9.3), same as
+    every other structural filter search already carries."""
+    marker = "gorse-thicket"
+    checked = _post(scene, scene["poster_token"], _rakes(
+        scene["poster"], evidence="source-checked", payload=marker))
+    guessed = _post(scene, scene["poster_token"], _rakes(
+        scene["poster"], evidence="speculative", payload=marker))
+    silent = _post(scene, scene["poster_token"], _rakes(
+        scene["poster"], payload=marker))
+
+    hits = scene["client"].get(
+        "/search", headers=auth(scene["poster_token"]),
+        params={"q": marker, "evidence": "speculative"},
+    ).json()["results"]
+    got = {h["id"] for h in hits}
+    assert got == {guessed["id"]}, (
+        f"search q={marker!r} evidence=speculative returned {got}, "
+        f"expected exactly {{{guessed['id']}}} — the checked and silent "
+        "siblings must both be excluded, the second one by absence"
+    )
+    assert checked["id"] not in got
+    assert silent["id"] not in got

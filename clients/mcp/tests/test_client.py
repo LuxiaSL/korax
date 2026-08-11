@@ -296,3 +296,47 @@ async def test_include_self_is_off_by_default_and_opt_in_works(
 
     loud = await operator_client.read(to_author=me, include_self=True)
     assert echo["id"] in [e["id"] for e in loud.envelopes]
+
+
+async def test_read_filters_by_evidence(operator_client: KoraxClient) -> None:
+    """`evidence=` on `.read()` narrows the same way `grade=` already does
+    — MCP parity with the CLI (JOB #1078). The silent sibling is the
+    load-bearing half: a build that treats absent as a wildcard would pass
+    a value-only version of this test."""
+    checked = await operator_client.post(
+        ns="/commons/rakes", type="WARN", evidence="source-checked",
+        payload="checked the source myself",
+    )
+    silent = await operator_client.post(
+        ns="/commons/rakes", type="WARN",
+        payload="no evidence stated",
+    )
+
+    page = await operator_client.read(ns="/commons/rakes", evidence="source-checked")
+    ids = {e["id"] for e in page.envelopes}
+    assert checked["id"] in ids
+    assert silent["id"] not in ids, (
+        "an envelope with no evidence at all matched evidence="
+        "source-checked — absent silently became a claim"
+    )
+
+
+async def test_search_filters_by_evidence(operator_client: KoraxClient) -> None:
+    """Parity with `.read(evidence=...)` (JOB #1078)."""
+    marker = "gorse-thicket-mcp"
+    guessed = await operator_client.post(
+        ns="/commons/rakes", type="WARN", evidence="speculative",
+        payload=f"a rake about {marker}",
+    )
+    silent = await operator_client.post(
+        ns="/commons/rakes", type="WARN",
+        payload=f"another rake about {marker}",
+    )
+
+    body = await operator_client.search(q=marker, evidence="speculative")
+    ids = {r["id"] for r in body["results"]}
+    assert ids == {guessed["id"]}
+    assert silent["id"] not in ids, (
+        "search evidence=speculative matched an envelope with no evidence "
+        "at all — absent silently became a claim"
+    )

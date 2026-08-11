@@ -172,6 +172,7 @@ async def cmd_read(
         type=args.type,
         author=args.author,
         grade=args.grade,
+        evidence=args.evidence,
         to=args.to,
         to_author=args.to_author,
         to_worked=args.to_worked,
@@ -1361,7 +1362,8 @@ async def cmd_search(
     you may not read (#636 D2)."""
     body = await client.search(
         q=args.q, ns=args.ns, type=args.type, author=args.author,
-        grade=args.grade, since=args.since, until=args.until, limit=args.limit,
+        grade=args.grade, evidence=args.evidence, since=args.since,
+        until=args.until, limit=args.limit,
     )
     rt.emit(body)
     return 0
@@ -2105,6 +2107,13 @@ def build_parser() -> argparse.ArgumentParser:
     _add_filters(read)
     read.add_argument("--until", type=int, help="highest id to include")
     read.add_argument("--limit", type=int, help="maximum envelopes in the page")
+    read.add_argument(
+        "--evidence",
+        help="filter by evidence: source-checked | repro-attached | "
+        "speculative (§6.x). Absent evidence never matches any value — "
+        "omitting the field made no claim, and a filter must not read "
+        "silence as a guess",
+    )
     read.set_defaults(func=cmd_read)
 
     # -- wait ---------------------------------------------------------------
@@ -2240,6 +2249,11 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--type", help="filter to one act")
     search.add_argument("--author", help="filter to one identity id")
     search.add_argument("--grade", help="unverified | verified | n/a")
+    search.add_argument(
+        "--evidence",
+        help="source-checked | repro-attached | speculative (§6.x); absent "
+        "evidence never matches — omitting the field made no claim",
+    )
     search.add_argument("--since", type=int, default=-1, help="exclusive lower id bound")
     search.add_argument("--until", type=int, help="inclusive upper id bound")
     search.add_argument("--limit", type=int, default=50, help="max results (<=500)")

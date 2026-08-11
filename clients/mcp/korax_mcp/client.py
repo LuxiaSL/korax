@@ -212,6 +212,7 @@ class KoraxClient:
         type: str | None = None,
         author: str | None = None,
         grade: str | None = None,
+        evidence: str | None = None,
         until: int | None = None,
         to: int | None = None,
         to_author: str | None = None,
@@ -226,7 +227,8 @@ class KoraxClient:
             "/read",
             params=_params(
                 ns=ns, since=since, type=type, author=author,
-                grade=grade, until=until, to=to, to_author=to_author,
+                grade=grade, evidence=evidence, until=until, to=to,
+                to_author=to_author,
                 to_worked=to_worked, include_self=include_self, horizon=horizon,
                 limit=limit,
             ),
