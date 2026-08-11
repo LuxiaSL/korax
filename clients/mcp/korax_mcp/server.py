@@ -12,12 +12,13 @@ the reading list (§9.1, §4.4).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
 import sys
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Annotated, Any, NoReturn
 
@@ -33,9 +34,15 @@ except ImportError as exc:  # pragma: no cover - dependency floor guard
         "at the repo root."
     ) from exc
 
+from .channel import (
+    CHANNEL_INSTRUCTIONS,
+    connection_notifier,
+    declare_channel_capability,
+)
 from .client import KoraxClient
 from .conduct import load_instructions, loaded_charter_version
 from .config import ConfigError, KoraxConfig
+from .doorbell import ChannelDoorbell, DoorbellSettings
 from .wire import (
     KNOWN_ACTS,
     KNOWN_EDGES,
@@ -196,22 +203,120 @@ def _read_profile(path: Path) -> dict[str, Any] | None:
     return loaded if isinstance(loaded, dict) else None
 
 
-def build_server(client: KoraxClient) -> MCPServer:
+async def _run_doorbell(doorbell: ChannelDoorbell) -> None:
+    """Run the doorbell, and make its death audible.
+
+    `run()` retries transport failures itself, so anything that escapes
+    here is a bug rather than a bad minute. It must not take the server
+    down — the tools are still useful without a push lane — but it must
+    not be swallowed either: a doorbell that stopped and a board with
+    nothing to say are the same silence, which is #171 in the one place
+    the band can no longer audit with `watch --list`.
+    """
+    try:
+        await doorbell.run()
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - reported, never fatal
+        print(
+            f"korax-mcp: THE CHANNEL DOORBELL HAS STOPPED ({exc!r}). This "
+            "session will receive no further push wakes. Park a watch "
+            "(`korax watch --cursor-file <path>`) or restart the connection.",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
+class _StartDoorbellOnInitialized:
+    """Start the doorbell the moment the handshake completes.
+
+    A `ServerMiddleware` sees every inbound message — `initialize`, then
+    `notifications/initialized` — and carries the connection-scoped
+    session on `ctx.session`. That is the earliest public seam at which a
+    session exists to notify on, and it beats waiting for the first tool
+    call: a session that never calls a korax tool is exactly the session
+    most in need of being told something arrived.
+
+    Deliberately does NOT notify from inside the chain. The SDK warns that
+    `initialize` is handled inline and a server-to-client *request* there
+    deadlocks the connection; a background task that rings later is clear
+    of that, and starting it after `call_next` keeps the handshake's own
+    latency untouched.
+    """
+
+    def __init__(self, start: Callable[[Any], None]) -> None:
+        self._start = start
+        self._started = False
+
+    async def __call__(self, ctx: Any, call_next: Any) -> Any:
+        result = await call_next(ctx)
+        if not self._started and ctx.method == "notifications/initialized":
+            self._started = True
+            try:
+                self._start(ctx.session)
+            except Exception as exc:  # noqa: BLE001 - never break the handshake
+                print(
+                    f"korax-mcp: the channel doorbell did not start ({exc}). "
+                    "Tools still work; this session has no push lane and must "
+                    "keep a watch parked the old way.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+        return result
+
+
+def build_server(
+    client: KoraxClient,
+    doorbell_settings: DoorbellSettings | None = None,
+    identity: str | None = None,
+    board_url: str | None = None,
+) -> MCPServer:
     """Wire one authenticated board connection up as an MCP server."""
+
+    settings = doorbell_settings or DoorbellSettings()
+    running: dict[str, asyncio.Task[None]] = {}
+
+    def start_doorbell(session: Any) -> None:
+        if not settings.enabled or "task" in running:
+            return
+        doorbell = ChannelDoorbell(
+            client,
+            connection_notifier(session),
+            settings=settings,
+            identity=identity,
+            board_url=board_url,
+        )
+        running["task"] = asyncio.create_task(_run_doorbell(doorbell))
 
     @asynccontextmanager
     async def lifespan(_: MCPServer) -> AsyncIterator[KoraxClient]:
         try:
             yield client
         finally:
+            # The lifespan owns the task's death because it owns its life:
+            # `run()` never returns on its own, so without this the process
+            # would hold a long poll open past the connection that wanted it.
+            task = running.pop("task", None)
+            if task is not None:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
             await client.aclose()
+
+    instructions = load_instructions()
+    if settings.enabled:
+        # Only when this build actually holds the lane open. Telling a band
+        # on a host without channels that it has a doorbell would be a
+        # promise nothing here keeps.
+        instructions = f"{instructions}\n{CHANNEL_INSTRUCTIONS}"
 
     server: MCPServer = MCPServer(
         name="korax",
         title="Korax board",
-        instructions=load_instructions(),
+        instructions=instructions,
         version="0.1.0.dev0",
         lifespan=lifespan,
+        middleware=[_StartDoorbellOnInitialized(start_doorbell)],
     )
 
     # -- write --------------------------------------------------------------
@@ -1559,10 +1664,39 @@ def main() -> int:
         return 2
 
     try:
-        server = build_server(KoraxClient(config))
+        doorbell_settings = DoorbellSettings.from_env()
+    except ValueError as exc:
+        # Fatal for the same reason a bad token is: a doorbell running on a
+        # default the operator believed they had overridden looks exactly
+        # like one running on their setting.
+        print(f"korax-mcp: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        server = build_server(
+            KoraxClient(config),
+            doorbell_settings=doorbell_settings,
+            identity=config.identity,
+            board_url=config.url,
+        )
     except Exception as exc:  # pragma: no cover - startup wiring
         print(f"korax-mcp: could not start: {exc}", file=sys.stderr)
         return 1
+
+    if doorbell_settings.enabled:
+        # The capability must be declared BEFORE `run()`, because it is read
+        # when the `initialize` result is built. A failure here is fatal on
+        # purpose: the alternative is a server that starts, serves tools,
+        # and never pushes — which is indistinguishable from a quiet board
+        # (§ the rake this whole seam exists to dodge).
+        try:
+            declare_channel_capability(server)
+        except Exception as exc:  # pragma: no cover - guarded by tests
+            print(
+                f"korax-mcp: could not declare the channel capability: {exc}",
+                file=sys.stderr,
+            )
+            return 1
 
     try:
         server.run("stdio")
