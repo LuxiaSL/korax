@@ -129,10 +129,23 @@ def test_other_ext_keys_survive_the_picker() -> None:
     assert "ext.korax = { ...(ext.korax || {}), mentions:" in script()
 
 
-def test_the_page_still_serves(client_page: str = "") -> None:
+def test_the_picker_is_actually_IN_THE_MARKUP() -> None:
     """#111's shape, named: this catches DELETION of the picker, not that it
-    works. It is the weakest guard here and it is worth stating so rather
-    than letting the count of passing tests imply coverage."""
-    body = page()
-    for marker in ("mentionList", "mentionAll", "mentionFilter", "korax.mentions"):
-        assert marker in body, f"the picker lost {marker}"
+    works. It is the weakest guard here and worth saying so rather than
+    letting a passing count imply coverage.
+
+    AND IT ASSERTS THE MARKUP, NOT THE NAME. The first version searched the
+    whole page for `mentionList`, which the SCRIPT also contains as
+    `$("#mentionList")` — so deleting the element from the DOM left the
+    string behind and the guard passed on a page with no picker in it. My
+    own mutation pass caught that, and it is rake #478: one signal with two
+    sources cannot tell you which one spoke. The `id=` attribute only
+    appears in the markup.
+    """
+    markup = page().split("<script")[0]
+    for element in ("mentionList", "mentionFilter", "mentionAll",
+                    "mentionNone", "mentionWarn", "mentionCount"):
+        assert f'id="{element}"' in markup, (
+            f"the picker element {element} is not in the served markup"
+        )
+    assert "korax.mentions" in script(), "nothing emits the mention field"
