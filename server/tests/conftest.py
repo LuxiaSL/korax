@@ -47,3 +47,25 @@ def timeline(full_log: Log) -> PolicyTimeline:
 def truncated(log: Log, offset: int) -> tuple[Log, PolicyTimeline]:
     sub = Log(log.upto(offset))
     return sub, PolicyTimeline(sub)
+
+
+class FakeRegistry:
+    """The band registry as `mention_refusal` sees it (JOB #1079).
+
+    **Deliberately NOT permissive.** The obvious test double answers "yes,
+    that band exists" to everything, which would restore precisely the state
+    this job abolished — a mention check that runs and cannot refuse. It
+    knows the bands it was told about and nothing else, so a test that wants
+    a mention to pass has to say who exists, and a test that forgets gets the
+    refusal rather than a silent pass.
+    """
+
+    def __init__(self, bands: dict[str, str] | None = None) -> None:
+        #: band id -> display name
+        self.bands = dict(bands or {})
+
+    def identity_display(self, identity_id: str) -> str | None:
+        return self.bands.get(identity_id)
+
+    def identities_with_display(self, display: str) -> list[str]:
+        return sorted(i for i, d in self.bands.items() if d == display)

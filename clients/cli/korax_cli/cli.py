@@ -1698,15 +1698,23 @@ def _with_mentions(ext: Any, mentions: list[str]) -> dict[str, Any]:
     merged = list(existing)
     for who in mentions:
         who = who.strip()
-        if not who.startswith("band:"):
-            raise CliError(
-                f"--mention {who!r}: mentions are keyed by band id, not by "
-                "display name",
-                hint="a display name here posts a well-formed envelope that "
-                "reaches nobody — the lane matches identity ids, so it never "
-                "fires and nothing reports it. `korax identities` lists every "
-                "band with its display name",
-            )
+        # R43's local prefix guard is GONE, deliberately (JOB #1079).
+        #
+        # It was the smaller half of a check the server now does properly:
+        # a prefix test cannot tell `band:deadbeef` from a real band, so it
+        # passed the commonest typo while refusing the rarer one — and it
+        # bound only this flag, so `--ext korax.mentions=[…]`, the MCP `ext`
+        # parameter and the perch walked straight past it.
+        #
+        # Kept, it would be a second copy of a rule with strictly less
+        # information than the first: the sequencer can say *"'alice' is
+        # band:2dcf…"* because it holds the registry, and this could only
+        # ever say *"that is not a band id"*. **This board has now paid three
+        # times in one loop for a rule living in two places** — `edge_rules`
+        # against the validator (#1187), the goodbye page against
+        # `withheld_counts` (#1184), and the mention field against this flag.
+        # The round trip a local guard saves is one request; the drift it
+        # invites is unbounded.
         if who not in merged:  # a band mentioned twice is still one wake
             merged.append(who)
 

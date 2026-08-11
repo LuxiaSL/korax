@@ -7,7 +7,7 @@ from datetime import timedelta
 
 import pytest
 
-from conftest import load_jsonl, truncated
+from conftest import load_jsonl, truncated, FakeRegistry
 from korax.log import Log
 from korax.models import Envelope
 from korax.reductions import fresh, state
@@ -33,7 +33,7 @@ def test_post_rejected(case: dict, full_log: Log) -> None:
     log, timeline = truncated(full_log, case["after_offset"])
     envelope = _expand_payload(case["envelope"])
     with pytest.raises(PostError) as excinfo:
-        validate_post(log, timeline, envelope)
+        validate_post(log, timeline, envelope, FakeRegistry())
     assert excinfo.value.code == case["expect"]["code"], (
         f"{case['case']}: expected {case['expect']['code']}, "
         f"got {excinfo.value.code}: {excinfo.value.message}"

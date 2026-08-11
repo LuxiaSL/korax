@@ -36,6 +36,7 @@ from .models import (
 from .civic import canon_pins, unmet_for_claim
 from .feed import (
     SUBSCRIPTIONS_NS,
+    MentionRegistry,
     mention_refusal,
     mentions_in_ext,
     selector_refusal,
@@ -109,7 +110,12 @@ class Submission(BaseModel):
         return tuple(r.id for r in self.refs if r.edge == edge)
 
 
-def validate_post(log: Log, timeline: PolicyTimeline, raw: dict[str, Any]) -> Submission:
+def validate_post(
+    log: Log,
+    timeline: PolicyTimeline,
+    raw: dict[str, Any],
+    registry: MentionRegistry,
+) -> Submission:
     """Run the full gauntlet. Returns the parsed submission on success,
     raises PostError otherwise."""
     offset = log.next_id()
@@ -225,7 +231,7 @@ def validate_post(log: Log, timeline: PolicyTimeline, raw: dict[str, Any]) -> Su
     # (§11.2 D1). Both checks below refuse a reachability failure at the
     # only moment it is cheap, rather than letting it land as a lane that
     # is silently empty forever (#223) or a wake pointing at a 404 (#197).
-    _check_reachability(sub, timeline, offset)
+    _check_reachability(sub, timeline, offset, registry)
 
     # -- 409: nest policy in force at this offset (§8)
     _check_policy(log, sub, band, policy_id, policy, offset, timeline)
@@ -234,7 +240,8 @@ def validate_post(log: Log, timeline: PolicyTimeline, raw: dict[str, Any]) -> Su
 
 
 def _check_reachability(
-    sub: Submission, timeline: PolicyTimeline, offset: int
+    sub: Submission, timeline: PolicyTimeline, offset: int,
+    registry: MentionRegistry,
 ) -> None:
     if sub.type == Act.SUBSCRIBE:
         if not in_subtree(SUBSCRIPTIONS_NS, sub.ns):
@@ -254,7 +261,7 @@ def _check_reachability(
 
     mentions = mentions_in_ext(sub.ext)
     if mentions:
-        refusal = mention_refusal(timeline, sub.ns, mentions, offset)
+        refusal = mention_refusal(timeline, sub.ns, mentions, offset, registry)
         if refusal is not None:
             raise PostError(*refusal)
 

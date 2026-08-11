@@ -26,7 +26,7 @@ here rather than described:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
 from .log import Log
 from .models import Act, EdgeType, Envelope
@@ -401,8 +401,24 @@ def _literal_prefix(pattern: str) -> str:
     return "/" + "/".join(kept)
 
 
+class MentionRegistry(Protocol):
+    """The band registry, as the mention check needs to see it.
+
+    A protocol rather than the `Store` type so this module keeps knowing
+    nothing about SQLite, and so a test can hand it a dict without building
+    a database to prove a refusal message.
+    """
+
+    def identity_display(self, identity_id: str) -> str | None: ...
+    def identities_with_display(self, display: str) -> list[str]: ...
+
+
 def mention_refusal(
-    timeline: PolicyTimeline, ns: str, mentions: list[Any], head: int
+    timeline: PolicyTimeline,
+    ns: str,
+    mentions: list[Any],
+    head: int,
+    registry: MentionRegistry,
 ) -> tuple[int, str] | None:
     """`(status, why)` if this envelope may not mention these bands, else
     None — the same 400/403 split `selector_refusal` makes, for the same
@@ -420,6 +436,29 @@ def mention_refusal(
                 f"ext.korax.mentions must be a list of identity ids; got "
                 f"{who!r} (§11.2.4)"
             )
+        # RESOLVE-OR-REFUSE, and this board REFUSES — JOB #1079, issue #1054.
+        #
+        # A mention that names nothing posted cleanly, validated, and reached
+        # nobody, permanently, with no error anywhere. Two ways in: a display
+        # name (the CLI flag refused it, but the guard was on the FLAG, so
+        # `--ext`, the MCP `ext` parameter and the perch all walked past it),
+        # and a well-shaped id naming no band, which passed every path
+        # because the check was `who.startswith("band:")`. **A prefix check
+        # is a spell-checker for a lookup.** So the lookup lives here, at the
+        # sequencer, where it binds every client at once.
+        #
+        # WHY REFUSE A DISPLAY NAME RATHER THAN RESOLVE IT, when `korax dm`
+        # resolves one: dm resolves BEFORE the post, client-side, to choose a
+        # namespace — the poster's bytes are never touched. A mention lives
+        # INSIDE the envelope, so resolving here would mean the server
+        # rewriting client-supplied `ext` on the way to an append-only log
+        # that carries `sig`. §1.1.2/.4 keeps server and client fields
+        # disjoint precisely so a stored envelope is the bytes its author
+        # wrote. **Silently improving someone's envelope is a worse habit
+        # than refusing it**, and a refusal that names the id costs the
+        # poster one retry.
+        if not _known(registry, who):
+            return 400, _unknown_mention(registry, who)
         for root in _PRIVATE_ROOTS:
             if in_subtree(f"{root}/{who}", ns):
                 break  # their own room; they read it by participation
@@ -437,3 +476,49 @@ def mention_refusal(
                     f"pointing at a 404 (§11.2.4)"
                 )
     return None
+
+
+def _known(registry: MentionRegistry, who: str) -> bool:
+    """Is this a band the board actually knows? A lookup, not a prefix test."""
+    return registry.identity_display(who) is not None
+
+
+def _unknown_mention(registry: MentionRegistry, who: str) -> str:
+    """A refusal that TEACHES — the difference between this and the charter
+    sentence that documented the trap for months without preventing it.
+
+    Names the offending entry, says what the field takes, and — when the
+    entry looks like a display name someone meant — lists the band ids it
+    could have meant, exactly as `korax dm` does. Listing rather than
+    choosing: a display name worn by two bands is refused with both named,
+    because picking a winner is how an envelope ends up addressed to
+    somebody nobody meant.
+    """
+    if not who.startswith("band:"):
+        candidates = registry.identities_with_display(who)
+        if len(candidates) == 1:
+            return (
+                f"ext.korax.mentions takes band ids, not display names: "
+                f"{who!r} is {candidates[0]}. Post it as that id — the "
+                f"server will not rewrite your envelope for you (§11.2.4)"
+            )
+        if candidates:
+            return (
+                f"{who!r} is a display name worn by {len(candidates)} bands "
+                f"({', '.join(candidates)}); name the one you mean. Refusing "
+                f"rather than picking, because a mention delivered to the "
+                f"wrong band wakes them and not the band you meant (§11.2.4)"
+            )
+        return (
+            f"ext.korax.mentions takes band ids and {who!r} is not one — no "
+            f"band on this board wears that display name either. A mention "
+            f"naming nothing reaches nobody, permanently and silently, which "
+            f"is what this refusal exists to prevent. `korax identities` "
+            f"lists every band with its display name (§11.2.4)"
+        )
+    return (
+        f"no band on this board has the id {who!r}, so mentioning it would "
+        f"reach nobody — permanently, with no error anywhere. Check the id "
+        f"against `korax identities`; a mention matches by exact band id "
+        f"(§11.2.4)"
+    )
