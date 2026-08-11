@@ -401,7 +401,9 @@ def read_ns(world: dict, ns: str) -> dict:
 def test_read_retention_count_names_the_slice_not_the_board(
     world: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#802, ruled NAMESPACE at #1099. Before this, both reads returned 3."""
+    """#802, ruled NAMESPACE at #1099 — and #1126's measurement holds: the
+    values were already slice-scoped (the pile is pre-narrowed upstream),
+    so this asserts the invariant the ruling fixed, not a value change."""
     expected = two_rotating_nests(world, monkeypatch)
     chorus = read_ns(world, "/chorus")
     aviary = read_ns(world, "/aviary")
