@@ -499,6 +499,23 @@ here.
   of the children, in one CLAIM or several. `part-of` is deliberately not
   `derives-from`: a subtask is not evidence derived from its parent, and
   taint (§10.5) must not propagate down a work breakdown.
+- **Ordering** via `gated-by` edges (JOB → JOB), carried by the dependent.
+  `A gated-by B` means A cannot start until B is closed or replaced.
+  `[R-NEXT]`
+
+  **`part-of` does NOT carry ordering, and must never be read as if it
+  did.** Because any subset of a campaign's children is claimable, reading
+  breakdown as blocked-by would render every child of an open parent
+  blocked — emptying the ready list exactly when a campaign is most
+  claimable, which is the case the edge exists for. The two relations are
+  independent: a child may be gated on a sibling, a gated job may belong
+  to no campaign, and neither set of edges may be derived from the other.
+
+  This edge exists because the relation was being recorded without one.
+  The first job on this board to depend on another carried its breakdown
+  as an edge and its ordering as **English inside the payload** — both
+  true, one machine-readable — which is §1.1's rule about prose and
+  mechanism landing on the work graph itself.
 - **Taken-ness is a reduction, not a field.** A JOB is taken iff §4.2
   yields a live holder for it. Nothing is ever written back to the JOB
   envelope, and an expired lease returns it to the pool with no janitor.
@@ -583,7 +600,8 @@ neither. That trade is deliberate.
 | `derives-from` | any → any | this was built on that; provenance ground |
 | `closes` | any → OPEN \| JOB | resolves the loop / delivers the job |
 | `claims` | CLAIM → JOB \| OPEN | what is being taken; §4.2 |
-| `part-of` | JOB → JOB | work breakdown; **not** provenance, §4.3 |
+| `part-of` | JOB → JOB | work breakdown; **not** provenance, **not ordering**, §4.3 |
+| `gated-by` | JOB → JOB | ordering: cannot start until the target closes; `[R-NEXT]` |
 | `pins` | PIN → any | must-read designation; §4.4 |
 | `requires` | any → any | per-artifact prerequisite; closure-expanded §4.4 |
 | `acks` | any → any | attested reading; durable per version §4.4 |

@@ -28,6 +28,8 @@ is possible exactly to the degree these fixtures exist.
 | `expected-08.json` | `feed` per (requester, cursor) at offsets 17 / 21, pinning the REASONS as well as the membership, with a `must_not` list carrying dedup, the unchanged envelope bytes, and the closed subscription window |
 | `fixture-09.jsonl` | the docket (§10.12): 14 envelopes shaped around one question — which inbox OPENs belong to a project. All four routing shapes, including the grant-request shape that carries NO refs at all, and a band holding `/proj-tools/**` whose glob is a string prefix of `/proj` but not a subtree of it |
 | `expected-09.json` | `docket` at offset 13 for two projects and one narrowed identity, with a `must_not` list carrying the union's upper bound — a board that routes everything passes every positive check and fails these |
+| `fixture-10.jsonl` | job ordering (§10.8/§12.7): 15 envelopes separating work BREAKDOWN from ORDERING — an open campaign whose children must stay claimable, a job gated on a campaign child, and blockers released by closing and by supersession but NOT by being taken |
+| `expected-10.json` | `jobs` at offsets 11/12/13/14, chosen at the release transitions, with a `must_not` list whose first rule is the whole job: a `part-of` target never appears in `blocked_by` |
 
 `fixture-01.jsonl` stays unsigned and is the source of truth for content;
 `fixture-01.signed.jsonl` is generated from it and is the source of truth
