@@ -33,6 +33,7 @@ from fastapi.testclient import TestClient
 from korax import PROTO
 from korax.api import create_app
 from korax.board import Board
+from korax.counters import SOME, bucketed
 from korax.seed import seed_board
 from korax.store import Store
 
@@ -97,8 +98,12 @@ def test_the_stranger_is_told_the_truth(mail: dict) -> None:
     nothing was withheld."""
     page = read(mail, mail["carol_token"], ns=mail["box"])
     assert page["envelopes"] == []
-    assert page["participation_excluded"] == 3, (
-        "the page claims completeness while withholding three envelopes"
+    assert page["participation_excluded"] == bucketed(3), (
+        "the page claims completeness while withholding envelopes"
+    )
+    assert page["participation_excluded"]["withheld"] == SOME, (
+        "a non-zero count must report PRESENCE and never the number: the "
+        "exact figure on a room carol is not in is a volume meter (#388)"
     )
     assert page["sealed_excluded"] == 0
 
@@ -112,14 +117,18 @@ def test_the_stranger_and_the_operator_now_agree(mail: dict) -> None:
     carol = read(mail, mail["carol_token"], ns=mail["box"])
     root = read(mail, mail["op_token"], ns=mail["box"])
 
-    carol_gap = carol["participation_excluded"] + carol["sealed_excluded"]
-    root_gap = root["participation_excluded"] + root["sealed_excluded"]
-    assert carol_gap == root_gap == 3
+    # #388 gave up the arithmetic gap deliberately: participation reports
+    # presence, so the two pages can no longer be reconciled by addition.
+    # What #199's asymmetry actually needed survives — BOTH pages report a
+    # hole, and neither claims completeness while withholding.
+    assert carol["participation_excluded"] != 0 and root["sealed_excluded"] != 0
     assert len(carol["envelopes"]) == len(root["envelopes"]) == 0
 
     # and they are stopped by different mechanisms, which is the
-    # disjointness vesper's #191 quartet is written against
-    assert carol["participation_excluded"] == 3 and carol["sealed_excluded"] == 0
+    # disjointness vesper's #191 quartet is written against. `sealed` is
+    # NOT bucketed (out of #388's scope), so it still carries its count.
+    assert carol["participation_excluded"] == bucketed(3)
+    assert carol["sealed_excluded"] == 0
     assert root["sealed_excluded"] == 3 and root["participation_excluded"] == 0
 
 
@@ -127,7 +136,7 @@ def test_a_board_wide_drain_no_longer_overstates_itself(mail: dict) -> None:
     """#199 as measured: not a scoped read failing to empty, but an
     unscoped read positively claiming completeness."""
     page = read(mail, mail["carol_token"])
-    assert page["participation_excluded"] == 3
+    assert page["participation_excluded"] == bucketed(3)
     for env in page["envelopes"]:
         assert not env["ns"].startswith("/dm/")
 
@@ -163,7 +172,7 @@ def test_the_count_is_scoped_to_the_slice_served(mail: dict) -> None:
     board-wide number naming no nest. The same read narrowed to a nest
     with nothing private reports zero while the mailbox reports three."""
     assert read(mail, mail["carol_token"],
-                ns=mail["box"])["participation_excluded"] == 3
+                ns=mail["box"])["participation_excluded"] == bucketed(3)
     assert read(mail, mail["carol_token"],
                 ns="/commons/rakes")["participation_excluded"] == 0
 
@@ -183,10 +192,15 @@ def test_the_count_ignores_the_other_filters(mail: dict) -> None:
     mutation in the delivery.
     """
     baseline = read(mail, mail["carol_token"], ns=mail["box"])["participation_excluded"]
-    assert baseline > 0, (
+    assert baseline != 0, (
         "the fixture must withhold something from carol or this test "
         "passes by counting nothing anywhere"
     )
+    # Since #388 the value cannot vary with ANY predicate, because it is a
+    # constant marker rather than a count. That makes R40's guarantee
+    # trivially true here — so this test is now a regression guard on the
+    # bucket rather than the primary defence, and the primary defence is
+    # that there is no number left to move.
     for probe in (
         {"type": "WARN"},
         {"type": "NOTE"},

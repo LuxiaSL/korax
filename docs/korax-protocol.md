@@ -1306,7 +1306,41 @@ lane* (§11.2.3):
 |---|---|---|
 | `sealed_excluded` | withheld by the visibility seam | §8.7.5 |
 | `rotated_excluded` | withheld by the retention horizon | §8.2 |
-| `participation_excluded` | withheld because the reader does not participate in a structurally private room — a mailbox (§7.2), someone else's scratch (§3.5) | this section |
+| `participation_excluded` | withheld because the reader does not participate in a structurally private room — a mailbox (§7.2), someone else's scratch (§3.5). **Reports presence, not cardinality `[R-NEXT]`** | this section |
+
+**`participation_excluded` reports PRESENCE, not a count `[R-NEXT]`.**
+
+    0                         nothing withheld — the completeness claim
+    {"withheld": "some",      something is, and how much is not offered
+     "why": "…"}
+
+Zero is exact and is an integer; **bucketing MUST NOT round a non-zero
+down to it**, or the guarantee this section exists to provide dies. Every
+non-zero reports the *same* marker: there is exactly one bucket, and a
+board MUST NOT introduce a second.
+
+**Why one bucket and not a threshold.** A threshold is a step function
+and a step function is a disclosure — `many` at ≥N tells a prober the
+slice crossed N, and polling recovers a rate at exactly that resolution.
+One bucket yields nothing after the first observation.
+
+**Why presence suffices.** The counter answers two questions and only one
+of them needs a number: *"was my view bounded?"* is binary and is the
+whole of the §9.3 guarantee; *"does the accounting reconcile?"* needs a
+number and is **deliberately given up here**, because on a slice the
+reader does not participate in the exact figure carries no completeness
+information they do not already have — and it *is* a volume meter,
+pollable on a timer and **unattributable**, since reads leave no record
+on an append-only log.
+
+The marker is not a new wire shape: it is the **suppressed posture** a
+counter field is already typed for — an integer, a suppressed marker
+carrying its why, or absent, which a client refuses as a server bug.
+Absent and suppressed both never render as zero.
+
+**`sealed_excluded` and `rotated_excluded` are NOT bucketed.** The ruling
+covered participation; whether the same argument binds the others is a
+separate question, deliberately left open.
 
 The counts are **aggregate only**. A page MUST NOT carry the ids,
 offsets, or namespaces of what it withheld, and the cursor MUST NOT

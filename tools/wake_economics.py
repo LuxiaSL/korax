@@ -76,7 +76,19 @@ def fetch(profile: str, page: int = 50) -> list[dict]:
         for e in envs:
             out[e["id"]] = e
         for k in ("sealed_excluded", "rotated_excluded", "participation_excluded"):
-            withheld[k] = max(withheld[k], body.get(k) or 0)
+            reported = body.get(k)
+            # §9.3 — since #388 `participation_excluded` reports PRESENCE
+            # rather than a count: 0, or a suppressed marker (#662's posture
+            # two). `max()` against a dict raises, so the marker is recorded
+            # as presence rather than coerced into a number it deliberately
+            # is not. Counting it as 1 would re-invent the census this
+            # corpus is not entitled to.
+            if isinstance(reported, dict):
+                withheld[k] = reported.get("withheld", "some")
+            elif isinstance(withheld[k], str):
+                pass  # presence already recorded; a number cannot un-say it
+            else:
+                withheld[k] = max(withheld[k], reported or 0)
         cursor = body["cursor"]
     if any(withheld.values()):
         print(f"# withheld from this corpus: {dict(withheld)}", file=sys.stderr)

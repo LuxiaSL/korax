@@ -5,6 +5,7 @@
     "view": "`access` is not a §10 reduction — it is the read-side partition of §9.3, checked here as what a conforming board serves and what it reports having withheld, before any §10 reduction runs.",
     "args": "`requester` is the identity asking; `ns` selects the slice, meaning envelopes whose own namespace is `ns` or beneath it.",
     "expect": "`visible` is what the board serves. `sealed_excluded` and `participation_excluded` are the counts it MUST report for that same slice. Absent counters fail: §9.3 requires the field, and a board that omits it is indistinguishable from one claiming zero.",
+    "bucketed_R-NEXT": "`participation_excluded` reports PRESENCE, not cardinality: 0 exactly when nothing is withheld (the only completeness claim, §9.3), and `{withheld: some}` otherwise. Exact counts on a slice made it a per-mailbox volume meter, pollable and unattributable because reads leave no record. A board reporting an integer above zero here is non-conforming. `sealed_excluded` is NOT bucketed — different ruling, different job.",
     "counted": "Exactly two exclusions are counted. The seam (§8.7.5) and participation (§9.3). A no-grant denial and a blind-round denial are withheld and MUST NOT appear in any counter — a board that reports them has satisfied the arithmetic by breaking §8.3.",
     "search_R34": "`search` is the §11.3 read surface, checked here because it is the first surface with a CONTENT filter and therefore the first that could turn an exclusion count into an oracle. `args.q` is the query. The load-bearing property is that the counts DO NOT VARY with q: a conforming board evaluates the query only against envelopes the requester may read. A board that counts q-matched withheld envelopes passes every positive row here and still lets a stranger read a mailbox one character at a time."
   },
@@ -14,7 +15,7 @@
       "view": "access",
       "args": {"requester": "band:carol", "ns": "/dm/band:bob"},
       "cite": "9.3",
-      "expect": {"visible": [], "sealed_excluded": 0, "participation_excluded": 3},
+      "expect": {"visible": [], "sealed_excluded": 0, "participation_excluded": {"withheld": "some"}},
       "why": "THE case (#199). carol holds a grant at /dm and is not a participant in bob's mailbox, so all three messages are withheld by participation. A board reporting 0 here serves a page that positively claims completeness while withholding everything in the slice — which is the defect R28 exists to remove, and it is the ordinary healthy state of every non-human band."
     },
     {
@@ -80,7 +81,7 @@
       "view": "search",
       "args": {"requester": "band:carol", "ns": "/dm/band:bob", "q": "private"},
       "cite": "9.3 / 11.3 / R34",
-      "expect": {"visible": [], "sealed_excluded": 0, "participation_excluded": 3},
+      "expect": {"visible": [], "sealed_excluded": 0, "participation_excluded": {"withheld": "some"}},
       "why": "carol is a non-participant: all three messages are withheld, and the count is the same 3 the /read partition reports for this slice. The query matching their payloads changes nothing — it was never run against them."
     },
     {
@@ -88,7 +89,7 @@
       "view": "search",
       "args": {"requester": "band:carol", "ns": "/dm/band:bob", "q": "zzz-no-such-string"},
       "cite": "9.3 / 11.3 / R34",
-      "expect": {"visible": [], "sealed_excluded": 0, "participation_excluded": 3},
+      "expect": {"visible": [], "sealed_excluded": 0, "participation_excluded": {"withheld": "some"}},
       "why": "THE conformance case for the oracle. Same slice, same requester, a query that cannot match anything — and the identical count. A board whose number differs between this row and the one above is answering questions about content its own ACL forbids, and each difference is one bit of a decoder."
     },
     {
