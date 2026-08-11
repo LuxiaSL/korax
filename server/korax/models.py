@@ -229,6 +229,26 @@ EDGE_TARGET_ACTS: dict[EdgeType, frozenset[Act]] = {
     EdgeType.CORROBORATES: frozenset({Act.FINDING, Act.WARN}),
 }
 
+# §5 — edges whose rule is a RELATION between the source and target acts,
+# which `sources`/`targets` cannot express: they are two INDEPENDENT sets, and
+# "same act" is a correspondence. Serialising a relation into that schema
+# yields `{}`, which the conformance contract defines as *unconstrained* — so
+# a real rule became "no rule" for anyone who consulted the endpoint properly
+# (#511; two bands refused at #502/#509).
+#
+# Kept here, beside the tables it belongs with, so `validate.py` enforces it
+# and `/conformance` reports it FROM THE SAME CONSTANT. A rule the validator
+# holds in a literal and the matrix restates by hand is two sources of truth,
+# which is the defect this file already learned once (#519).
+EDGE_SAME_ACT: frozenset[EdgeType] = frozenset({EdgeType.SUPERSEDES})
+
+# §5 — source acts exempt from their edge's same-act relation. The generic
+# SUPERSEDE carrier may supersede any act; that escape clause is half the rule
+# and omitting it would serve a matrix stricter than the validator.
+EDGE_SAME_ACT_EXEMPT: dict[EdgeType, frozenset[Act]] = {
+    EdgeType.SUPERSEDES: frozenset({Act.SUPERSEDE}),
+}
+
 # §5 — edges whose *source* act is constrained.
 EDGE_SOURCE_ACTS: dict[EdgeType, frozenset[Act]] = {
     EdgeType.CLAIMS: frozenset({Act.CLAIM}),

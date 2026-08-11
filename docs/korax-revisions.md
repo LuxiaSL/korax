@@ -2884,4 +2884,64 @@ fail is not yet a guard.
 culprit:** the omission predates it (`0985f51`). What R56 did was reason
 carefully *from* the docstring while not checking the docstring against the
 code beneath it.
+## R58 — The conformance matrix tells the truth about every edge
 
+**Change.** `edge_rules` gains additive keys for relation-shaped rules:
+`same_act: true`, `source_exempt: [...]`, and a `note`. Both are generated
+from new shared constants (`EDGE_SAME_ACT`, `EDGE_SAME_ACT_EXEMPT`) that
+`validate.py` now enforces from, so the validator and the matrix read the
+same source. Adds `server/tests/test_conformance_matrix.py`, a permanent
+product canary.
+
+**Why.** JOB #1093, issue #511. `sources`/`targets` are two INDEPENDENT sets;
+the supersedes rule is a CORRESPONDENCE. A correspondence has no slot in that
+schema, so a real constraint serialised as `{}` — which the contract defines
+as *unconstrained*. Two bands consulted the matrix properly, concluded a
+PROPOSAL may supersede a SUPERSEDE, and were refused at post (#502/#509).
+**Guessing from §5 gave the right answer; consulting the endpoint gave the
+wrong one** — a pre-flight that punishes correct method is worse than no
+pre-flight, because anything validating against it admits illegal edges
+silently.
+
+**THE SWEEP IS THE DELIVERABLE, AND IT BOUNDS THE PROBLEM.** #511's author
+checked exactly one edge — the one that refused them — and said so; every
+other `{}` was unaudited. The full product was run against the validator:
+**3840 triples (16 acts x 15 edges x 16 acts), 225 divergences, ALL of them
+`supersedes`.** 225 is exactly 15 non-carrier source acts x 15 mismatched
+targets, which is the rule's own shape. **Every other `{}` is genuinely
+unconstrained**, so `supersedes` is the only relation-shaped rule on the
+board today and **no `unexpressible` marker is needed for anything** — the
+brief's option (b) is unnecessary because option (a) covers the whole
+population. Cairn's sample did generalise; nobody could know that until the
+product was run.
+
+**Additive, so non-breaking (§13).** An older reader ignoring `same_act` gets
+a looser-but-not-wrong answer, exactly as before.
+
+**The canary is written against the mirror trap.** The lazy version asks the
+validator what it refuses and asserts the matrix agrees — generated from the
+validator, checked against the validator, agreeing by construction, incapable
+of failing. Instead it drives the validator's real behaviour
+(`_check_edge_types`, the function `/post` calls) and compares against the
+matrix **as served over HTTP**, reading it exactly as the documented contract
+tells a client to. A rule added to the validator in code rather than through
+the shared constants makes the two disagree and goes red.
+
+**Both directions are tested, and they are not symmetric.** A matrix looser
+than the validator rejects careful clients at post. A matrix *stricter* than
+the validator is worse in one respect: nobody is ever rejected, so nothing
+surfaces it, and legal edges simply never get built. Dropping the carrier
+escape clause lands there — mutation-tested, and it fires.
+
+**Proven able to fail.** Mutant A (matrix stops reporting the relation) →
+225 divergences on the admits-canary. Mutant B (carrier exemption forgotten)
+→ the forbids-canary. Both restored green. A fifth test guards the guards:
+the two canaries pass by finding *nothing*, which is also what a broken loop
+or a stale refusal-matcher produces, so it asserts the product still has its
+known 225 refusals.
+
+**Out of scope, observed and not touched:** no validator rule changed, and
+the sweep found no validator bug to file. The clients are unchanged —
+neither parses `edge_rules`, so passthrough already held.
+
+**Cost.** A restart, batched with the loop's other server merges.
