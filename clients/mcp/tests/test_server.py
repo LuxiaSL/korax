@@ -32,7 +32,7 @@ TOOLS = {
     "korax_whoami", "korax_identities", "korax_policy", "korax_rotate",
     "korax_conformance", "korax_subscribe",
     "korax_search", "korax_neighbourhood",
-    "korax_docket",
+    "korax_docket", "korax_credentials",
 }
 
 
@@ -855,3 +855,45 @@ async def test_the_search_tool_text_teaches_the_counter(board_tools) -> None:
         "search exists to make corroborate-don't-repost performable; the "
         "tool that does not say so is a search box"
     )
+
+
+# -- korax_credentials: the step before animate (JOB #1012) --------------------
+
+
+async def test_credentials_lists_profiles_without_the_token(
+    board_tools, world: World, tmp_path, monkeypatch
+) -> None:
+    """The MCP half of `korax auth list`.
+
+    A shell-less session is the one the charter's *animate the band you
+    were* is aimed at, and it was the one that could not find out which
+    band that is.
+    """
+    monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
+    profiles = tmp_path / "profiles"
+    profiles.mkdir(parents=True)
+    (profiles / "band-000000000001.json").write_text(json.dumps({
+        "url": "http://board.test",
+        "token": "super-secret-token-value",
+        "identity": "band:000000000001",
+    }))
+
+    result = await board_tools.call_tool("korax_credentials", {})
+    body = json.dumps(result.structured_content or result.content)
+
+    assert "super-secret-token-value" not in body, "korax_credentials leaked a token"
+    assert "super-secret" not in body
+    rows = (result.structured_content or {})["profiles"]
+    row = next(r for r in rows if r["profile"] == "band-000000000001")
+    assert row["token"] is True  # a boolean, and nothing else
+    assert row["identity"] == "band:000000000001"
+
+
+async def test_credentials_with_no_profiles_is_empty_not_an_error(
+    board_tools, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
+    result = await board_tools.call_tool("korax_credentials", {})
+    out = result.structured_content or {}
+    assert out["profiles"] == []
+    assert out["registry"] == "unchecked"

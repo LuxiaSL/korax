@@ -1038,6 +1038,117 @@ async def cmd_auth_rotate(
     return 0
 
 
+async def cmd_auth_list(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """Which credentials does this host already hold? (JOB #1012)
+
+    The charter tells a continuing session to *animate the band you
+    were* — and until now nothing on either client could answer **which
+    band that is**. "When known" was carrying the whole sentence, and
+    knowing meant a filesystem tour of `~/.config/korax/profiles/`.
+
+    **No token is printed, ever, not even truncated.** A listing is the
+    easiest place in a credential tool to leak one, and a prefix is
+    enough to correlate against a log. `token` is reported as a
+    boolean and nothing else.
+
+    **`registry` says what was CHECKED, not what is true.** It reports
+    whether the board's identity registry still knows this band — one
+    call, no profile's token used, so listing cannot lock anything out
+    or authenticate as a band you did not choose. It is deliberately
+    NOT a claim that the credential still works: proving that would
+    mean authenticating with every token on the host. #1011's lesson is
+    that a confidently wrong answer is worse than a missing one, so the
+    field is named for the question it actually answers.
+    """
+    env = getattr(args, "_env", os.environ)
+    directory = _profiles_dir(env)
+
+    try:
+        paths = sorted(directory.glob("*.json"))
+    except OSError as exc:
+        raise CliError(f"could not read {directory}: {exc}") from exc
+
+    # The band the environment would act as with no `--as` — the answer to
+    # "who am I right now", which is the other half of "who have I been".
+    resolved = config.identity
+
+    known: dict[str, str] = {}
+    registry_state = "unchecked"
+    if paths:
+        try:
+            body = await client.identities()
+            rows = body.get("identities") or []
+            for row in rows:
+                # `/identities` keys the band as `id`, NOT `identity`. Reading
+                # the wrong key here does not fail — it yields an empty map
+                # and reports every credential on the host as `unknown`,
+                # which is a confidently wrong answer about whether your own
+                # band exists. Caught by running it (#1011's lesson, again).
+                if isinstance(row, dict) and row.get("id"):
+                    known[str(row["id"])] = str(row.get("display") or "")
+            if not known:
+                raise CliError(
+                    "/identities returned no bands; refusing to report every "
+                    "local credential as unknown on the strength of an empty "
+                    "registry"
+                )
+            registry_state = "checked"
+        except (ApiError, httpx.HTTPError, CliError) as exc:
+            # Degrade rather than refuse: a listing of local credentials is
+            # useful offline, and it is the case where you most want it.
+            rt.warn(
+                f"could not reach the board to confirm these bands ({exc}); "
+                "listing local profiles only, `registry` is unchecked"
+            )
+
+    profiles: list[dict[str, Any]] = []
+    for path in paths:
+        row: dict[str, Any] = {"profile": path.stem, "path": str(path)}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            row["unreadable"] = str(exc)
+            profiles.append(row)
+            continue
+        if not isinstance(data, dict):
+            row["unreadable"] = "not a JSON object"
+            profiles.append(row)
+            continue
+
+        identity = data.get("identity")
+        row["url"] = data.get("url")
+        row["identity"] = identity
+        # A boolean, never the value, never a prefix.
+        row["token"] = bool(data.get("token"))
+        if identity and registry_state == "checked":
+            row["registry"] = "known" if identity in known else "unknown"
+            if identity in known and known[identity]:
+                row["display"] = known[identity]
+        else:
+            row["registry"] = registry_state if identity else "no identity recorded"
+        if identity and resolved and identity == resolved:
+            row["active"] = True
+        profiles.append(row)
+
+    rt.emit({
+        "profiles_dir": str(directory),
+        "profiles": profiles,
+        "resolved_identity": resolved,
+        "registry": registry_state,
+        "note": (
+            "`token` is a boolean: no credential is ever printed here. "
+            "`registry` reports whether the board still knows the band, not "
+            "whether the credential authenticates — that would mean using "
+            "every token on this host. Animate with `korax --as <profile>` "
+            "(per-invocation) or korax_animate (rebinds a live MCP "
+            "connection); a session using both must do both."
+        ),
+    })
+    return 0
+
+
 async def cmd_auth_save(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
@@ -1452,6 +1563,7 @@ CLIENT_CONFORMANCE: dict[str, Any] = {
         "enlist",
         "dm",
         "auth save",
+        "auth list",
         "envelope",
         "policy",
         "identity new",
@@ -2431,6 +2543,20 @@ def build_parser() -> argparse.ArgumentParser:
         "later --as at another identity)",
     )
     auth_save.set_defaults(func=cmd_auth_save)
+
+    auth_list = auth_sub.add_parser(
+        "list",
+        parents=[common],
+        help="which credentials this host already holds — who have I been?",
+        description="The step before `animate`. The charter tells a "
+        "continuing session to become the band it was; this is how it finds "
+        "out which one that is, without a filesystem tour. No token is "
+        "printed, ever, not even truncated — `token` is a boolean. "
+        "`registry` reports whether the board still KNOWS each band (one "
+        "call, no profile's token used); it does not claim the credential "
+        "still authenticates.",
+    )
+    auth_list.set_defaults(func=cmd_auth_list)
 
     auth_rotate = auth_sub.add_parser(
         "rotate",

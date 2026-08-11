@@ -284,6 +284,97 @@ class TestFailure:
         assert doorbell.rings == 0, "a failed send must not count as a ring"
 
 
+class TestIdentityFollowsTheRebind:
+    """#1011 — the stamp must track `korax_animate`, not startup.
+
+    The poll already follows a rebind, because `rebind()` mutates the same
+    `KoraxClient` the doorbell holds. The STAMP did not: it was captured in
+    `__init__`, which runs at `notifications/initialized` — **before any
+    session could have animated** — so a snapshot was stale in the normal
+    case, not an edge case.
+
+    Every test here rebinds in the middle. That is the point: the defect is
+    that the two paths disagree AFTER a rebind, and no test that never
+    rebinds can see it.
+    """
+
+    class Config:
+        def __init__(self, identity: str, url: str = "https://board.one") -> None:
+            self.identity = identity
+            self.url = url
+
+    class RebindableClient(ScriptedClient):
+        """Scripted, plus a gate so the rebind genuinely lands BETWEEN rings.
+
+        Without the gate the loop drains every page before the test's next
+        statement runs, and the animate happens after both rings — which
+        makes the test pass or fail on scheduling rather than on the
+        behaviour. The gate is the difference between testing the fix and
+        testing the event loop.
+        """
+
+        def __init__(self, pages, identity: str, head: int | None = 100) -> None:
+            super().__init__(pages, head=head)
+            self.config = TestIdentityFollowsTheRebind.Config(identity)
+            self.gate = asyncio.Event()
+            self._gate_after = 1
+
+        def rebind(self, identity: str) -> None:
+            self.config = TestIdentityFollowsTheRebind.Config(identity)
+
+        async def feed(self, since: int = -1, timeout: float = 60.0):
+            if len(self.calls) >= self._gate_after:
+                await self.gate.wait()
+            return await super().feed(since=since, timeout=timeout)
+
+    @pytest.mark.anyio
+    async def test_stamp_follows_an_animate_between_rings(self) -> None:
+        ambient, quill = "band:31ae86919bea", "band:2887f5287fd2"
+        client = self.RebindableClient(
+            [_page([1], cursor=1), _page([2], cursor=2)], identity=ambient
+        )
+        rec = Recorder()
+        doorbell = ChannelDoorbell(client, rec, settings=NO_WAIT)
+
+        await _run_until(doorbell, 1)
+        assert rec.sent[0][1]["meta"]["identity"] == ambient
+
+        client.rebind(quill)  # exactly what korax_animate does
+        client.gate.set()
+        await _run_until(doorbell, 2)
+        assert rec.sent[-1][1]["meta"]["identity"] == quill, (
+            "the doorbell stamped the band it was BUILT with, not the one it "
+            "is polling for — #1011"
+        )
+
+    @pytest.mark.anyio
+    async def test_explicit_identity_still_overrides_for_tests(self) -> None:
+        client = self.RebindableClient([_page([1], cursor=1)], identity="band:aaa")
+        rec = Recorder()
+        doorbell = ChannelDoorbell(
+            client, rec, settings=NO_WAIT, identity="band:pinned"
+        )
+        await _run_until(doorbell, 1)
+        assert rec.sent[0][1]["meta"]["identity"] == "band:pinned"
+
+    @pytest.mark.anyio
+    async def test_board_url_is_read_live_too(self) -> None:
+        client = self.RebindableClient([_page([1], cursor=1)], identity="band:aaa")
+        rec = Recorder()
+        doorbell = ChannelDoorbell(client, rec, settings=NO_WAIT)
+        await _run_until(doorbell, 1)
+        assert rec.sent[0][1]["meta"]["board_url"] == "https://board.one"
+
+    @pytest.mark.anyio
+    async def test_a_client_without_config_does_not_crash_the_ring(self) -> None:
+        """A missing stamp is acceptable; a dead lane is not."""
+        client = ScriptedClient([_page([1], cursor=1)])  # no `.config` at all
+        rec = Recorder()
+        doorbell = ChannelDoorbell(client, rec, settings=NO_WAIT)
+        await _run_until(doorbell, 1)
+        assert "identity" not in rec.sent[0][1]["meta"]
+
+
 class TestSettings:
     def test_defaults_are_the_documented_ones(self) -> None:
         s = DoorbellSettings()

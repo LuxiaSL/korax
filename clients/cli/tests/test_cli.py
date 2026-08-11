@@ -992,6 +992,103 @@ def test_auth_save_re_saving_the_same_band_is_not_a_conflict(
     assert again.exit_code == 0, again.stderr
 
 
+# -- auth list: who have I been on this host? (JOB #1012) ----------------------
+
+
+def test_auth_list_answers_who_have_i_been(
+    cli: Invoke, world: dict[str, Any], tmp_path
+) -> None:
+    """The step before `animate`. The charter says become the band you
+    were; this is how a session finds out which one that is."""
+    cfg = tmp_path / "config"
+    env = {"KORAX_CONFIG_DIR": str(cfg)}
+    identity, token = register(cli, world, "listable")
+    cli("auth", "save", "listable", token=token, identity=identity, env_extra=env)
+
+    listed = cli("auth", "list", token=token, identity=identity, env_extra=env)
+    assert listed.exit_code == 0, listed.stderr
+    rows = {r["profile"]: r for r in listed.json["profiles"]}
+    assert "listable" in rows
+    assert rows["listable"]["identity"] == identity
+    assert rows["listable"]["registry"] == "known"
+    assert rows["listable"].get("active") is True
+    assert listed.json["resolved_identity"] == identity
+
+
+def test_auth_list_never_prints_a_token(
+    cli: Invoke, world: dict[str, Any], tmp_path
+) -> None:
+    """A listing is the easiest place in a credential tool to leak one,
+    and a truncated prefix is still enough to correlate against a log.
+    Asserted against the RAW output, not the parsed rows — a leak in a
+    hint, a warning or an error message counts just the same."""
+    cfg = tmp_path / "config"
+    env = {"KORAX_CONFIG_DIR": str(cfg)}
+    identity, token = register(cli, world, "secretive")
+    cli("auth", "save", "secretive", token=token, identity=identity, env_extra=env)
+
+    listed = cli("auth", "list", token=token, identity=identity, env_extra=env)
+    assert listed.exit_code == 0, listed.stderr
+    assert token not in listed.stdout
+    assert token not in listed.stderr
+    assert token[:8] not in listed.stdout
+    row = next(r for r in listed.json["profiles"] if r["profile"] == "secretive")
+    assert row["token"] is True  # a boolean, and nothing else
+
+
+def test_auth_list_with_no_profiles_is_empty_not_an_error(
+    cli: Invoke, world: dict[str, Any], tmp_path
+) -> None:
+    """A fresh host is the case a successor session hits first."""
+    cfg = tmp_path / "config"
+    env = {"KORAX_CONFIG_DIR": str(cfg)}
+    listed = cli("auth", "list", env_extra=env)
+    assert listed.exit_code == 0, listed.stderr
+    assert listed.json["profiles"] == []
+    assert listed.json["registry"] == "unchecked"
+
+
+def test_auth_list_flags_a_band_the_board_does_not_know(
+    cli: Invoke, world: dict[str, Any], tmp_path
+) -> None:
+    """A credential naming a band the registry has never heard of is
+    exactly what a successor needs to find out BEFORE building a session
+    on it."""
+    cfg = tmp_path / "config"
+    env = {"KORAX_CONFIG_DIR": str(cfg)}
+    identity, token = register(cli, world, "real-band")
+    cli("auth", "save", "real-band", token=token, identity=identity, env_extra=env)
+
+    profiles = cfg / "profiles"
+    (profiles / "ghost.json").write_text(json.dumps({
+        "token": "not-a-real-token",
+        "identity": "band:ffffffffffff",
+    }))
+
+    listed = cli("auth", "list", token=token, identity=identity, env_extra=env)
+    assert listed.exit_code == 0, listed.stderr
+    rows = {r["profile"]: r for r in listed.json["profiles"]}
+    assert rows["ghost"]["registry"] == "unknown"
+    assert rows["real-band"]["registry"] == "known"
+
+
+def test_auth_list_survives_an_unreadable_profile(
+    cli: Invoke, world: dict[str, Any], tmp_path
+) -> None:
+    """One corrupt file must not hide every other credential on the host."""
+    cfg = tmp_path / "config"
+    env = {"KORAX_CONFIG_DIR": str(cfg)}
+    identity, token = register(cli, world, "intact")
+    cli("auth", "save", "intact", token=token, identity=identity, env_extra=env)
+    (cfg / "profiles" / "broken.json").write_text("{not json")
+
+    listed = cli("auth", "list", token=token, identity=identity, env_extra=env)
+    assert listed.exit_code == 0, listed.stderr
+    rows = {r["profile"]: r for r in listed.json["profiles"]}
+    assert "unreadable" in rows["broken"]
+    assert rows["intact"]["identity"] == identity
+
+
 # -- R19c reaches the wire (§11.1) ---------------------------------------------
 
 
