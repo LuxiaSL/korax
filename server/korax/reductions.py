@@ -22,8 +22,36 @@ from .retention import parse_horizon as _parse_horizon
 ANCESTRY_EDGES = (EdgeType.DERIVES_FROM, EdgeType.SUPERSEDES, EdgeType.BESIDE)
 
 
-def _fmt(ts: datetime) -> str:
-    return ts.strftime("%Y-%m-%dT%H:%M:%SZ")
+def _fmt(ts: datetime | None) -> str | None:
+    """None in, None out — an unplaceable evaluation moment is reported as
+    `null` rather than fabricated. §287's family: absent, zero and wrong
+    are three different answers, and a reduction that invented a wall
+    clock here would be the third wearing the first's clothes."""
+    return ts.strftime("%Y-%m-%dT%H:%M:%SZ") if ts is not None else None
+
+
+def _eval_ts_or_none(log: Log, offset: int) -> datetime | None:
+    """The evaluation moment for a reduction at `offset`, or None when
+    this log has no envelope there.
+
+    THE ONE IMPLEMENTATION. Three reductions each wrote
+    `log.get(offset).ts` inline; `state` alone guarded it, and the other
+    two returned HTTP 500 for any offset naming an envelope the requester
+    cannot see — which is not an exotic argument but the ordinary
+    consequence of a visibility-filtered log (#909, JOB #1092, measured
+    at #1118).
+
+    None is not an error and must not become one. It means only that the
+    anchor is not in THIS caller's log, and every predicate downstream of
+    it is then false: no lease is live, nothing is within a horizon,
+    nothing rotates. The board already held this position where rotation
+    needed it — `retention.eval_ts_at`, whose docstring names the
+    cannot-see case explicitly — and the discovery reductions never
+    adopted it. This is that adoption, in one place so the next reduction
+    inherits it instead of re-deciding it.
+    """
+    env = log.get(offset)
+    return env.ts if env is not None else None
 
 
 def _grade_ok(floor: str, grade: Grade, stamped: bool) -> bool:
@@ -250,7 +278,7 @@ def state(
     clusters = _beside_clusters(envs, log, offset)
 
     claims = []
-    eval_ts = log.get(offset).ts if log.get(offset) else None
+    eval_ts = _eval_ts_or_none(log, offset)
     for env in envs:
         if env.type in (Act.OPEN, Act.JOB):
             hold = _held(log, env.id, offset, eval_ts)  # X2 — shared with `jobs`
@@ -369,7 +397,17 @@ def fresh(
     """§10.6 — the cross-desk digest, ranked by replication weight.
     Floor `verified` for FINDINGs; WARNs are grade-exempt (§6.3). Never
     sources from grades:false nests."""
-    eval_ts = log.get(offset).ts
+    eval_ts = _eval_ts_or_none(log, offset)
+    if eval_ts is None:
+        # No clock, so no window: `fresh` is a horizon around the
+        # evaluation moment and there is no evaluation moment to place it
+        # around. Empty is the same answer `state` gives from the same
+        # cause — "no lease can be live" — and the same one `_held`
+        # already returns on a None eval_ts. A predicate that needs a
+        # clock is FALSE when there is no clock; it does not fall back to
+        # a different clock, and it does not serve an unwindowed digest
+        # under the name of a windowed one (JOB #1092).
+        return []
     cutoff = eval_ts - _parse_horizon(horizon)
     entries = []
     for env in log.upto(offset):
@@ -820,7 +858,7 @@ def jobs(log: Log, timeline: PolicyTimeline, offset: int, ns: str) -> dict[str, 
     """§10.8 — open / taken / delivered / lapsed, as the part-of forest.
     Lapsed is rendered distinctly from open: picked-up-and-dropped is
     information the next taker wants."""
-    eval_ts = log.get(offset).ts
+    eval_ts = _eval_ts_or_none(log, offset)
     all_jobs = [e for e in log.upto(offset) if e.type == Act.JOB and in_subtree(ns, e.ns)]
 
     forest: dict[str, list[int]] = {}

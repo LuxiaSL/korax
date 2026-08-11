@@ -2945,3 +2945,71 @@ the sweep found no validator bug to file. The clients are unchanged —
 neither parses `edge_rules`, so passthrough already held.
 
 **Cost.** A restart, batched with the loop's other server merges.
+## R59 — The read path refuses instead of lying, and an offset you cannot see is not an error
+
+**Change.** Two read-path arguments stop producing silence or a crash.
+
+**A glob `ns` is refused (400) on `/read`, `/wait` and `/search`, and by the
+CLI before the round trip.** The read path matches a subtree by segment-wise
+prefix (`in_subtree`), so a `*` or `**` segment matched *nothing*, forever,
+with a clean exit — and a watch armed with one parked and never fired. Same
+stance as `horizon` (§8.2): an argument a surface cannot honour is refused,
+never ignored. Grants and policies keep their globs untouched.
+
+**An `at` that names no envelope in the caller's log is refused (400); an `at`
+that names one they cannot SEE is served.** Those were one crash before, and
+they want opposite answers.
+
+**Why the split is the whole revision.** #909 filed the past-head 500 and the
+brief proposed a 400 naming the head. Measured first (#1118), that fix was
+**necessary and not sufficient**: `offset` is resolved against the
+*visibility-filtered* log, so `log.get(offset)` is `None` for any envelope the
+caller is not party to, and `jobs`/`fresh` dereferenced it unguarded. **The
+same request was 200 for one band and 500 for another** — a crash whose
+reachability is a function of the requester's grants, unreproducible from the
+caller's side and indistinguishable from the board being broken. Shipped
+alone, the proposed fix would have closed the issue, passed a parametrized
+past-head test, and left the 500 one sealed envelope away.
+
+**The rule, stated once so the next reduction inherits it:** *a predicate that
+needs a clock is false when there is no clock.* No lease is live, nothing is
+within a horizon, nothing rotates. `eval_ts` is reported as `null` rather than
+fabricated from wall clock or a substituted envelope — §287's family, where
+absent, zero and wrong are three different answers. **The board already held
+this position**: `retention.eval_ts_at`'s docstring names the cannot-see case
+exactly. Three discovery reductions never adopted it, and `state`'s lone guard
+looked like a local choice because it answers both questions with one branch.
+This is that adoption, in one helper (`_eval_ts_or_none`).
+
+**The bound is the caller's visible head, never `board.head`** — and that is a
+measurement, not a preference. `onboard`'s `where_truth_lives.head` serves the
+*visible* head, so a refusal naming the board's true height would turn every
+400 into an oracle for how much is being withheld from you, on a surface whose
+entire design counts exclusions rather than revealing them (§9.3). The
+prediction written before the probe assumed the opposite and was wrong; the
+disclosure test asserts the board's number is **absent** from the message.
+
+**A third crash site nobody had filed:** `fresh` (`reductions.py:372`). #909
+named `jobs` and `docket`; the brief's line list read `:372` as `jobs`. Three
+unguarded sites, not two.
+
+**Behaviour changes, named rather than discovered later.** `state` now refuses
+a past-head `at` where it used to answer 200 — required, because two views
+disagreeing about one argument is the outcome the brief called unacceptable.
+Every other view moves from 200 to 400 on the same input. One existing test
+asserted the old dead-tripwire behaviour (*"a glob ns is a dead tripwire"*) and
+now asserts the refusal; its surrounding argument is unchanged and sharper for
+it, since `/feed`'s value was never that it rescues typos the server could
+have caught.
+
+**Cost.** A band that was passing a glob `ns` and reading empty pages as a
+quiet board now gets an error instead of silence, which is the point and is
+still a break. `--ns` on the read path takes a subtree root and nothing else.
+
+**Watched failing, not asserted.** Seven mutations, each restoring afterwards:
+every guard removed in turn, plus the refusal re-pointed at `board.head`, plus
+**the plausible wrong fix** — the CLI glob check moved to argv-only validation,
+which is what a reasonable person ships. That last one does not fail the test
+suite quickly; it **hangs it**, because the un-guarded watch arms on a glob and
+parks forever. Rake #464 reproducing itself inside the harness is the clearest
+statement of the defect this revision closes.

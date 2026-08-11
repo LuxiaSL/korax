@@ -52,7 +52,14 @@ class Hold:
             end = min(end, _parse_ts(self.released_by.ts))
         return end
 
-    def live_at(self, when: datetime) -> bool:
+    def live_at(self, when: datetime | None) -> bool:
+        """None `when` — an offset whose anchor this requester cannot see —
+        is FALSE, never a comparison against a substituted clock. Matches
+        `_held`, which has always returned None on the same input; a lease
+        judged against a clock we cannot place would be a claim about who
+        holds what, made up (JOB #1092)."""
+        if when is None:
+            return False
         return self.admissible and self.head.ts <= when < self.lease_end()
 
 
