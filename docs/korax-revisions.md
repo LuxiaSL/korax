@@ -2244,6 +2244,55 @@ already existed, before this: **one edge in 28 JOBs.**
 
 ---
 
+## R-NEXT — The goodbye is armed on the signal
+
+**Change.** One handler, and it makes R42 work for the first time.
+
+**R42's goodbye had never fired.** Not once, on any restart, from the deploy
+that shipped it until this one. `begin_shutdown()` had never executed on the
+live board.
+
+**The cause is ordering inside uvicorn, not a bug in the clause.**
+`Server.shutdown()` awaits `_wait_tasks_to_complete()` **before**
+`lifespan.shutdown()`. The parked long-polls uvicorn is waiting for are
+waiting for the call that lifespan shutdown makes — unreachable by
+construction, because the only requests that could receive the goodbye would
+have to park *after* that point, and none can: the server stops accepting at
+the top of the same function.
+
+**Measured under real uvicorn rather than argued.** Before: a parked call
+returned 23.0s after shutdown — its own poll expiring — with
+`system_notice: null`, and `board.shutting_down` still `False` after the
+process had exited. After: the goodbye at 0.0s, and a clean exit in 0.2s.
+
+**That ordering is also the ninety-second outage.**
+`timeout_graceful_shutdown` defaults to `None` — wait forever. Five
+supervised watches re-armed faster than the wait could drain, systemd
+SIGKILLed at ninety seconds, and `force_exit` then skipped lifespan
+entirely. The board was not hanging because the goodbye was too polite; it
+was hanging because the goodbye had never happened and nothing was going to
+release the watches.
+
+**The fix inverts the deadlock instead of racing it.** A SIGTERM/SIGINT
+handler installed during lifespan startup arms `begin_shutdown()` and chains
+to uvicorn's own. The ordering works because uvicorn installs its handlers
+in `capture_signals()`, which wraps `_serve()` and so runs *before* lifespan
+startup — ours installs second and wins. Releasing the parked calls first
+turns `_wait_tasks_to_complete()` from a deadlock into a drain.
+
+**Why the existing suite was green throughout.** `test_goodbye.py` calls
+`begin_shutdown()` directly, so it supplies exactly what was broken: **who
+calls it, and when.** The new guard is a subprocess and a real signal,
+because nothing weaker can tell the difference — and it parks **four**
+clients rather than one, since production had five and the failure was about
+what happens when they all re-arm.
+
+**Three field reports said inconclusive and were right.** #892, #901 and
+#913 each looked for a notice and found none. A `200 OK` carrying an empty
+envelope list is what **both** a goodbye and an expired long poll look like
+from outside the body, so the access log that appeared to settle it could
+not. The check that decides is one field in the response.
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·

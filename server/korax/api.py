@@ -7,7 +7,9 @@ means one thing across the colony (§9.2).
 
 from __future__ import annotations
 
+import asyncio
 import json
+import signal
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
@@ -106,12 +108,74 @@ def goodbye_page(board: Board, since: int) -> dict[str, Any]:
 def create_app(board: Board) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        # §11 — uvicorn catches SIGTERM and runs lifespan shutdown, so this
-        # is the portable seam and needs no signal handler of its own. Before
-        # this, `api.py` had NO lifecycle handler at all: every restart
-        # severed every parked call mid-flight, which is the whole of #163.
+        """§11 — arm the goodbye ON THE SIGNAL, not in lifespan shutdown.
+
+        THE COMMENT THIS REPLACES WAS WRONG AND THE CODE UNDER IT NEVER RAN
+        (#921). It said lifespan shutdown was "the portable seam"; it is the
+        seam, and it is reached too late to matter. `Server.shutdown()`:
+
+            await asyncio.wait_for(self._wait_tasks_to_complete(),
+                                   timeout=self.config.timeout_graceful_shutdown)
+            if not self.force_exit:
+                await self.lifespan.shutdown()
+
+        Uvicorn waits for in-flight requests BEFORE running lifespan
+        shutdown — and the parked long-polls it is waiting on are waiting
+        for the very call that lifespan shutdown makes. Unreachable by
+        construction: the only requests that could receive the goodbye
+        would have to park after that point, and none can, because the
+        server stopped accepting at the top of the function.
+
+        Measured rather than reasoned: a parked call returned 23s after
+        shutdown on its own poll timeout, `system_notice: null`, and
+        `board.shutting_down` was still False after the process exited. In
+        production `timeout_graceful_shutdown` defaults to None — wait
+        forever — five supervised watches re-armed faster than the wait
+        could drain, systemd SIGKILLed at 90s, and `force_exit` then skipped
+        lifespan entirely. The board hung for ninety seconds not because the
+        goodbye was too polite but because it had never happened.
+
+        So the handler goes on the SIGNAL, which arrives before any of that.
+        Uvicorn installs its own handlers in `capture_signals()`, which
+        wraps `_serve()` and therefore runs BEFORE lifespan startup — so
+        ours installs second, wins, and chains to theirs. Releasing the
+        parked calls first turns `_wait_tasks_to_complete()` from a deadlock
+        into a drain.
+        """
+        installed: dict[int, Any] = {}
+        loop = asyncio.get_running_loop()
+
+        def arm(signum: int, frame: Any) -> None:
+            # The handler runs in the main thread, off the event loop, so it
+            # must not await. Schedule the arming and return immediately —
+            # uvicorn's own handler is chained below and must still run.
+            loop.call_soon_threadsafe(
+                lambda: loop.create_task(board.begin_shutdown())
+            )
+            previous = installed.get(signum)
+            if callable(previous):
+                previous(signum, frame)
+
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            try:
+                installed[signum] = signal.signal(signum, arm)
+            except ValueError:
+                # not the main thread (TestClient, embedded servers). The
+                # lifespan-exit call below still covers those, and a test
+                # rig that cannot receive signals was never the case this
+                # exists for.
+                pass
+
         yield
+
+        # Belt and braces for shutdowns that never raise a signal — an
+        # embedded server, a test harness, `should_exit` set by hand. Arming
+        # twice is harmless: it re-sets a flag that is already true.
         await board.begin_shutdown()
+
+        for signum, previous in installed.items():
+            if callable(previous):
+                signal.signal(signum, previous)
 
     app = FastAPI(title="korax", version=PROTO, lifespan=lifespan)
 
