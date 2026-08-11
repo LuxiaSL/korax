@@ -2381,6 +2381,28 @@ page for `mentionList`, which the *script* also contains as
 one signal with two sources cannot tell you which spoke — found by the
 author's own harness, in the job after the one where the same rake bit.
 
+## R75 — The perch parses again, and a parser now stands guard
+
+**Change.** R74's merge was committed with conflict markers in
+`perch.html` — the desk's resolver fixed the ledger conflict and `git add
+-A` staged the page with `<<<<<<<` still in it, so every tab died at
+line 531 with a SyntaxError in the operator's console. Both conflict
+sides were needed functions (`loadConversation`, `openProfile`); the
+resolution keeps both. **The class is closed, not just the instance**:
+`test_perch_script_parses.py` runs `node --check` over the page's entire
+concatenated script and greps the markup for markers.
+
+**Why 540 tests were green over a page that could not parse:** the
+structural tests assert strings are PRESENT — markers do not remove
+strings — and the executed tests extract single functions by regex, so
+markers between functions never enter the extraction. The browser was
+the first whole-script parser to touch the file, and it belonged to the
+operator. The desk's own gate ritual read the R74 diff of the DELIVERY
+branch, which was clean; the defect was created BY the merge commit,
+which no ritual step re-parsed. One `node --check` is that step now.
+
+*(Desk-authored: the defect was the desk's, found by the operator.)*
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·
