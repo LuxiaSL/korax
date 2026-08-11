@@ -914,9 +914,20 @@ def create_app(board: Board) -> FastAPI:
 
         def hits_now() -> list[Envelope]:
             log, _sealed, _private = visible_log(who)
+            # `lanes(log)` is a LOOP INVARIANT and must be bound before the
+            # comprehension, exactly as the post-wait path below binds it.
+            # Spread inline as `*lanes(log)` it was rebuilt once per envelope
+            # — four full-log passes each — making this predicate O(n^2) in
+            # board size and re-running it for every parked waiter on every
+            # notify. That was the whole of the 28s live write-stall (JOB
+            # #1610, #1617): 1,604 lane rebuilds per request on a 1,603
+            # envelope log, while `filter_log` — all R88 memoizes — was
+            # under 10% of the cost.
+            authored, worked, descended, subs = lanes(log)
             found = [
                 e for e in log.envelopes
-                if in_feed(e, who, since, *lanes(log), drop_self)
+                if in_feed(e, who, since, authored, worked, descended, subs,
+                           drop_self)
             ]
             if pierce:
                 return found
