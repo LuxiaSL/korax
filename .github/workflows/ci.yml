@@ -27,6 +27,13 @@ jobs:
       - run: uv run --directory server pytest -q
       - run: uv run --directory clients/cli pytest -q
       - run: uv run --directory clients/mcp pytest -q
+      # ISSUE #1669 — the browser leg (R94's perch smoke) is excluded from a
+      # bare pytest by design (`addopts = -m 'not browser'`), so unless CI
+      # types `-m browser` the guard only ever runs when a human remembers
+      # to. If the runner lacks Chrome or node the suite soft-skips and says
+      # which (wren's #1644 backstop) — a skip here is honest and visible in
+      # the log, not a green that measured nothing.
+      - run: uv run --directory server pytest -q -m browser
 
   # JOB #163 part 3. NOT a rewrite of the job above: that job already did
   # what the brief asked for (three suites, separately, push and PR) as of
