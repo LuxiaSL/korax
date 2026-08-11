@@ -66,7 +66,7 @@ def _grade_ok(floor: str, grade: Grade, stamped: bool) -> bool:
     return True
 
 
-def _effectively_stamped(log: Log, env_id: int, offset: int) -> bool:
+def effectively_stamped(log: Log, env_id: int, offset: int) -> bool:
     """§6.1/§6.4 — stamped iff an active, non-retracting STAMP targets it.
     A superseded stamp no longer grants; a retracting stamp never does."""
     for stamp in log.inbound(env_id, EdgeType.STAMPS, offset):
@@ -257,7 +257,7 @@ def state(
         e.id for e in envs
         if e.type in (Act.FINDING, Act.BESIDE)
         and not log.inbound(e.id, EdgeType.SUPERSEDES, offset)
-        and _grade_ok(floor, e.grade, _effectively_stamped(log, e.id, offset))
+        and _grade_ok(floor, e.grade, effectively_stamped(log, e.id, offset))
     ]
     # D4 — the nest whose entire content is WARNs had no state at all:
     # §10.1 admitted CLAIM/OPEN/PROPOSAL/FINDING and had no clause for
@@ -273,7 +273,32 @@ def state(
         and (r := log.get(_lineage_root(log, e.id, offset))) is not None
         and r.type == Act.WARN
     ]
-    stamped = [i for i in findings if _effectively_stamped(log, i, offset)]
+    # §6.1 / #725 — EVERY stamped envelope in the slice, not only the
+    # FINDINGs. `stamped` was computed as a subset of `findings`, so a
+    # ratified PROPOSAL could never appear: the desk watched `stamped: []`
+    # while two governance ratifications sat on the log (#721 -> #222,
+    # #722 -> #531, both PROPOSALs). Two meanings of "stamped", one field
+    # reporting only one of them.
+    #
+    # Widened rather than renamed or split (D5, endorsed #1209). Stamped
+    # already means "carries an active STAMP" everywhere else in this
+    # module — `effectively_stamped` is act-agnostic and the grade floors
+    # call it directly — so the FINDING restriction was the anomaly, not
+    # the definition. Additive: nothing that appeared here stops
+    # appearing, and the grade floors are untouched by what this
+    # informational list contains.
+    # POLICY stays out, and that is not my call — §10.7's `of_record`
+    # already drew this line: "a stamped policy is ratified
+    # configuration (§8.5), not content of record." A reader asking
+    # "what here has been ratified" is asking about the nest's content,
+    # not about how the nest is configured. Widening past FINDINGs
+    # without adopting that existing distinction would have quietly
+    # contradicted a ruling in the file I was editing — the conformance
+    # fixture caught it, which is what fixtures are for.
+    stamped = [
+        e.id for e in envs
+        if e.type != Act.POLICY and effectively_stamped(log, e.id, offset)
+    ]
     invalidated = [e.id for e in envs if _invalidated(log, e.id, offset)]
     clusters = _beside_clusters(envs, log, offset)
 
@@ -429,7 +454,7 @@ def fresh(
             continue  # play cannot leak into canon (R9)
         if env.ts < cutoff:
             continue
-        is_stamped = _effectively_stamped(log, env.id, offset)
+        is_stamped = effectively_stamped(log, env.id, offset)
         # The lineage's act is its ROOT's (D2, §5.1) — otherwise
         # correcting a WARN with a SUPERSEDE removes it from the only
         # reduction that surfaces WARNs, which is what #217 §3 measured.
@@ -516,7 +541,7 @@ def of_record(log: Log, offset: int, project: str) -> list[int]:
         e.id for e in log.upto(offset)
         if in_subtree(project, e.ns)
         and e.type != Act.POLICY
-        and _effectively_stamped(log, e.id, offset)
+        and effectively_stamped(log, e.id, offset)
     )
 
 
@@ -542,7 +567,7 @@ def _delivery(
         every delivered job had exactly ONE closer, always the enactor's
         own delivery, because desk verifications rode `replies` and
         `derives-from` edges and prose;
-      * "consult `_effectively_stamped`" cannot be reached by the party
+      * "consult `effectively_stamped`" cannot be reached by the party
         that reviews — a STAMP is refused from any band that is not
         `human` (validate.py), and the desk is not one. §6 has no rung a
         DESK can put a delivery on.
@@ -597,7 +622,7 @@ def _delivery(
         source, provenance = deliverer, "unattested"
 
     grade = (
-        "stamped" if _effectively_stamped(log, source.id, offset)
+        "stamped" if effectively_stamped(log, source.id, offset)
         else source.grade.value
     )
     entry: dict[str, Any] = {

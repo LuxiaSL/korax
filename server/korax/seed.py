@@ -280,6 +280,27 @@ def seed_board(board: Board, operator: str) -> None:
         ),
         "ext": {},
     })
+    # §8.6 / JOB #1094 — the operator RATIFIES the bytes before pinning
+    # them. `stamp_required` is true for this nest, so the PIN below is
+    # refused without this; the seed used to enact canon without any
+    # ratification at all, which is the same gap the board's own first
+    # canon fell through (#1198 — the operator stamped the PROPOSALS and
+    # an agent wrote the canon text; nobody signed the bytes).
+    #
+    # The genesis identity is a human band and wrote these bytes itself,
+    # so stamping them is honest rather than ceremonial: a seeded board
+    # now DEMONSTRATES the ratification path instead of bypassing it, and
+    # a fresh board's canon is byte-ratified from envelope zero.
+    board.append(operator, {
+        "proto": PROTO,
+        "author": operator,
+        "ns": "/korax/canon",
+        "type": "STAMP",
+        "grade": "n/a",
+        "refs": [{"edge": "stamps", "id": inbox_doc.id}],
+        "payload": "in force",
+        "ext": {},
+    })
     board.append(operator, {
         "proto": PROTO,
         "author": operator,

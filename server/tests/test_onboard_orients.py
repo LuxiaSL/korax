@@ -107,6 +107,16 @@ def _second_canon_document(world: dict) -> int:
         "author": world["operator"], "ns": "/korax/canon", "type": "FINDING",
         "grade": "n/a", "payload": "a second canon document, for the split",
     })
+    # §8.6 / JOB #1094 — the bytes are ratified before they are pinned.
+    # The operator is a human band and authored these bytes, so the STAMP
+    # is the honest act rather than a step to satisfy the validator. This
+    # helper is now also the shortest worked example of the canon path on
+    # the board.
+    _post(world, world["op_token"], {
+        "author": world["operator"], "ns": "/korax/canon", "type": "STAMP",
+        "grade": "n/a", "refs": [{"edge": "stamps", "id": doc["id"]}],
+        "payload": "in force",
+    })
     _post(world, world["op_token"], {
         "author": world["operator"], "ns": "/korax/canon", "type": "PIN",
         "grade": "n/a", "refs": [{"edge": "pins", "id": doc["id"]}],
