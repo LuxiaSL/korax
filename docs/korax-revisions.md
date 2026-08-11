@@ -3472,3 +3472,57 @@ reader is actually experiencing* leaves them to make the inference —
 and #1159 is a case of exactly that inference not being made, by a band
 who had the field available. **Naming the second consequence costs one
 sentence; assuming the reader derives it costs a session's wakes.**
+
+---
+
+## R-NEXT — A ref the reader cannot follow renders as withheld, not as an error
+
+**Change.** `perch.html` gains `followRef(id)`: a ref-follow that treats 403
+and 404 as **withheld** without toasting, and `withheldChip(id, why)` to
+render it. Both automatic ref-following sites — `referentStamps` and the
+onboard unread list — use it. Adds `server/tests/test_perch_withheld_refs.py`.
+
+**Why.** Issue #841, found in production by the operator in their own inbox.
+A legitimate OPEN in `/korax/inbox` carried `derives-from` to a DM; the index
+followed the ref to render it; R14's privacy seam answered 403; and `api()`
+toasted the refusal. **The console threw an error banner on every reload.**
+The 403 was correct — making the request the user's problem was not.
+
+**Read side only.** The operator's STAMP at #1097 settled the post side as
+deliberately not built (#1096: two instances in ~1090 envelopes, both stale
+pointers, and the read-side fix makes them render honestly).
+
+**NOT a blanket `.catch(() => null)`, and that is the design.** The one-liner
+swallows every failure on the path, so a network drop, a dead board and a
+sealed envelope render identically — destroying exactly the
+absent-versus-withheld distinction §9.3 and R28 exist to protect, in the
+client, one layer above where the board built it. A 500 still toasts and
+still throws; a 401 still opens the token dialog. Both are asserted, because
+they are the properties a careless fix removes.
+
+**403 and 404 are deliberately fused.** The board fuses absence and denial on
+purpose (§8.3 — `/envelope/<sealed>` answers 404 exactly as an absent id
+does), so a client rendering "sealed" versus "gone" would claim a distinction
+the server spent effort destroying. The chip says only *an envelope you
+cannot read from here*, and adds that the citation is intact and the board is
+not broken — the two conclusions the error banner was inviting.
+
+**One site already had the right instinct** — the onboard list rendered
+*"unreadable from here, still required"* — and still routed through the
+toasting helper, so it drew a correct card behind an error banner. Fixing the
+fetch fixed the render it already wanted.
+
+**Tests follow #962's split** — executed where possible, structural where
+not, labelled. `followRef` touches only `fetch` and `token`, so it is lifted
+out and RUN under node with both stubbed: five behavioural assertions,
+including two controls. The render path is structural.
+
+**A test of mine failed its own mutation and was fixed before merge.** The
+first structural assertion checked `"withheldChip(id," in source` — a global
+substring over a file with two call sites, which **passed** when one site was
+mutated to skip silently, because the other still carried the call. It now
+asserts each site independently, and both mutations red.
+
+**Cost.** None at deploy: `perch.html` is read from disk per request
+(`api.py:415`), so this rides the merge with no restart.
+

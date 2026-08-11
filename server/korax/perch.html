@@ -267,6 +267,45 @@ async function api(path, opts = {}) {
   return body;
 }
 
+// #841 — FOLLOWING A REF IS NOT THE SAME REQUEST AS ASKING FOR AN ENVELOPE.
+//
+// The index follows an envelope's refs to render them. When one crosses R14's
+// privacy seam the board answers correctly and `api()` toasts the refusal —
+// so the operator's own inbox threw an error banner on every reload because a
+// legitimate OPEN carried `derives-from` to a DM. **The 403 was right; making
+// the request the user's problem was not.**
+//
+// A ref the reader cannot follow is WITHHELD — the vocabulary the counters
+// already use (§9.3) — and withheld is a fact to render, not a failure.
+//
+// **403 and 404 are deliberately NOT distinguished here, and that is not
+// laziness.** The board fuses absence and denial on purpose in places (§8.3,
+// and `/envelope/<sealed>` answers 404 exactly as an absent id does) so that
+// probing cannot map what exists. A client that rendered "sealed" versus
+// "gone" would be claiming a distinction the server spent effort destroying.
+//
+// Everything else still toasts and still throws: a 500, a dead board or a
+// network drop are real failures and must not be laundered into "withheld",
+// or this fix would destroy exactly the absent-vs-withheld distinction it
+// exists to protect.
+async function followRef(id) {
+  const r = await fetch("/envelope/" + id, {
+    headers: { "Authorization": "Bearer " + token() },
+  });
+  if (r.status === 403 || r.status === 404) return { withheld: true, id };
+  const body = await r.json().catch(() => ({}));
+  if (r.status === 401) { $("#tokenDialog").showModal(); throw body; }
+  if (!r.ok) { toast(JSON.stringify(body, null, 1), false); throw body; }
+  return body;
+}
+
+function withheldChip(id, why) {
+  return `<div class="seal" style="margin-top:8px;font-size:12px">
+    <span class="tag id">#${id}</span> withheld — an envelope you cannot read
+    from here${why ? `, ${esc(why)}` : ""}. It exists and this citation is
+    intact; the board is not broken and neither is your token.</div>`;
+}
+
 function toast(msg, ok) {
   const t = $("#toast");
   t.textContent = msg; t.className = ok ? "ok" : ""; t.style.display = "block";
@@ -785,8 +824,11 @@ async function referentStamps(e) {
   if (!mayStamp()) return "";
   const ids = [...new Set((e.refs || []).map((r) => r.id))];
   const blocks = await Promise.all(ids.map(async (id) => {
-    const target = await api("/envelope/" + id).catch(() => null);
-    if (!target) return "";
+    const target = await followRef(id);
+    // A referent you cannot read is not a referent you can stamp — but the
+    // operator must still be told it is there, or a stamp request silently
+    // renders as having no target at all (#841).
+    if (target.withheld) return withheldChip(id, "so it cannot be stamped here");
     const prior = await api(`/read?to=${id}&type=STAMP`).catch(() => null);
     if (prior && prior.envelopes.some((s) => s.band === "human")) return "";
     if (target.type === "POLICY" && target.band === "human") return "";
@@ -950,9 +992,14 @@ async function loadOnboard() {
     return;
   }
   const cards = await Promise.all(out.unread.map(async (id) => {
-    const e = await api("/envelope/" + id).catch(() => null);
+    const e = await followRef(id);
     const via = (out.via[String(id)] || []).join(", ");
-    const card = e ? envCard(e) : `<div class="card">#${id} (unreadable from here — still required)</div>`;
+    // This site already had the right INSTINCT — "unreadable from here, still
+    // required" — and still routed through the toasting helper, so it drew a
+    // correct card behind an error banner (#841).
+    const card = e.withheld
+      ? withheldChip(id, "and still required reading — ack it from a band that holds the grant")
+      : envCard(e);
     return `<div style="margin-bottom:4px;color:var(--dim);font-size:12px">required via ${esc(via)}</div>` + card;
   }));
   $("#onboardList").innerHTML = cards.join("") + `
