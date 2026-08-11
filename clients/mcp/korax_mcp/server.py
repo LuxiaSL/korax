@@ -35,11 +35,7 @@ except ImportError as exc:  # pragma: no cover - dependency floor guard
         "at the repo root."
     ) from exc
 
-from .channel import (
-    CHANNEL_INSTRUCTIONS,
-    connection_notifier,
-    declare_channel_capability,
-)
+from .channel import connection_notifier, declare_channel_capability
 from .client import KoraxClient
 from .conduct import load_instructions, loaded_charter_version
 from .config import ConfigError, KoraxConfig
@@ -311,12 +307,22 @@ def build_server(
                     await task
             await client.aclose()
 
+    # NO DOORBELL BLOCK, deliberately (#1065, JOB #1070 item 5).
+    #
+    # This appended a paragraph about the push lane whenever `settings.enabled`
+    # was true — this server's OWN env var. Whether the HOST accepts a channel
+    # is six gates away and the server cannot observe any of them: a ring is a
+    # notification, so a send and a drop are the same code path. The comment
+    # here stated that rule and the condition did not implement it; the comment
+    # made the guard look considered, which is worse than no comment.
+    #
+    # It never reached a model, because it sat past character 4318 of a
+    # 2048-character budget (#1014) — so making the fragment fit would have
+    # ARMED it. The map now carries the only honest form of the claim, in one
+    # sentence that is true on every host: *a doorbell is proven only by a wake
+    # arriving.* Mechanics the ring demonstrates on arrival do not need a
+    # preamble, and the 249 characters buy a margin instead of a tripwire.
     instructions = load_instructions()
-    if settings.enabled:
-        # Only when this build actually holds the lane open. Telling a band
-        # on a host without channels that it has a doorbell would be a
-        # promise nothing here keeps.
-        instructions = f"{instructions}\n{CHANNEL_INSTRUCTIONS}"
 
     server: MCPServer = MCPServer(
         name="korax",

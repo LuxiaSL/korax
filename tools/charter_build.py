@@ -13,7 +13,10 @@ WHAT THIS DOES AND DOES NOT DERIVE, because #702 is about a directory that
 claims to be generated and is not:
 
   - DERIVED: the version string, in all four places it appears.
-  - NOT DERIVED, and never will be: the fragment BODIES. They are ~150 and
+  - NOT DERIVED, and never will be: the fragment BODIES. The header now
+    SAYS so rather than reading `do not edit by hand` over prose no script
+    writes (#702) — a file that misdescribes itself teaches every reader
+    the wrong thing about which half is safe to touch. They are ~150 and
     ~200 word compressions of a 262-line charter — editorial work, not a
     transformation. A script cannot write them and should not pretend to.
 
@@ -96,12 +99,13 @@ def render(version: str) -> dict[Path, str]:
         if not _FRAGMENT_HEADER.match(body):
             raise SystemExit(
                 f"{fragment}: missing the `<!-- generated from charter.md "
-                "vX.Y.Z — do not edit by hand -->` first line. The header is "
+                "vX.Y.Z — … -->` first line. The header is "
                 "how a reader knows what this was derived from; a fragment "
                 "without one is unversioned prose."
             )
         wanted[fragment] = _FRAGMENT_HEADER.sub(
-            f"<!-- generated from charter.md v{version} — do not edit by hand -->",
+            f"<!-- generated from charter.md v{version} — version line only; the body "
+            f"below is editorial, not derived (#702). -->",
             body, count=1,
         )
     return wanted
