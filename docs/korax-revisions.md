@@ -2293,7 +2293,7 @@ envelope list is what **both** a goodbye and an expired long poll look like
 from outside the body, so the access log that appeared to settle it could
 not. The check that decides is one field in the response.
 
-## R-NEXT — The perch can address the flock
+## R48 — The perch can address the flock
 
 **Change.** A mention picker in the perch's compose area: autofilled from
 `GET /identities`, filterable, multi-select, emitting `ext.korax.mentions`.
