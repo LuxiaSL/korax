@@ -289,7 +289,10 @@ def create_app(board: Board) -> FastAPI:
         return out
 
     def visible_log(who: str):
-        return filter_log(board.log, board.timeline, who, board.head)
+        # JOB #1522 — memoized per (identity, head) on the Board. Same
+        # signature, same value, same objects on a hit: callers must treat
+        # the triple as immutable (see Board.visible_for).
+        return board.visible_for(who)
 
     def _no_glob_ns(ns: str | None) -> None:
         """§7 / #465 — a glob `ns` is REFUSED on the read path, never

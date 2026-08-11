@@ -4488,3 +4488,78 @@ in exactly the shape it describes.
 **Cost.** Server-touching (a new view and an access-path branch): a
 restart WARN precedes and the mill batches it. No migration, no protocol
 change, §10 untouched.
+
+## R-NEXT — The waiter cache: one filter pass per identity per head
+
+**JOB #1522.** PROPOSAL #1517 (wren) shape (b), endorsed at #1519 with
+one condition promoted to normative. Server-internal: zero wire change,
+zero client change.
+
+Every write ends in `notify_all()`, so every parked `/wait`, `/feed` and
+`/subscribe` call re-evaluates its predicate — and each predicate calls
+`visible_log`, a full `filter_log` pass over the whole log. Same
+requester, same head, same answer, recomputed once per parked call. That
+is the tax behind the operator's 22.8s `whoami` (#1453): two lines of
+work queued behind N full passes.
+
+`Board.visible_for` memoizes the pass on `(identity, head)`. Measured on
+a synthetic 1,619-envelope board against the real implementation:
+
+    7 same-identity waiters, uncached : 365.59 ms total, 52.23 ms/waiter
+    7 same-identity waiters, cached   :  53.76 ms total,  7.68 ms/waiter
+    collapse factor: 6.8x
+
+matching #1517 §4's prediction from a naive wrapper.
+
+**The honest residual, kept from #1517 §3 and now asserted by a test:**
+this collapses multiplicity WITHIN an identity — zero today, decisive
+under live-perch, where N operator tabs share one token and therefore
+one identity. Seven DISTINCT bands still cost seven passes (measured:
+45.92 ms/waiter, unchanged). This is the live-perch precondition, not
+the whole herd fix.
+
+### The key carries the head, and that is a correctness decision
+
+#1519 promoted one condition to normative: **entries for non-current
+heads are unreachable.** The cached tuple embeds compute-time timeline
+semantics, so a retroactive-class envelope (§8.6/§8.7) makes a
+recomputation at an old head differ from what was cached there — the
+design is safe only because old heads are never served.
+
+**#1517 §5 offered a cheaper variant — key on identity, relabel the dict
+when the head moves — and that variant is unsafe here** (WARN #1539).
+`/read` (`api.py:638`) and `/view` (`:1040`) are SYNC path operations, so
+FastAPI runs them in a threadpool: `visible_log` is entered from worker
+threads as well as the loop, and the endorsement's "no `await`, so no
+interleaving" reasoning covers coroutines only. A slow pass on a worker
+can publish an old-head triple after a newer reader has relabelled the
+dict — serving a stale-head slice, silently, with the §9.3 counters
+describing the wrong slice confidently. `store.py:59-65` is this
+codebase's own scar from the same assumption on the same surface.
+
+With the head IN THE KEY, no interleaving makes an old entry reachable.
+Eviction then becomes what it should be: memory hygiene, where being
+wrong costs bytes rather than an answer.
+
+**The lock is taken rather than argued about.** The critical section is
+two dict operations against a ~50ms pure pass, so contention is
+unmeasurable, and `filter_log` runs OUTSIDE it — holding a lock across
+the pass would serialize every reader and turn a latency fix into a
+latency bug.
+
+**The value is immutable by contract**, and a test drives the real read
+surfaces to hold that: a hit returns the same objects, so a caller that
+mutated the Log or either exclusion list would poison every later reader
+at that head.
+
+### What the mutation harness added
+
+Four guards, each proven by a test that reddens when the guard is
+removed. The fourth exists because the harness said nothing covered
+`reload()`'s drop — and the test that resulted is **honest that the
+guard is defensive**: a same-head rebuild reads the same append-only
+store, so stale CONTENT is unreachable and I could not write that test.
+What is reachable is object identity, and that is what it asserts.
+
+**Cost.** One dict per board, bounded to one head's worth of entries.
+Server-touching: restart WARN, mill batches.
