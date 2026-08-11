@@ -6,6 +6,25 @@ each entry states the change, the reason, and what it costs. Items marked
 **[accepted-from-field]** are corrections to an earlier review, made by the
 owner, and are the more interesting half of this document.*
 
+> **Writing an entry: use `R-NEXT`, never a number.**
+>
+> A delivery writes its heading as `## R-NEXT — Title` and the desk
+> substitutes the real number at the merge, where the ordering is finally
+> known. **Writing the entry is the claimant's; fixing its number is not.**
+> The number cannot be chosen correctly in a branch, because a branch
+> cannot see what else is in flight — this file records three collisions
+> that prove it, at `R23`, `R24`, and the `R32` pair resolved by hand.
+>
+> `server/tests/test_revisions_ledger.py` guards this: labels stay unique,
+> the integer sequence stays gapless, and at most one `R-NEXT` may exist
+> at a time — it must be the last revision heading. The strict "no
+> `R-NEXT` on main" check runs when `KORAX_MERGE_TARGET` is set.
+>
+> **File order is deliberately not asserted.** `R19c` is a suffixed
+> amendment and `R24` precedes `R23`; both are intentional, and the
+> parentheticals recording why are the evidence that the collision is
+> structural.
+
 ---
 
 ## R1 — Name the sequencer
@@ -1634,6 +1653,61 @@ instead — #613 §3's *"do not park a watch waiting for a stamp that
 structurally cannot arrive yet"* and #606's interim shell road — and
 both are retired by envelope at delivery, the shape #263 used to kill
 `--timeout 75` after R26.
+
+---
+
+## R-NEXT — Revision numbers are allocated where the serialization already is
+
+**Change.** A delivery writes its revision heading as the literal token
+`R-NEXT`; the desk substitutes the number at the merge. The convention is
+stated in this file's own preamble — the one document a claimant writing an
+entry must necessarily open — and guarded by
+`server/tests/test_revisions_ledger.py`: labels unique, integer sequence
+gapless, every revision-shaped heading parses, and **at most one `R-NEXT`,
+which must be the last revision heading.** A strict *no `R-NEXT`* assertion
+runs only against the merge target, gated on `KORAX_MERGE_TARGET`, which
+`ci.yml` sets on push-to-main.
+
+**Why.** The number is chosen in a branch and a branch cannot see what else
+is in flight. Two enactors both wrote `R32` and the desk resolved it by hand
+(#565) — which worked because one desk merged both, in a known order, within
+an hour, and works less well every time any of those three facts weakens.
+
+**The file being repaired already documented two earlier instances, unread.**
+`R24` says it was *"delivered as 'R23' in branch `quill/parity-sweep`;
+renumbered at merge"*, and `R23` says it was *"delivered as 'R22' in branch
+`vesper/multi-user` — retention claimed the number first."* R24's note states
+this change's whole thesis: *"two birds naming revisions concurrently will
+collide every time; the ledger is the tiebreak and the desk stamps it at
+merge."* **Three occurrences, not one** — and a job whose own repair target
+records two prior instances of the bug is the argument for reading the
+artifact before believing the brief.
+
+**Cost, and it is a real trade.** `R-NEXT` removes the early warning. Two
+entries numbered `R32` announced themselves at the merge; two entries titled
+`R-NEXT` merge cleanly and read as one revision saying two things. The
+always-on *at most one `R-NEXT`* assertion is what buys that warning back —
+it catches the collision **on the claimant's branch, in their own suite,
+before the desk ever sees the delivery**, which is earlier than the old
+failure ever fired. What it cannot catch is two entries colliding in
+*content* rather than number; that stays the desk's read, and is named here
+so the next occurrence is recognised rather than rediscovered.
+
+**File order is not asserted, deliberately.** `R19c` proves the label space
+is not the integers, so a file-order assertion would need a total order over
+a set that has none — and an implementation inventing one by skipping what it
+cannot parse is a check that passes because it found nothing to check. It
+would also delete the `R23`/`R24` parentheticals, which are the only
+surviving record that the collision is structural. A guard that erases its
+own motivating evidence is a tidy-up, not a guard.
+
+**Two carriers, because they fail differently.** The env var catches the
+mistake before the merge, the only point at which catching it is free, but
+depends on the desk remembering to export it — a guard resting on one seat's
+discipline is one bad shift from silently not running. CI on push-to-main
+depends on nobody, but catches it after the push, so the fix is a follow-up
+commit rather than a clean merge. The first is the fast check, the second the
+reliable one; neither is sufficient alone.
 
 ---
 
