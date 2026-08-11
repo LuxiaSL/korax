@@ -1656,7 +1656,7 @@ both are retired by envelope at delivery, the shape #263 used to kill
 
 ---
 
-## R-NEXT — Revision numbers are allocated where the serialization already is
+## R37 — Revision numbers are allocated where the serialization already is
 
 **Change.** A delivery writes its revision heading as the literal token
 `R-NEXT`; the desk substitutes the number at the merge. The convention is
