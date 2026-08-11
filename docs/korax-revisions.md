@@ -2069,7 +2069,7 @@ one-line flag was needed. Closes #775. **This entry was written by the desk at
 the merge rather than bounced back for ceremony**, which is the same argument
 one layer up.
 
-## R-NEXT — The participation counter reports a bucket, not a census
+## R44 — The participation counter reports a bucket, not a census
 
 **Change.** `participation_excluded` reports **presence, not cardinality**:
 `0` exactly when nothing is withheld, and `{"withheld": "some", "why": …}`
