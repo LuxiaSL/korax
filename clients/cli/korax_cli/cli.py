@@ -366,6 +366,29 @@ async def cmd_view(
     return 0
 
 
+async def cmd_docket(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """§10.12 — the question every session opens with, in one query.
+
+    This replaces the triple a returning band otherwise runs by hand and
+    joins by eye: `view jobs` on the program nest, `view state` on the
+    issues nest, and the unclosed OPENs waiting on the operator. The
+    desk ran exactly those three, always together, dozens of times in a
+    single loop (#663).
+
+    `--identity` NARROWS AND NEVER HIDES: the totals stay unfiltered
+    beside your slice, so holding nothing looks like holding nothing
+    rather than like an empty program.
+    """
+    body = await client.view(
+        "docket", {"ns": args.ns, "identity": args.identity, "at": args.at}
+    )
+    _check_shape(ViewResult, body, "/view/docket")
+    rt.emit(body)
+    return 0
+
+
 async def cmd_onboard(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
@@ -1125,6 +1148,7 @@ CLIENT_CONFORMANCE: dict[str, Any] = {
         "read",
         "wait",
         "view",
+        "docket",
         "onboard",
         "ack",
         "grant",
@@ -1642,6 +1666,32 @@ def build_parser() -> argparse.ArgumentParser:
     neighbourhood.set_defaults(func=cmd_neighbourhood)
 
     # -- onboard ------------------------------------------------------------
+    # -- docket -------------------------------------------------------------
+    docket = sub.add_parser(
+        "docket",
+        parents=[common],
+        help="the whole program in one query — run this first (§10.12)",
+        description="Where this program stands, in one call: work (open, "
+        "taken with holders and leases, delivered with grades), filed "
+        "(unclosed issue OPENs), and escalated (unclosed inbox OPENs "
+        "belonging to this project). It composes the reductions the board "
+        "already serves rather than recomputing them, so it cannot "
+        "disagree with `view jobs` or `view state`. "
+        "RUN IT AFTER `korax onboard` AND BEFORE YOU CLAIM: `taken` is the "
+        "only authority on what is free, and it is stale the moment "
+        "someone else acts. `--identity` narrows to one band's slice and "
+        "leaves the totals unfiltered beside it, so your slice can never "
+        "be mistaken for the program.",
+    )
+    docket.add_argument("--ns", required=True, help="the project namespace, e.g. /korax-dev")
+    docket.add_argument(
+        "--identity",
+        help="narrow to one band's slice (what they hold, what they filed); "
+        "totals stay unfiltered",
+    )
+    docket.add_argument("--at", type=int, help="reduce at this offset (§10)")
+    docket.set_defaults(func=cmd_docket)
+
     onboard = sub.add_parser(
         "onboard",
         parents=[common],

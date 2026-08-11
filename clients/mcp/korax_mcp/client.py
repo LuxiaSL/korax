@@ -354,6 +354,7 @@ class KoraxClient:
         ns_set: Sequence[str] | str | None = None,
         horizon: str = "P7D",
         at: int | None = None,
+        identity: str | None = None,
     ) -> ViewResult:
         """One of §10's canonical reductions, computed server-side."""
         if ns_set is not None and not isinstance(ns_set, str):
@@ -363,7 +364,7 @@ class KoraxClient:
             f"/view/{name}",
             params=_params(
                 ns=ns, id=id, project=project, ns_set=ns_set,
-                horizon=horizon, at=at,
+                horizon=horizon, at=at, identity=identity,
             ),
         )
         return _parse(ViewResult, raw, f"GET /view/{name}")
