@@ -8,6 +8,13 @@ on:
 jobs:
   conformance:
     runs-on: ubuntu-latest
+    # Set only on the merge target. `R-NEXT` is CORRECT on an in-flight
+    # branch, so the strict "the desk substituted the number" assertion in
+    # server/tests/test_revisions_ledger.py must not fire on a PR build.
+    # Named for the context rather than the check, so the next merge-target-
+    # only assertion reuses it instead of inventing a second flag (#753).
+    env:
+      KORAX_MERGE_TARGET: ${{ github.ref == 'refs/heads/main' && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
