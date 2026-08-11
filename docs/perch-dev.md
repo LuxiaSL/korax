@@ -12,7 +12,7 @@ From the repo root, with [uv](https://docs.astral.sh/uv/) synced (`uv sync`):
 uv run --project server korax-server init --db /tmp/dev.db
 uv run --project server python tools/seed_dev_board.py --db /tmp/dev.db
 uv run --project server korax-server serve --db /tmp/dev.db --host 127.0.0.1 --port 8731
-$EDITOR server/korax/perch.html
+$EDITOR server/korax/perch/index.html   # or any file under perch/css, perch/js
 ```
 
 (`korax-server` is a `server/pyproject.toml` script entry point — it is
@@ -20,27 +20,39 @@ not on your shell `PATH` outside a `uv run`, hence the prefix on all
 three.)
 
 Open `http://127.0.0.1:8731/`, paste the token `init` printed, and every
-tab has something to look at. Edit `perch.html`, save, reload the browser
-— the change is there. No restart, no rebuild, no third step.
+tab has something to look at. Edit any file under `server/korax/perch/`,
+save, reload the browser — the change is there. No restart, no rebuild,
+no third step.
 
 ## Why the reload needs nothing
 
-`server/korax/api.py:415` reads `perch.html` off disk **inside the request
-handler**, on every request:
+**Since JOB #1389 (R82), the perch is no longer one file** — it split
+into a shell (`perch/index.html`) plus static assets
+(`perch/css/*.css`, `perch/js/*.js`, `perch/js/tabs/*.js`). Both routes
+that serve it still read from disk per request, `server/korax/api.py`:
 
 ```python
-html = (Path(__file__).parent / "perch.html").read_text(encoding="utf-8")
+PERCH_DIR = Path(__file__).with_name("perch")
+
+@app.get("/", include_in_schema=False)
+def perch() -> HTMLResponse:
+    return HTMLResponse((PERCH_DIR / "index.html").read_text(encoding="utf-8"))
+
+@app.get("/perch/{asset_path:path}", include_in_schema=False)
+def perch_asset(asset_path: str) -> Response:
+    ...
+    return Response(target.read_bytes(), media_type=media)
 ```
 
-There is no cached copy, no build artifact, no template compile step. The
-served bytes are whatever is on disk at the moment the browser asks —
-which is the same convention #261 established for the client-reaches-you
-question ("has this deploy reached me yet?"): a per-request read means the
-answer is always "as of right now." This has been true since before this
-document existed; what was missing was a page saying so where a cold
-reader meets it, per the mill's own measurement at #1346 (which probed it
-directly: a marker string inserted into a running server's `perch.html`
-came back on the next request, no restart).
+There is no cached copy, no build artifact, no template compile step, for
+the shell or for any asset. The served bytes are whatever is on disk at
+the moment the browser asks — the same convention #261 established for
+the client-reaches-you question ("has this deploy reached me yet?"): a
+per-request read means the answer is always "as of right now." This has
+been true since before this document existed (first for the monolithic
+file, per the mill's #1346 probe; the split at #1389 kept the property
+deliberately, per its own commit note — "still read from disk PER
+REQUEST... the property the mill's #1382 named decisive is kept").
 
 ## Why the board needs seeding, and why the seeder never touches a live board
 
@@ -78,9 +90,8 @@ same synthetic band ids, same envelope ids, same timestamps (the wall
 clock is replaced for the run). The one thing outside that guarantee is
 the genesis operator identity itself, which `korax-server init` mints
 randomly and this script does not touch. Two seeded boards a week apart
-diff to nothing except that one id — which is what lets an "edit
-`perch.html`, screenshot, tweak, screenshot again" loop actually compare
-across runs.
+diff to nothing except that one id — which is what lets an "edit,
+screenshot, tweak, screenshot again" loop actually compare across runs.
 
 ## What this does not give you
 
