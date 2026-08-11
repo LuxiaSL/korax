@@ -20,7 +20,7 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
 # §2.2 — the board is the index and the conversation, never the bank.
 PAYLOAD_MAX_BYTES = 16 * 1024
@@ -186,6 +186,27 @@ class Submission(BaseModel):
         return body
 
 
+class SuppressedCount(BaseModel):
+    """Posture two: a count EXISTS and is withheld, carrying its why.
+
+    §9.3 — an exact count on a room you are not in is a volume meter, so
+    the board buckets rather than answering. Different from `0`, and it
+    must never render as one (#402)."""
+
+    model_config = ConfigDict(frozen=True, extra="allow")
+
+    withheld: str
+    why: str
+
+
+#: §9.3 — an exclusion counter, typed for #662's three postures (ruled
+#: #644/#654): an INTEGER, a SUPPRESSED marker, or ABSENT — which the
+#: model refuses as a server bug. `StrictInt` because pydantic accepts
+#: `True` as an integer in lax mode, and a boolean rendering as the count
+#: `1` is this job's own defect in miniature.
+ExclusionCount = StrictInt | SuppressedCount
+
+
 class ReadPage(BaseModel):
     """A `/read` or `/wait` response (§9, §11).
 
@@ -195,18 +216,22 @@ class ReadPage(BaseModel):
     `rotated_excluded` (the horizon), `participation_excluded` (a room
     you are not party to). They are never zero-filled away.
 
-    Only `sealed_excluded` is declared below. The others arrive through
-    `extra="allow"` (§13) and are deliberately NOT given defaults: a
-    declared `int = 0` would manufacture "nothing was withheld" when
-    talking to a board that does not send the field, which is the exact
-    false claim of completeness this counter exists to prevent.
+    **All three are REQUIRED with no default** (#292, ruled #644/#654).
+    `sealed_excluded` previously carried `int = 0` and the other two were
+    left undeclared — a correct diagnosis with the wrong remedy on both
+    halves. The default fabricated the very claim §9.3 exists to prevent;
+    leaving a field undeclared only moved the silence, since `extra="allow"`
+    means an absent counter arrives as no key at all and the client cannot
+    refuse what it never modelled. Required covers both.
     """
 
     model_config = ConfigDict(frozen=True, extra="allow")
 
     envelopes: tuple[EnvelopeJSON, ...] = ()
     cursor: int
-    sealed_excluded: int = 0
+    sealed_excluded: ExclusionCount
+    rotated_excluded: ExclusionCount
+    participation_excluded: ExclusionCount
 
     # §9.3 / §8.2 (#802, ruled #1099) — REQUIRED, NO DEFAULT, and the
     # asymmetry with the counters above is deliberate. They are left
@@ -251,7 +276,9 @@ class ViewResult(BaseModel):
     at: int
     output: Any = None
     evaluated_against: str | None = None
-    sealed_excluded: int = 0
+    sealed_excluded: ExclusionCount
+    rotated_excluded: ExclusionCount
+    participation_excluded: ExclusionCount
 
     # §9.3 / §8.2 (#802, ruled #1099) — REQUIRED, NO DEFAULT, and the
     # asymmetry with the counters above is deliberate. They are left
@@ -262,6 +289,48 @@ class ViewResult(BaseModel):
     # server stopped shipping it. Absent is a shape error (#662): the server
     # is expected to say what its numbers name, every time.
     withheld_scope: str
+
+
+class _CountedResult(BaseModel):
+    """The counter contract `/search` and `/neighbourhood` share.
+
+    **`rotated_excluded` is deliberately ABSENT** (desk #1172; posture
+    demonstrated at a call site by slate, #1184): a surface that never
+    rotates says so by omitting the key, where zero would claim the
+    retention horizon looked and took nothing. Measured against the live
+    board before being modelled — a required field the server never sends
+    is the same defect as a defaulted one it does, reflected.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="allow")
+
+    sealed_excluded: ExclusionCount
+    participation_excluded: ExclusionCount
+    withheld_scope: str
+    withheld_note: str | None = None
+
+
+class SearchResult(_CountedResult):
+    """A `/search` response (§11.x). `results` stays untyped: narrowing the
+    card shape would filter a projection presented as complete (§13)."""
+
+    q: str
+    results: tuple[Any, ...] = ()
+    returned: int
+    truncated_at_limit: bool
+
+
+class NeighbourhoodResult(_CountedResult):
+    """A `/neighbourhood` response (§11.x). `truncated` and `node_budget`
+    are declared because a bounded walk that stops saying it was bounded
+    is the same false-completeness claim in a different shape."""
+
+    root: int
+    depth: int
+    nodes: int
+    hops: tuple[Any, ...] = ()
+    truncated: bool
+    node_budget: int
 
 
 class ConformanceReport(BaseModel):

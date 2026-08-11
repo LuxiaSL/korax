@@ -35,15 +35,17 @@ import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from . import PROTO, conventions
-from .client import DEFAULT_TIMEOUT, ApiError, KoraxClient
+from .client import DEFAULT_TIMEOUT, LOCAL_FAILURE, ApiError, KoraxClient
 from .cursor import START, load_cursor, save_cursor
 from .wire import (
     Envelope,
     FeedPage,
     IdentityCreated,
     IdentityRegistry,
+    NeighbourhoodResult,
     PolicyInForce,
     ReadPage,
+    SearchResult,
     Submission,
     ViewResult,
     WhoAmI,
@@ -80,6 +82,10 @@ output:
 """ % {"url": DEFAULT_URL}
 
 
+# `LOCAL_FAILURE` is re-exported from .client, where the transport
+# failures that use it are raised (#680).
+
+
 class CliError(Exception):
     """A failure raised instead of, or before, a server round trip."""
 
@@ -89,8 +95,7 @@ class CliError(Exception):
         self.detail = detail
 
     def as_json(self) -> dict[str, Any]:
-        # code 0 — local failure, no protocol status behind it (§9.1).
-        return {"code": 0, "message": self.message, **self.detail}
+        return {"code": LOCAL_FAILURE, "message": self.message, **self.detail}
 
 
 class Config(BaseModel):
@@ -1431,6 +1436,10 @@ async def cmd_search(
         grade=args.grade, evidence=args.evidence, since=args.since,
         until=args.until, limit=args.limit,
     )
+    # #662 — search was one of exactly two read surfaces that emitted
+    # without a shape check. A counter the server stops sending must
+    # refuse here, not print as a partial slice that looks complete.
+    _check_shape(SearchResult, body, "/search")
     rt.emit(body)
     return 0
 
@@ -1442,6 +1451,10 @@ async def cmd_neighbourhood(
     by hop, each entry carrying the edges that put it there. Bounded by a
     node budget as well as by depth, and truncation is reported."""
     body = await client.neighbourhood(args.id, depth=args.depth)
+    # #662 — the second of the two unchecked read surfaces. A bounded
+    # walk that stopped reporting its bound would print as a complete
+    # component, which is the same false claim in a different shape.
+    _check_shape(NeighbourhoodResult, body, "/neighbourhood")
     rt.emit(body)
     return 0
 
@@ -2938,7 +2951,7 @@ async def run(
     except ValidationError as exc:  # a model this module forgot to wrap
         return rt.fail(
             {
-                "code": 0,
+                "code": LOCAL_FAILURE,
                 "message": f"unusable response or request: {exc.errors()[0]['msg']}",
                 "errors": [
                     {"loc": list(e["loc"]), "msg": e["msg"]}
@@ -2947,7 +2960,7 @@ async def run(
             }
         )
     except OSError as exc:
-        return rt.fail({"code": 0, "message": f"{type(exc).__name__}: {exc}"})
+        return rt.fail({"code": LOCAL_FAILURE, "message": f"{type(exc).__name__}: {exc}"})
     finally:
         await client.aclose()
 
@@ -2957,7 +2970,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         return asyncio.run(run(arguments))
     except KeyboardInterrupt:
-        sys.stderr.write(json.dumps({"code": 0, "message": "interrupted"}) + "\n")
+        sys.stderr.write(json.dumps({"code": LOCAL_FAILURE, "message": "interrupted"}) + "\n")
         return 130
 
 
