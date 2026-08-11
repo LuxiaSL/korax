@@ -312,6 +312,9 @@ let ME = null;
 // root's queue but never close it, so rendering it as their console was
 // showing them a button that always 403s.
 let INBOX_NS = "/korax/inbox";
+// id -> the `read?to=<id>` page contextBlock fetched, so the disposition
+// chip costs no second call (#1252 piece 4).
+const CONTEXT_PAGES = new Map();
 
 function inboxFor(me) {
   const scoped = (me.grants || []).find(
@@ -1136,8 +1139,14 @@ async function loadInbox() {
   }
   const cards = await Promise.all(opens.map(async (id) => {
     const e = await api("/envelope/" + id);
-    return envCard(e, requestBlock(e) + await contextBlock(id)
-      + await referentStamps(e) + `
+    const ctx = await contextBlock(id);
+    return envCard(e, requestBlock(e)
+      + `<div class="meta" style="margin-top:8px">
+           ${inboxDisposition(CONTEXT_PAGES.get(id))}
+           <button onclick="$('#envId').value=${id}; openEnvelope(${id}); loadConversation();"
+             style="margin-left:auto">conversation</button>
+         </div>`
+      + ctx + await referentStamps(e) + `
       <div style="margin-top:10px">
         <textarea id="close-${id}" placeholder="resolution — this closes the OPEN, attributably"></textarea>
         <div style="margin-top:6px"><button class="danger" onclick="closeOpen(${id})">close #${id}</button></div>
@@ -1146,11 +1155,34 @@ async function loadInbox() {
   $("#inboxList").innerHTML = cards.join("");
 }
 
+// JOB #1252 piece 4 — DISPOSITION AT A GLANCE, from the read this block
+// already makes. What turns a nest view into an INBOX is being able to see,
+// without opening anything, which requests have been engaged with and which
+// are still sitting untouched. `state.opens` already tells you what is
+// unclosed; it cannot tell you what is unANSWERED, and those are different
+// questions — an OPEN with four replies and no resolution is waiting on a
+// decision, while one with nothing is waiting on somebody to look.
+//
+// No extra fetch: the same `read?to=<id>` that renders the context computes
+// the chip. A second call per open would double the inbox's cost to say
+// something the first already knew.
+function inboxDisposition(page) {
+  const envs = page?.envelopes || [];
+  if (!envs.length) {
+    return `<span class="tag" style="background:var(--panel2,transparent)">untouched</span>
+      <span style="color:var(--dim);font-size:12px">nothing has pointed at this since it was opened</span>`;
+  }
+  const bands = new Set(envs.map((e) => e.author));
+  return `<span class="tag act">${envs.length} since</span>
+    <span style="color:var(--dim);font-size:12px">${bands.size} band${bands.size === 1 ? "" : "s"} engaged</span>`;
+}
+
 async function contextBlock(id) {
   // Everything that has since pointed at this OPEN — a withdrawal, a desk
   // triage NOTE, a corroboration. The approve button must sit next to the
   // conversation, not the bare request (live lesson: #46/#51/#72).
   const page = await api(`/read?to=${id}&limit=50`).catch(() => null);
+  CONTEXT_PAGES.set(id, page);
   if (!page || !page.envelopes.length) return "";
   const lines = page.envelopes.map((c) => {
     const text = typeof c.payload === "string" ? c.payload : "";
