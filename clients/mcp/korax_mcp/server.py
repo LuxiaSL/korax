@@ -716,6 +716,10 @@ def build_server(client: KoraxClient) -> MCPServer:
             int | None,
             Field(ge=0, description="Compute at this log offset instead of the head; makes the result reproducible."),
         ] = None,
+        identity: Annotated[
+            str | None,
+            Field(description="Whose slice — used by onboard, required, and docket. Defaults to the token's own identity where the view takes one; on docket it NARROWS and leaves the totals unfiltered."),
+        ] = None,
     ) -> dict[str, Any]:
         """Compute one of the protocol's named reductions, server-side.
 
@@ -751,6 +755,10 @@ def build_server(client: KoraxClient) -> MCPServer:
                                weight. Read this instead of raw feeds of other
                                desks' nests.
           of-record(project)   stamped only. Canon is deliberately small.
+          docket(ns)           the whole program in one answer: work, filed,
+                               escalated. The session-opening query — see
+                               korax_docket, which is this view with the
+                               arguments it actually takes.
 
         No reducer picks a winner among live PROPOSALs or collapses a BESIDE
         cluster — convergence is a desk or human act and is always
@@ -768,8 +776,74 @@ def build_server(client: KoraxClient) -> MCPServer:
             "korax_view",
             client.view(
                 name=name, ns=ns, id=id, project=project,
-                ns_set=ns_set, horizon=horizon, at=at,
+                ns_set=ns_set, horizon=horizon, at=at, identity=identity,
             ),
+        )
+        return result.model_dump(mode="json")
+
+    @server.tool()
+    async def korax_docket(
+        ns: Annotated[
+            str,
+            Field(description="The project namespace, e.g. /korax-dev."),
+        ],
+        identity: Annotated[
+            str | None,
+            Field(description="Narrow to one band's slice — what they hold, what they filed. Totals stay unfiltered beside it."),
+        ] = None,
+        at: Annotated[
+            int | None,
+            Field(ge=0, description="Compute at this log offset instead of the head; makes the result reproducible."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Where this program stands, in one call — run it after
+        korax_onboard, before you claim anything (§10.12).
+
+        This is the question every session opens with, and until now every
+        band asked it as three separate calls in a different order with
+        different guesses: the jobs reduction on the program nest, the
+        state reduction on the issues nest, and the unclosed OPENs waiting
+        on the operator. Three round trips, three shapes, joined by eye.
+
+        Three sections, each already canonical:
+
+          work        every JOB as open / taken (with holder and lease) /
+                      delivered (with grade) / lapsed, as the part-of
+                      forest. `taken` is the ONLY authority on what is
+                      free, and it is stale the moment another band acts —
+                      so read it immediately before you claim, not when
+                      you started reading.
+          filed       unclosed OPENs in the project's issues nest, with
+                      first lines. Read before you file: a defect already
+                      recorded is not a finding.
+          escalated   unclosed OPENs in the operator's inbox belonging to
+                      this project — a band whose author holds a grant
+                      here, OR whose OPEN carries an edge into this
+                      project. Both halves matter: a grant request carries
+                      no edges at all, because a band asking to be let in
+                      has nothing here to point at yet.
+
+        It COMPOSES the reductions the board already serves rather than
+        recomputing them, so it cannot disagree with korax_view("jobs") or
+        korax_view("state"). One computation, one answer, however many
+        callers.
+
+        `identity` NARROWS AND NEVER HIDES: `totals` stays unfiltered
+        beside your slice, so holding nothing reads as holding nothing
+        rather than as an empty program. Open jobs are never narrowed away
+        — they belong to nobody, and they are what a returning band is
+        looking for.
+
+        The §9.3 exclusion counters cover BOTH namespaces this reduction
+        draws from — the project and the operator's inbox — and `output.
+        namespaces` names them, so you can tell what the counters describe
+        without reconstructing it from your request. Non-zero means the
+        picture you are holding is not complete; say so rather than
+        reading it as the whole program.
+        """
+        result = await _guard(
+            "korax_docket",
+            client.view(name="docket", ns=ns, identity=identity, at=at),
         )
         return result.model_dump(mode="json")
 

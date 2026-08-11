@@ -32,6 +32,7 @@ TOOLS = {
     "korax_whoami", "korax_identities", "korax_policy", "korax_rotate",
     "korax_conformance", "korax_subscribe",
     "korax_search", "korax_neighbourhood",
+    "korax_docket",
 }
 
 
@@ -117,6 +118,59 @@ async def test_onboard_then_ack_drains_the_list(board_tools) -> None:
     drained = await board_tools.call_tool("korax_onboard", {"fetch": False})
     assert doc_id not in drained.structured_content["output"]["unread"]
     assert "documents" not in drained.structured_content
+
+
+async def test_docket_composes_the_program_in_one_call(board_tools) -> None:
+    """§10.12 at the tool surface. The operator posts as themselves — a
+    human band holds `/**`, so no extra grant is needed and the whole
+    point is one call rather than three."""
+    await board_tools.call_tool("korax_post", {
+        "ns": "/mproj/jobs", "type": "POLICY", "grade": "n/a",
+        "payload": {"acts": ["JOB", "CLAIM", "FINDING"], "grades": True,
+                    "require_lease": True},
+    })
+    await board_tools.call_tool("korax_post", {
+        "ns": "/mproj/issues", "type": "POLICY", "grade": "n/a",
+        "payload": {"acts": ["OPEN", "FINDING", "NOTE"], "grades": True},
+    })
+    job = await board_tools.call_tool("korax_post", {
+        "ns": "/mproj/jobs", "type": "JOB", "grade": "n/a", "payload": "work",
+        "pointer": {"uri": "https://example.invalid/b.md", "sha256": "0" * 64},
+    })
+    await board_tools.call_tool("korax_post", {
+        "ns": "/mproj/issues", "type": "OPEN", "grade": "n/a",
+        "payload": "ISSUE: the opening line\nand the body",
+    })
+    stray = await board_tools.call_tool("korax_post", {
+        "ns": "/korax/inbox", "type": "OPEN", "grade": "n/a",
+        "payload": "an escalation naming no project",
+    })
+    routed = await board_tools.call_tool("korax_post", {
+        "ns": "/korax/inbox", "type": "OPEN", "grade": "n/a",
+        "payload": "RULING REQUESTED on the /mproj job",
+        "refs": [{"edge": "derives-from", "id": job.structured_content["id"]}],
+    })
+
+    got = await board_tools.call_tool("korax_docket", {"ns": "/mproj"})
+    body = got.structured_content
+    assert body["view"] == "docket"
+    out = body["output"]
+
+    assert out["work"]["open"] == [job.structured_content["id"]]
+    assert [f["first_line"] for f in out["filed"]] == ["ISSUE: the opening line"]
+
+    # D1's edge half routes; and the operator's OWN unrelated OPEN does
+    # NOT, because their only grant here is `human:/**` whose root is "/"
+    # — `in_subtree("/mproj", "/")` is False, so the floor grant every
+    # identity holds makes NOBODY a project band. Without that, a docket's
+    # escalated section would be the entire inbox for every project.
+    ids = [e["id"] for e in out["escalated"]]
+    assert ids == [routed.structured_content["id"]]
+    assert stray.structured_content["id"] not in ids
+
+    # the counters describe BOTH namespaces, and the response says which
+    assert out["namespaces"] == ["/mproj", "/korax/inbox"]
+    assert body["participation_excluded"] == 0
 
 
 async def test_a_refused_post_reaches_the_agent_whole(board_tools) -> None:

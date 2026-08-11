@@ -573,6 +573,203 @@ def _delivery(
     return entry
 
 
+# ── the docket (§10.12) ───────────────────────────────────────────────
+#
+# The composition, not a fourth answer. `work` IS `jobs`, `filed` and
+# `escalated` are both `state(...)["opens"]` over their nests. Nothing
+# below re-decides "is this OPEN closed" or "who holds this job" — that
+# second implementation is the shared defect of #468 and #511, and X2
+# above is what it costs when it lands (two reductions, one question,
+# five live claims against two).
+
+INBOX_NS = "/korax/inbox"
+ISSUES_LEAF = "issues"
+DOCKET_LINE_CHARS = 160
+
+
+def docket_namespaces(project: str) -> list[str]:
+    """The namespaces a docket actually draws from, for the caller that
+    has to count what was withheld from it (§9.3).
+
+    THE DOCKET IS THE SECOND REDUCTION WHOSE SERVED SLICE IS NOT ONE
+    NAMESPACE, and `/view`'s `scoped()` derives its slice from the query
+    arguments — so without this it would count `ns=<project>` and report
+    **zero** for every envelope withheld from the inbox section, which is
+    not under it. A page that withholds while reporting a number
+    structurally unable to include the withholding is the
+    false-completeness class R28 exists to remove; #468 is its
+    over-reporting twin.
+
+    The feed solved this first (`api.py`'s `/feed` scoped(), D3): count by
+    re-running the slice's own predicate, never by re-deriving the slice
+    from the filter arguments. This is that rule's second customer.
+    """
+    return [project, INBOX_NS]
+
+
+def _grant_root(glob: str) -> str:
+    """The concrete prefix of a grant's glob — everything before the first
+    wildcard segment. `/korax-dev/**` -> `/korax-dev`; `/**` -> `/`."""
+    concrete: list[str] = []
+    for segment in glob.strip("/").split("/"):
+        if not segment or "*" in segment:
+            break
+        concrete.append(segment)
+    return "/" + "/".join(concrete)
+
+
+def project_bands(timeline: PolicyTimeline, project: str, offset: int) -> set[str]:
+    """Identities holding a grant scoped INTO `project`, at `offset`.
+
+    `in_subtree(project, _grant_root(glob))` and never a string prefix.
+    Two traps it steps over, both live on this board:
+
+      * every identity holds the `/**` reader floor, whose root is `/`,
+        and `in_subtree(project, "/")` is False — so the floor grant makes
+        nobody a project band, which a prefix test would also get right
+        today and for the wrong reason;
+      * `"/korax-dev/**".startswith("/korax")` is True while
+        `in_subtree("/korax", "/korax-dev")` is False. Measuring this with
+        prefixes reported 26/27 inbox OPENs as `/korax` escalations where
+        the true figure is 14/27 (#783). The board ships a matcher; a
+        reduction that reimplements it in string operations is #511's
+        shape one layer down.
+
+    Evaluated at `offset` rather than at head, so `docket --at <n>` is
+    reproducible: grants live on the log and move, and a reduction whose
+    answer depends on when you asked it is not a reduction.
+    """
+    return {
+        grantee
+        for grantee, pattern, _band in timeline.grants_at(offset)
+        if grantee != "band:*" and in_subtree(project, _grant_root(pattern))
+    }
+
+
+def _first_line(payload: Any) -> str | None:
+    """The opening line of a payload, for a reader scanning a list.
+
+    Drawn ONLY from the already-filtered log the reduction was handed, so
+    a withheld envelope never reaches it. That is the same guarantee
+    `search.py`'s `_excerpt` docstring asserts in prose and nothing
+    asserted in a test — #662, from slate's #639: *a later excerpt built
+    for a withheld envelope to make counts more useful would pass every
+    guard now standing.* This is that later excerpt, so it ships with the
+    assertion instead (#111: a documented invariant with nothing asserting
+    it is not an invariant).
+    """
+    if not isinstance(payload, str):
+        return None
+    for line in payload.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped[:DOCKET_LINE_CHARS]
+    return None
+
+
+def _open_entries(log: Log, ids: list[int]) -> list[dict[str, Any]]:
+    entries = []
+    for open_id in ids:
+        env = log.get(open_id)
+        if env is None:
+            continue
+        entries.append(
+            {
+                "id": env.id,
+                "ns": env.ns,
+                "author": env.author,
+                "first_line": _first_line(env.payload),
+            }
+        )
+    return entries
+
+
+def docket(
+    log: Log,
+    timeline: PolicyTimeline,
+    offset: int,
+    project: str,
+    identity: str | None = None,
+) -> dict[str, Any]:
+    """§10.12 — the question every session opens with, in one query.
+
+    Three sections, each already canonical: `work` (the `jobs`
+    reduction), `filed` (unclosed OPENs in the project's issues nest),
+    `escalated` (unclosed OPENs in `/korax/inbox` belonging to this
+    project).
+
+    D1 — `escalated` is scoped by **author-holds-a-grant-in-project OR
+    carries-an-edge-into-project**, one disjunction rather than a choice
+    of three. Edges alone are structurally blind to the class that
+    recurs by design: a grant request carries no refs, because at the
+    moment a band files one there is nothing in the project to point at,
+    and `charter.md:26` requires one per parallel session forever.
+    Measured over this board's 27 inbox OPENs: edges 11, grants 18, union
+    21, and the single envelope routed nowhere is a withdrawn request
+    from a revoked band. A false positive costs one line a reader skims;
+    a false negative strands a session at the visitor floor with nobody
+    looking.
+
+    D2 — one reduction with an optional `identity`, never two. `identity`
+    NARROWS AND NEVER HIDES: every section keeps its unfiltered count in
+    `totals`, so a band cannot mistake their own slice for the program's
+    state. Two reductions answering one question is X2 again.
+    """
+    issues_ns = project.rstrip("/") + "/" + ISSUES_LEAF
+
+    work = jobs(log, timeline, offset, project)
+    filed_ids = state(log, timeline, offset, issues_ns)["opens"]
+    inbox_ids = state(log, timeline, offset, INBOX_NS)["opens"]
+
+    bands = project_bands(timeline, project, offset)
+    escalated_ids = []
+    for open_id in inbox_ids:
+        env = log.get(open_id)
+        if env is None:
+            continue
+        by_author = env.author in bands
+        by_edge = any(
+            (target := log.get(ref.id)) is not None
+            and in_subtree(project, target.ns)
+            for ref in env.refs
+            if ref.id <= offset
+        )
+        if by_author or by_edge:
+            escalated_ids.append(open_id)
+
+    filed = _open_entries(log, filed_ids)
+    escalated = _open_entries(log, escalated_ids)
+    taken = list(work["taken"])
+
+    totals = {
+        "open": len(work["open"]),
+        "taken": len(taken),
+        "filed": len(filed),
+        "escalated": len(escalated),
+    }
+
+    if identity is not None:
+        taken = [t for t in taken if t["holder"] == identity]
+        filed = [f for f in filed if f["author"] == identity]
+        escalated = [e for e in escalated if e["author"] == identity]
+
+    return {
+        "project": project,
+        "identity": identity,
+        # The slice this answer describes, named in the answer — so a
+        # reader can tell what the exclusion counters beside it cover
+        # without reconstructing it from the request (§9.3).
+        "namespaces": docket_namespaces(project),
+        "issues_ns": issues_ns,
+        "work": {**work, "taken": taken},
+        "filed": filed,
+        "escalated": escalated,
+        # Unfiltered, always — D2's "narrows and never hides" is only true
+        # if the number you were narrowed away from is still on the page.
+        "totals": totals,
+    }
+
+
 def jobs(log: Log, timeline: PolicyTimeline, offset: int, ns: str) -> dict[str, Any]:
     """§10.8 — open / taken / delivered / lapsed, as the part-of forest.
     Lapsed is rendered distinctly from open: picked-up-and-dropped is

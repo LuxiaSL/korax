@@ -51,7 +51,7 @@ KNOWN_GRADES = ("unverified", "verified", "n/a")
 # §10 — the named reductions this protocol version defines.
 KNOWN_VIEWS = (
     "state", "thread", "provenance", "descendants", "taint", "fresh",
-    "jobs", "of-record", "onboard", "required",
+    "jobs", "of-record", "onboard", "required", "docket",
 )
 
 # An accepted envelope, left opaque on purpose (§13).
