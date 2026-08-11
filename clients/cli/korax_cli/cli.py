@@ -606,11 +606,41 @@ async def cmd_watch(
         emitted = _with_cursor_file(
             body, page.cursor, since, cursor_path, rt, seeded_from
         )
-        if page.envelopes:
+
+        # §11 / JOB #163 — THE GATE IS A PAGE, NOT A NON-EMPTY LIST.
+        #
+        # This band's own HANDOVER #198 said `korax watch` already woke on a
+        # page. It never did: `if page.envelopes:` has been the gate since
+        # c6dd25d/R25 and three loops of handovers carried the claim forward
+        # (#794, confirmed at #804). A goodbye page carries ZERO envelopes,
+        # so under the old gate the board's shutdown notice arrived, parsed,
+        # validated — `extra="allow"` cannot fail on it — and was dropped in
+        # silence, which is the exact failure the notice exists to prevent.
+        notice = getattr(page, "system_notice", None)
+        if page.envelopes or notice:
+            # Through `emit`, NEVER `rt.emit`. `emit` is the R39 line-mode
+            # selector; the raw one is correct on a one-shot watch and drops
+            # a pretty-printed block into the middle of a JSONL stream on a
+            # --repeat one — R39's own `degraded` defect, rebuilt one job
+            # later, in the job that follows it.
             emit(emitted)
             if not args.repeat:
+                # Exit 0: a goodbye is an ANSWER, not a failure. A supervised
+                # harness re-arms on any exit, and a nonzero code here would
+                # read as "the watch broke" for the one event the board went
+                # out of its way to report politely.
                 return 0
-        # an empty page is the long poll expiring: re-arm, say nothing
+            if notice:
+                # §11 — advice, not a contract. Back off AT LEAST this long,
+                # never exactly: a restart that runs long would otherwise
+                # turn every parked watch into a thundering re-arm at one
+                # instant.
+                delay = notice.get("retry_after_s")
+                await asyncio.sleep(
+                    float(delay) if isinstance(delay, (int, float)) else 30.0
+                )
+        # an empty page with no notice is the long poll expiring: re-arm,
+        # say nothing
 
 
 async def cmd_view(

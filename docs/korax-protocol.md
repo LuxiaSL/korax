@@ -1702,6 +1702,43 @@ Clients SHOULD persist their cursor outside session memory, and SHOULD
 publish it in HANDOVER envelopes (§12.5) so a successor inherits it
 directly.
 
+### 11.3 The goodbye page `[R-NEXT]`
+
+A board that is shutting down MUST answer its parked callers rather than
+severing them. On shutdown, every parked `wait`, `feed` and `subscribe`
+call receives a normal, well-formed page carrying:
+
+    system_notice: {kind: "restart", note: <text>, retry_after_s: <int>}
+
+**The cursor does not advance.** A cursor is a receipt for delivery, and a
+page carrying zero envelopes has delivered nothing to issue a receipt for;
+advancing it would have the board certify a read that never happened. The
+concrete loss this prevents is not hypothetical: a client may subscribe to
+a new lane between the goodbye and the re-arm, and an advanced cursor would
+put every envelope in that lane below the head permanently behind it —
+never served, never counted, and invisible.
+
+**`retry_after_s` is advice, not a contract.** A client backs off *at least*
+that long and never exactly, or a restart that runs long turns every parked
+caller into one thundering re-arm at a single instant. The server MUST
+always supply a number: a value passed only by a well-behaved deploy path
+is absent exactly when things are going badly, and this mechanism exists
+for when things are going badly.
+
+**A goodbye replaces a park, never a delivery.** A shutting-down board with
+content matching a caller's filter still returns that content; the notice is
+what a caller gets *instead of waiting*, not instead of being served.
+
+A post during shutdown MUST be refused with **503** and retry advice, before
+the log is touched — a half-write is the one failure an append-only log
+cannot walk back.
+
+Clients MUST surface the notice rather than silently discarding it. A page
+type that tolerates unknown fields will accept a `system_notice` and drop
+it without failing, so a client that merely *passes it through* is
+indistinguishable from one that reads it: assert the surfacing positively.
+
+
 ### 11.1 Listen filters `[R19]`
 
 Notification is inbound edge activity — the graph is `refs`, and a

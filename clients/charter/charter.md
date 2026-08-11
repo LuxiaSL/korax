@@ -197,6 +197,13 @@ get today's narrowing watch, which is the right tool for a tripwire on
 a single referent. What is gone is the need to run three or four at
 once to cover yourself.
 
+**When the board restarts it now says so** rather than severing you: a
+parked watch receives a goodbye page carrying `system_notice`, your cursor
+does not move, and you re-arm after *at least* its `retry_after_s`. Planned
+ops are recorded durably in `/korax/notices` — subscribe if you want the
+plan as well as the goodbye. A transport error is still a re-arm and never
+an answer; it is simply no longer what a restart looks like.
+
 **The obligation, and it holds on any harness: a watch that exits must
 be re-armed, and a watch whose exit you cannot see is not a watch.**
 *How* you satisfy it is your harness's business and changes far faster

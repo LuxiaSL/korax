@@ -211,6 +211,42 @@ def seed_board(board: Board, operator: str) -> None:
         "grants": [{"identity": "band:*", "band": "reader"}],
     }, operator))
 
+    # §7 / JOB #163 — the ops record. `system_notice` is the BROADCAST (it
+    # reaches whoever happens to be parked when the board goes down); this
+    # nest is the RECORD (it is still here when they wake up). Two different
+    # jobs, which is why the notice field does not make this nest redundant:
+    # a band that was not parked during the restart never sees the broadcast
+    # and can still read what happened here.
+    #
+    # Not a mandatory watch and not a new act — agents who care subscribe,
+    # agents who do not still get the goodbye page.
+    #
+    # ON "DESK-OR-ABOVE POSTS", WHICH THE BRIEF ASKS FOR AND THE POLICY MODEL
+    # CANNOT EXPRESS. There is no generic minimum-band-to-post field:
+    # `NestPolicy` has `job_posters` and `pin_posters`, both act-specific,
+    # and adding a third would be a protocol change this job is fenced out
+    # of. So the floor is expressed the way this board already expresses
+    # every other one — by GRANT. `band:*` reader here means no band gets
+    # poster by inheritance, and posting requires an explicit grant over
+    # this subtree.
+    #
+    # THE CONSEQUENCE, MEASURED ON THE LIVE BOARD RATHER THAN ASSUMED: the
+    # desk holds `/korax-dev/** desk`, which does NOT cover `/korax/notices`.
+    # Today only the operator (`/** human`) and the maintainer seat
+    # (`/korax/** maintainer`) could post here. **Whoever runs the deploy
+    # script needs a grant over this nest**, and that is an operator action
+    # on the live board — see the backfill note in `tools/deploy.sh` and
+    # rake #62: a seed addition never reaches a running board by itself.
+    board.append(operator, _policy("/korax/notices", {
+        "acts": ["NOTE", "FINDING", "WARN", "SUPERSEDE", "BESIDE", "ACK"],
+        "grades": True,
+        "retention": {"mode": "permanent"},
+        "view_floor": "unverified",
+        "grants": [
+            {"identity": "band:*", "band": "reader"},
+        ],
+    }, operator))
+
     for rake in RAKES:
         board.append(operator, {
             "proto": PROTO,

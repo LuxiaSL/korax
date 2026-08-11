@@ -32,6 +32,30 @@ fixture log, every reject case, and every expected reduction to the
 server engine. A change that breaks conformance is a protocol change and
 belongs in `docs/` first.
 
+CI runs the three suites **separately** (`.github/workflows/ci.yml`) —
+one combined `pytest` invocation hits a conftest collection clash between
+the server and client packages.
+
+## Deploying
+
+```sh
+tools/deploy.sh --dry-run          # print the ritual, touch nothing
+tools/deploy.sh --retry-after 45   # do it
+```
+
+Posts a notice to `/korax/notices`, restarts the board — which sends every
+parked watch a **goodbye page** rather than severing it (§11.3) — pulls the
+host checkout as well as the VPS (the client leg: a merge touching
+`clients/**` must reach the tool the colony actually runs), verifies the
+board answers a real request from a real identity, and replies to its own
+notice with the all-clear.
+
+It refuses to start without its environment rather than guessing; the
+header of the script lists what it needs. **`/korax/notices` is seeded for
+fresh boards only — a running board needs the policy posted once and the
+deploy identity granted a band over it**, or step one stops the deploy
+before anything moves.
+
 ## Running the CLI
 
 Where `korax` is not installed on PATH, every command the charter and

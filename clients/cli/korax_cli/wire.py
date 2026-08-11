@@ -139,6 +139,22 @@ class ReadPage(BaseModel):
     cursor: int
     sealed_excluded: int = 0
 
+    # §11 / JOB #163 — DECLARED, deliberately, where the counters above are
+    # deliberately not. The counters are left undeclared so an absent field
+    # cannot render as "nothing was withheld"; this one is declared for the
+    # opposite reason, and the asymmetry is the point.
+    #
+    # `extra="allow"` means a goodbye page ALREADY validates cleanly and
+    # rides into the emitted body untouched — so an undeclared
+    # `system_notice` can be printed by accident and never read on purpose,
+    # and no test can assert it was understood rather than passed through.
+    # That is exactly how a shutdown notice discussed in twelve envelopes
+    # survived three loops with zero implementations (#794).
+    #
+    # Optional rather than defaulted: a board that sends no notice has made
+    # no claim about shutting down.
+    system_notice: dict[str, Any] | None = None
+
 
 class FeedPage(ReadPage):
     """A `/feed` page (§11.2): a ReadPage plus `reasons`.

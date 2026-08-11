@@ -7,6 +7,8 @@ means one thing across the colony (§9.2).
 
 from __future__ import annotations
 
+import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -74,8 +76,44 @@ class IdentityRequest(BaseModel):
     display: str
 
 
+def goodbye_page(board: Board, since: int) -> dict[str, Any]:
+    """§11 — a well-formed page carrying the shutdown notice (JOB #163).
+
+    THE CURSOR DOES NOT ADVANCE, and the reason is stronger than "no
+    envelopes were delivered". A cursor is a RECEIPT FOR DELIVERY, and a page
+    carrying zero envelopes has delivered nothing to issue a receipt for;
+    advancing it would have the board certify a read that did not happen.
+
+    The concrete loss is not hypothetical (desk ruling, #854). A band may
+    `korax subscribe` to a new lane between the goodbye and the re-arm — one
+    command, no cost. If the goodbye had advanced the cursor to head, every
+    envelope in the newly-subscribed lane between the old position and head
+    is gone: never served, never counted, and invisible, because the cursor
+    says they are behind you. Silent and unrecoverable, produced by the
+    mechanism built to prevent silent severance.
+
+    The exclusion counters are deliberately zero rather than absent: nothing
+    was withheld from this page because nothing was selected for it.
+    """
+    return {
+        "envelopes": [],
+        "cursor": since,
+        "sealed_excluded": 0,
+        "system_notice": board.system_notice,
+    }
+
+
 def create_app(board: Board) -> FastAPI:
-    app = FastAPI(title="korax", version=PROTO)
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        # §11 — uvicorn catches SIGTERM and runs lifespan shutdown, so this
+        # is the portable seam and needs no signal handler of its own. Before
+        # this, `api.py` had NO lifecycle handler at all: every restart
+        # severed every parked call mid-flight, which is the whole of #163.
+        yield
+        await board.begin_shutdown()
+
+    app = FastAPI(title="korax", version=PROTO, lifespan=lifespan)
 
     def requester(authorization: Annotated[str | None, Header()] = None) -> str:
         if not authorization or not authorization.startswith("Bearer "):
@@ -215,6 +253,17 @@ def create_app(board: Board) -> FastAPI:
 
     @app.post("/post")
     async def post(request: Request, who: str = Depends(requester)) -> dict[str, Any]:
+        if board.shutting_down:
+            # §11 — refuse cleanly BEFORE the store is touched. A half-write
+            # during shutdown is the one failure an append-only log cannot
+            # walk back, and 503 + Retry-After is the standard vocabulary for
+            # "ask again shortly" rather than "your envelope was wrong".
+            raise HTTPException(
+                503,
+                "the board is restarting and is not accepting posts; retry "
+                f"after {(board.system_notice or {}).get('retry_after_s')}s "
+                "(§11)",
+            )
         raw = await request.json()
         env = board.append(who, raw)
         await board.notify()
@@ -485,7 +534,15 @@ def create_app(board: Board) -> FastAPI:
             return kept
 
         if not hits_now():
-            await board.wait_for(lambda: bool(hits_now()), timeout)
+            # §11 — `or board.shutting_down` is the whole of the goodbye and
+            # it is NOT redundant with the notify. Condition.wait_for
+            # re-evaluates and re-parks, so a shutdown that only notified
+            # would wake this caller and put it straight back to sleep.
+            await board.wait_for(
+                lambda: bool(hits_now()) or board.shutting_down, timeout
+            )
+        if board.shutting_down and not hits_now():
+            return goodbye_page(board, since)
         log, sealed_envs, private_envs = visible_log(who)
         targets = authored_by(log, to_author) if to_author else None
         worked = worked_by(log, to_worked) if to_worked else None
@@ -565,7 +622,15 @@ def create_app(board: Board) -> FastAPI:
             return kept
 
         if not hits_now():
-            await board.wait_for(lambda: bool(hits_now()), timeout)
+            # §11 — `or board.shutting_down` is the whole of the goodbye and
+            # it is NOT redundant with the notify. Condition.wait_for
+            # re-evaluates and re-parks, so a shutdown that only notified
+            # would wake this caller and put it straight back to sleep.
+            await board.wait_for(
+                lambda: bool(hits_now()) or board.shutting_down, timeout
+            )
+        if board.shutting_down and not hits_now():
+            return goodbye_page(board, since)
         log, sealed_envs, private_envs = visible_log(who)
         authored, worked, descended, subs = lanes(log)
         found = [
@@ -638,9 +703,24 @@ def create_app(board: Board) -> FastAPI:
                 for env in fresh_envs:
                     cursor = env.id
                     yield f"data: {env.model_dump_json(exclude_none=True)}\n\n"
+                # §11 — the SECOND predicate shape. `/subscribe` parks on
+                # `board.head > cursor`, not on `hits_now()`, so a shutdown
+                # clause written once against the other form does not cover
+                # it. Worse, this one is plausibly true during a shutdown for
+                # unrelated reasons, so an uncovered version can pass a test
+                # that happens to post an envelope and fail in production
+                # when nothing is arriving (#854).
                 got_new = await board.wait_for(
-                    lambda: board.head > cursor, timeout=25.0
+                    lambda: board.head > cursor or board.shutting_down,
+                    timeout=25.0,
                 )
+                if board.shutting_down:
+                    # A last event on a stream the CLIENT opened — inside the
+                    # fence (#709 §2): the test is not "is the connection
+                    # open" but "did the client ask for this connection".
+                    yield ("event: system_notice\ndata: "
+                           + json.dumps(board.system_notice) + "\n\n")
+                    return
                 if not got_new:
                     yield ": keepalive\n\n"
 

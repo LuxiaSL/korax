@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import argparse
 import ast
+import asyncio
+import io
 import hashlib
 import inspect
 import json
@@ -2204,3 +2206,154 @@ def test_a_wrapper_that_merely_mentions_a_cursor_does_not_hold_it() -> None:
     assert korax_cli.cli.holds_cursor(
         f"korax watch --cursor-file={cursor}", Path(cursor)
     )
+
+
+# -- #163: the board says goodbye, and the client hears it --------------------
+
+
+def _shutdown_under_a_parked_watch(world, path, token, identity, argv_extra=()):
+    """Park a real watch, shut the real board down under it, return the run.
+
+    THIS IS THE GUARD THE JOB IS FOR (#794, #854). A server-side test that
+    asserts the page carries `system_notice` is GREEN on a build where the
+    client drops it — which is precisely the state this board was in from
+    R25 until now, for three loops, while #198 recorded the client half as
+    done. So the assertion has to be that the CLIENT PRINTED IT.
+    """
+    out, err = io.StringIO(), io.StringIO()
+    loop = asyncio.new_event_loop()
+    transport = httpx.ASGITransport(app=world["app"])
+
+    async def scenario():
+        task = asyncio.create_task(korax_cli.cli.run(
+            ["watch", "--cursor-file", str(path), "--timeout", "10", *argv_extra],
+            transport=transport, stdout=out, stderr=err, stdin=io.StringIO(""),
+            env={"KORAX_URL": "http://board.test",
+                 "KORAX_TOKEN": token, "KORAX_IDENTITY": identity},
+        ))
+        # let the watch actually PARK before the board dies under it — the
+        # whole point is a caller already blocked in cond.wait_for
+        await asyncio.sleep(0.3)
+        await world["board"].begin_shutdown(retry_after_s=7)
+        return await asyncio.wait_for(task, timeout=15)
+
+    try:
+        code = loop.run_until_complete(scenario())
+    finally:
+        loop.close()
+    return code, out.getvalue(), err.getvalue()
+
+
+def test_a_parked_watch_receives_the_goodbye_and_exits_zero(
+    world: dict[str, Any], warner: tuple[str, str], tmp_path
+) -> None:
+    """End to end: parked watch, real shutdown, client prints the notice."""
+    identity, token = warner
+    path = tmp_path / "goodbye.cursor"
+    path.write_text("5", encoding="utf-8")
+
+    code, stdout, stderr = _shutdown_under_a_parked_watch(
+        world, path, token, identity)
+
+    assert code == 0, stderr  # a goodbye is an ANSWER, not a failure
+    document = json.loads(stdout)
+    notice = document["system_notice"]
+    assert notice["kind"] == "restart"
+    assert notice["retry_after_s"] == 7
+    assert document["envelopes"] == []
+
+
+def test_the_goodbye_does_not_advance_the_cursor(
+    world: dict[str, Any], warner: tuple[str, str], tmp_path
+) -> None:
+    """Ruled at #854, and the loss it prevents is silent and unrecoverable.
+
+    A cursor is a RECEIPT FOR DELIVERY. A page carrying zero envelopes has
+    delivered nothing to issue a receipt for, so advancing it would have the
+    board certify a read that did not happen — and a band that subscribes to
+    a new lane between the goodbye and the re-arm would lose every envelope
+    in that lane below head, invisibly, because the cursor says they are
+    behind it.
+    """
+    identity, token = warner
+    path = tmp_path / "cursor-stays.cursor"
+    path.write_text("5", encoding="utf-8")
+    head_before = world["board"].head
+    assert head_before > 5, "fixture board must be ahead of the cursor"
+
+    code, stdout, _ = _shutdown_under_a_parked_watch(
+        world, path, token, identity)
+
+    assert code == 0
+    assert json.loads(stdout)["cursor"] == 5
+    assert path.read_text().strip() == "5"  # and it was not rewritten forward
+
+
+def test_the_notice_is_one_line_under_repeat(
+    world: dict[str, Any], warner: tuple[str, str], tmp_path
+) -> None:
+    """The trap I built four hours ago and would have walked into (#804).
+
+    `cmd_watch` picks its emitter once — `emit_line` under --repeat (R39).
+    A notice emitted through `rt.emit` instead is correct on a one-shot
+    watch and drops a nine-line pretty block into a JSONL stream on a
+    daemon-shaped one, breaking the parse EXACTLY as the board shuts down.
+    That is R39's own `degraded` defect rebuilt one job later.
+    """
+    identity, token = warner
+    path = tmp_path / "repeat-goodbye.cursor"
+    path.write_text("5", encoding="utf-8")
+
+    # --repeat never returns on its own — it emits, backs off for
+    # retry_after_s, and re-parks. That IS the specified behaviour, so the
+    # test cancels it and asserts on what reached stdout before the backoff.
+    out, err = io.StringIO(), io.StringIO()
+    loop = asyncio.new_event_loop()
+    transport = httpx.ASGITransport(app=world["app"])
+
+    async def scenario():
+        task = asyncio.create_task(korax_cli.cli.run(
+            ["watch", "--cursor-file", str(path), "--timeout", "10", "--repeat"],
+            transport=transport, stdout=out, stderr=err, stdin=io.StringIO(""),
+            env={"KORAX_URL": "http://board.test",
+                 "KORAX_TOKEN": token, "KORAX_IDENTITY": identity},
+        ))
+        await asyncio.sleep(0.3)
+        await world["board"].begin_shutdown(retry_after_s=7)
+        await asyncio.sleep(0.5)   # long enough to emit, far short of the backoff
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    try:
+        loop.run_until_complete(scenario())
+    finally:
+        loop.close()
+    stdout = out.getvalue()
+
+    lines = [ln for ln in stdout.splitlines() if ln.strip()]
+    assert lines, "the notice never reached stdout under --repeat"
+    for line in lines:
+        json.loads(line)  # fails if the notice was emitted pretty-printed
+    assert any(json.loads(ln).get("system_notice") for ln in lines)
+
+
+def test_a_post_during_shutdown_is_refused_cleanly(
+    cli: Invoke, world: dict[str, Any], warner: tuple[str, str]
+) -> None:
+    """503 before the store is touched. A half-write during shutdown is the
+    one failure an append-only log cannot walk back."""
+    identity, token = warner
+    head_before = world["board"].head
+    asyncio.new_event_loop().run_until_complete(
+        world["board"].begin_shutdown(retry_after_s=11))
+
+    result = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                 "--grade", "n/a", "--payload", "during the restart",
+                 token=token, identity=identity)
+    assert result.exit_code == 1
+    assert result.error["code"] == 503
+    assert "restarting" in result.error["message"]
+    assert world["board"].head == head_before  # nothing was written
