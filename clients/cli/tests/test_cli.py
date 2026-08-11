@@ -59,6 +59,11 @@ def test_post_and_read_roundtrip(cli: Invoke, warner: tuple[str, str]) -> None:
     assert [e["id"] for e in drained.json["envelopes"]] == [envelope["id"]]
     assert drained.json["cursor"] == envelope["id"]
     assert "sealed_excluded" in drained.json  # §9.3 — never silent
+    # #802/#1099 — reality supplies the input here: this is a real response
+    # off a real board, not a dict this file authored. A `slice` because the
+    # drain named an `ns`; the mocked pages elsewhere in this suite can only
+    # prove the client PARSES the field, never that the server SENDS it.
+    assert drained.json["withheld_scope"] == "slice"
 
 
 def test_post_reads_an_envelope_from_stdin(cli: Invoke, warner: tuple[str, str]) -> None:
@@ -1474,6 +1479,10 @@ def test_watch_puts_its_poll_budget_on_the_wire(
                 }],
                 "cursor": 7,
                 "sealed_excluded": 0,
+                # §8.2/§9.3 (#802, ruled #1099) — the wire always carries
+                # the dimension its counts were taken over; a mock that
+                # omits it is describing a board that does not exist.
+                "withheld_scope": "slice",
             },
         )
 
@@ -2028,6 +2037,7 @@ def test_repeat_emits_one_json_object_per_line_for_wakes_and_degrades_alike(
             return httpx.Response(200, json={
                 "envelopes": [envelope], "cursor": 42,
                 "sealed_excluded": 0,
+                "withheld_scope": "board",  # a feed page (#1099)
                 "reasons": {"42": [{"lane": "mention"}]},
             })
         raise httpx.ConnectError("board is down", request=request)

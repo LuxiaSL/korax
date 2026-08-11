@@ -44,6 +44,10 @@ def _page(ids: list[int], cursor: int, *, notice=None, reasons=None) -> FeedPage
         "sealed_excluded": 0,
         "rotated_excluded": 0,
         "participation_excluded": 0,
+        # §8.2/§9.3 (#802, ruled #1099) — REQUIRED on the wire, so a fixture
+        # that omits it is describing a board that does not exist. /feed has
+        # no `ns` and reports board scope; see api.py's feed endpoint.
+        "withheld_scope": "board",
     }
     if notice is not None:
         body["system_notice"] = notice

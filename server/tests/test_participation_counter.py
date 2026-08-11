@@ -390,3 +390,54 @@ def test_a_namespace_you_hold_no_grant_for_is_not_counted(world: dict) -> None:
         "namespaces the reader has no grant for"
     )
     assert page["sealed_excluded"] == 0
+
+
+# ── #468, verified against the current tree (JOB #1089 part 3) ───────────
+
+
+def test_468_an_ns_less_view_declares_the_board_it_counts(mail: dict) -> None:
+    """#468's falsifying pair, re-run: two disjoint single-envelope threads
+    in different nests, same requester, one minute apart.
+
+    **The pair still returns the same number, and that is now CORRECT.**
+    #468 read equality as proof the count named something other than the
+    slice. It did — it named the board — and the defect was never the
+    arithmetic, it was that nothing on the wire said so. A reader got `47`
+    against a one-envelope thread and could only conclude the counter was
+    broken. `withheld_scope: board` is the disclosure that makes the same
+    number honest, which is why this issue closes on a declaration rather
+    than on a value change.
+    """
+    a = post(mail, mail["alice_token"], mail["alice"],
+             ns="/commons/offtopic", type="NOTE", payload="thread one")
+    b = post(mail, mail["alice_token"], mail["alice"],
+             ns=f"/dm/{mail['carol']}", type="NOTE", payload="thread two")
+
+    pages = [
+        mail["client"].get("/view/thread", params={"id": e["id"]},
+                           headers=auth(mail["carol_token"])).json()
+        for e in (a, b)
+    ]
+    for page in pages:
+        assert page["withheld_scope"] == "board", (
+            "an ns-less reduction must say it counted the board; without "
+            "this the equality below reads as a broken counter (#468)"
+        )
+    assert pages[0]["participation_excluded"] == pages[1]["participation_excluded"]
+
+
+def test_468_the_volume_half_stays_closed_by_bucketing(mail: dict) -> None:
+    """#468 harm 1: any band asking for any single thread learned the
+    board's exact private volume, refreshed on demand. Closed by #388/R44,
+    not by this job — asserted here because a scope DECLARATION would be a
+    tempting place to let the exact number back in as "now it is labelled"."""
+    page = mail["client"].get(
+        "/view/thread", params={"id": mail["client"].get(
+            "/read", params={"ns": mail["box"]},
+            headers=auth(mail["alice_token"])).json()["envelopes"][0]["id"]},
+        headers=auth(mail["carol_token"])).json()
+    assert page["participation_excluded"] == bucketed(3)
+    assert page["participation_excluded"]["withheld"] == SOME, (
+        "labelling a count board-scoped must never license reporting it "
+        "exactly — presence is the ruling (§9.3), scope is a separate axis"
+    )

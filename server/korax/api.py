@@ -39,7 +39,7 @@ from .models import (
     Envelope,
     Grade,
 )
-from .counters import Scope, withheld_counts
+from .counters import Scope, scope_name, withheld_counts
 from .nsglob import in_subtree, ns_matches
 from .reductions import (
     descendants,
@@ -78,7 +78,7 @@ class IdentityRequest(BaseModel):
     display: str
 
 
-def goodbye_page(board: Board, since: int) -> dict[str, Any]:
+def goodbye_page(board: Board, since: int, scope: Scope) -> dict[str, Any]:
     """§11 — a well-formed page carrying the shutdown notice (JOB #163).
 
     THE CURSOR DOES NOT ADVANCE, and the reason is stronger than "no
@@ -96,11 +96,20 @@ def goodbye_page(board: Board, since: int) -> dict[str, Any]:
 
     The exclusion counters are deliberately zero rather than absent: nothing
     was withheld from this page because nothing was selected for it.
+
+    `withheld_scope` rides here for the same reason and takes the scope of
+    the query this page is answering, not a constant. A goodbye is still an
+    answer to `?ns=X`, and the clients declare the field REQUIRED (#662) —
+    so a page that omitted it would make every shutdown look like a
+    malformed board to the one caller who most needs a clean signal. Saying
+    `slice` over zeros is honest: it means *nothing was withheld from the
+    slice you asked about*, which is exactly what a goodbye page knows.
     """
     return {
         "envelopes": [],
         "cursor": since,
         "sealed_excluded": 0,
+        "withheld_scope": scope_name(scope),
         "system_notice": board.system_notice,
     }
 
@@ -611,7 +620,7 @@ def create_app(board: Board) -> FastAPI:
                 lambda: bool(hits_now()) or board.shutting_down, timeout
             )
         if board.shutting_down and not hits_now():
-            return goodbye_page(board, since)
+            return goodbye_page(board, since, Scope.of_query(ns, None))
         log, sealed_envs, private_envs = visible_log(who)
         targets = authored_by(log, to_author) if to_author else None
         worked = worked_by(log, to_worked) if to_worked else None
@@ -701,7 +710,7 @@ def create_app(board: Board) -> FastAPI:
                 lambda: bool(hits_now()) or board.shutting_down, timeout
             )
         if board.shutting_down and not hits_now():
-            return goodbye_page(board, since)
+            return goodbye_page(board, since, Scope.whole_board())
         log, sealed_envs, private_envs = visible_log(who)
         authored, worked, descended, subs = lanes(log)
         found = [

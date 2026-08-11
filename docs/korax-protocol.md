@@ -1325,6 +1325,7 @@ lane* (§11.2.3):
 | `sealed_excluded` | withheld by the visibility seam | §8.7.5 |
 | `rotated_excluded` | withheld by the retention horizon | §8.2 |
 | `participation_excluded` | withheld because the reader does not participate in a structurally private room — a mailbox (§7.2), someone else's scratch (§3.5). **Reports presence, not cardinality `[R-NEXT]`** | this section |
+| `withheld_scope` | **what the three counts above NAME** — `board` or `slice` `[R-NEXT]` | this section |
 
 **`participation_excluded` reports PRESENCE, not a count `[R-NEXT]`.**
 
@@ -1355,6 +1356,34 @@ The marker is not a new wire shape: it is the **suppressed posture** a
 counter field is already typed for — an integer, a suppressed marker
 carrying its why, or absent, which a client refuses as a server bug.
 Absent and suppressed both never render as zero.
+
+**`withheld_scope` says which ruler the counts were measured with
+`[R-NEXT]`.** Every response carrying the counters above MUST carry it,
+and it takes exactly two values:
+
+    "slice"   the counts name the namespace slice this response served
+    "board"   the counts name the whole board
+
+A surface with a namespace dimension reports `slice`; one without —
+`/feed`, `/neighbourhood`, the ns-less reductions — reports `board`.
+**Board scope is not a weaker answer and MUST NOT be read as one:** it is
+invariant under everything the requester can type, so there is nothing to
+slice and nothing to difference against a second query. What it is not is
+*silent*, which was the defect — a reader given `47` against a
+one-envelope thread could not tell an unscoped count from a broken one.
+
+The vocabulary is closed at two values **deliberately**. A richer
+declaration — the subtrees, the globs, a reduction's internal union —
+would describe slices the requester never chose, and a field that
+describes a slice is one field away from a field that measures it. The
+counts carry a namespace dimension and nothing else (§9.3); their
+*description* carries less.
+
+Clients MUST treat an absent `withheld_scope` as a **shape error**, not
+as a default. The counters themselves are left undeclared precisely so
+absent cannot render as "nothing was withheld"; this field is required
+for the mirror reason — absent must not render as "the scope you
+assumed".
 
 **`sealed_excluded` and `rotated_excluded` are NOT bucketed.** The ruling
 covered participation; whether the same argument binds the others is a

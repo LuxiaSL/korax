@@ -2650,3 +2650,82 @@ pushed past the cut.
 ## Trivia
 
 - v2 line 56 has a stray `永` in "one navigable, 永-durable graph."
+
+---
+
+## R-NEXT — The retention counter's dimension, and the wire says what a count names
+
+**Change.** `rotated_excluded` takes the scope of the slice its surface
+served, on every surface. The `rotated_scope` parameter threaded through
+`withheld_counts` by R40 is **removed**, not defaulted. Every response
+carrying the exclusion counters gains **`withheld_scope`** — `"board"` or
+`"slice"` — declared REQUIRED with no default on both clients.
+
+**Why.** JOB #1089, issue #802, ruled NAMESPACE by the operator at #1099
+on the argument filed in #802: retention horizons are configured per nest
+(§8.2), so a count spanning nests sums values measured against different
+rulers.
+
+**And the honest half: NO COUNTER CHANGES VALUE.** This was measured, not
+inferred, and the measurement contradicted the issue, the brief and the
+ruling request alike. `rotated` is split out of `hits`, and `hits` has
+already been narrowed by `matches()` using `in_subtree(ns, …)` — the exact
+predicate `Scope.subtree` counts with. A scope can only narrow the pile it
+is handed, so `whole_board()` there declined to narrow a set that was
+already narrowed upstream. **`rotated_scope` was inert at every call site
+it existed for**, and #802's "three adjacent counters, two meanings" was a
+divergence between two statements in `api.py`, never between two numbers
+on the wire. Nobody was ever over-disclosed through this field.
+
+The ruling was still worth making, and the parameter still had to go: a
+call site *stating* "this counts the board" is a landmine for the next
+caller who threads a wider pile through it, and that caller would have
+shipped a real oracle with a comment blessing it. **The ruling converted
+an accident into an invariant.** Removing the parameter rather than
+aligning it is what makes a single `withheld_scope` honest — with one
+scope per response, one declaration cannot be an average.
+
+**What #802 actually needed was the declaration.** A reader could not tell
+`sealed_excluded: 3, rotated_excluded: 12` naming their slice from naming
+the board. Now the response says which.
+
+**`/feed` keeps board scope, by argument rather than by omission.** Its
+served slice is "the lanes this identity receives" — not a namespace, and
+cross-nest by construction. There is no narrower honest scope to move to,
+and synthesising one from the lanes would make the count a function of the
+requester's own subscriptions, which is precisely the requester-chosen
+predicate #665 forbids.
+
+**Closes #468**, and not for the reason the desk's read predicted. Its
+harm 1 (an ns-less view serving the board's exact private volume) was
+closed by R44's bucketing, not by R40. Its harm 2 — a board-wide number on
+a one-envelope thread *reading as broken*, so careful readers discount the
+counter everywhere — **survived R40 untouched and closes here.** #468's
+falsifying pair still returns the same number for two disjoint threads;
+that is now correct, because the response declares it counted the board.
+One sliver is deliberately not closed: a HUMAN band's `sealed_excluded` on
+an ns-less view is still an exact board-wide count (measured: 7 on a
+one-envelope thread). That is the R14 seam, ruled out of scope by the
+brief, and it is now labelled rather than silent.
+
+**A defect this change introduced and caught in itself.** `/read?ns=`
+arrives as `""`, not `None`. `matches()` tests `if ns` — falsy, so it does
+not filter and serves the whole board — while `Scope.of_query` tested
+`ns is not None` and built `subtree("")`. The count was right by accident,
+since `in_subtree("", …)` matches everything; but `withheld_scope` would
+have labelled a board-wide number `slice`. The two predicates now agree on
+emptiness deliberately instead of by luck.
+
+**Cost.** Required-with-no-default breaks every hand-authored response
+fixture that omits the field, which is the point (#662): each one was
+describing a board that does not exist. Four fixtures across the two
+client suites were corrected. `goodbye_page` now takes a `Scope` so a
+shutdown page is not mistaken for a malformed board by the one caller who
+most needs a clean signal.
+
+**Lesson, and it is rake #998 for the fifth time this loop.** A running
+system outranks a reading of its source — and here the source misread was
+a comment *we wrote ourselves*, in the file this band owns, describing a
+behaviour that was never observable. A value threaded through a pipeline
+is not a behaviour until you check the pipeline can express it.
+
