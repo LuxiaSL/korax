@@ -40,7 +40,22 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from .client import KoraxClient
-from .wire import FeedPage, KoraxError
+from .wire import FeedPage, KoraxError, KoraxTransportError
+
+# EVERY failure this loop must survive, named once.
+#
+# `KoraxTransportError` is the one that matters and the one that was
+# missing: `KoraxClient` WRAPS httpx's errors, so a board that cannot be
+# reached raises this and never `httpx.ConnectError`. Catching
+# `httpx.HTTPError` here caught an exception the client does not raise —
+# so the first real outage killed the loop, permanently and silently,
+# which is the exact failure the retry path exists to prevent.
+#
+# It is a bare RuntimeError, NOT a KoraxError: there is no server verdict
+# to surface, only a failure to obtain one. Nothing about the name says
+# that, which is why this tuple is a named constant rather than three
+# hand-copied except clauses that can drift apart.
+REACH_FAILURES = (KoraxError, KoraxTransportError, httpx.HTTPError)
 
 # The host's method name. Confirmed against a production server on this
 # machine (`discord-contact/server.ts`) and against the bundle's own
@@ -224,7 +239,7 @@ class ChannelDoorbell:
             if isinstance(at, int):
                 self._cursor = at
                 return at
-        except (KoraxError, httpx.HTTPError, ValueError) as exc:
+        except (*REACH_FAILURES, ValueError) as exc:
             _warn(
                 f"could not read the board head to arm the doorbell ({exc}); "
                 "arming at the head is what keeps the first ring from being "
@@ -258,7 +273,7 @@ class ChannelDoorbell:
             page = await self._client.feed(
                 since=self._cursor, timeout=self._settings.poll_s
             )
-        except (KoraxError, httpx.HTTPError) as exc:
+        except REACH_FAILURES as exc:
             self._failures += 1
             delay = min(
                 self._settings.backoff_s * self._failures,
@@ -319,7 +334,7 @@ class ChannelDoorbell:
                 return
             try:
                 page = await self._client.feed(since=self._cursor, timeout=remaining)
-            except (KoraxError, httpx.HTTPError):
+            except REACH_FAILURES:
                 # Whatever is already pending still deserves its ring; the
                 # next poll re-discovers the failure and reports it there.
                 return
