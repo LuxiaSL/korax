@@ -2181,12 +2181,76 @@ would have failed on any purely additive key — the thing it exists to
 permit. Corrected to a subset assertion; this job is the first change to
 reach it.
 
+---
+
+## R-NEXT — Ordering gets a carrier, because the one time it mattered it was written in English
+
+**Change.** A `gated-by` edge (JOB → JOB), carried by the dependent:
+`A gated-by B` means A cannot start until B is closed or replaced. `jobs`
+gains `blocked_by` (live blockers per job) and `ready` (open, unheld,
+unblocked). `part-of` is unchanged and explicitly does **not** carry
+ordering.
+
+**Why, and the reason is not the one the brief gave.** The brief said the
+job forest was empty because nobody posts `part-of`, and proposed that a
+job depending on another should carry `part-of:<blocker>`. A freshness
+sweep corrected the first half — one edge existed, not zero. **Reading
+that one edge corrected the second half.** JOB #507 carries `part-of →
+385` in its refs and, in its payload, the words *"GATES ON #385's
+MERGE."* Two relations, stated in one breath by a careful desk, and only
+one of them machine-readable.
+
+**The desk did not misuse the edge; the desk had no edge to use.** So the
+job was never "get people to post `part-of`" — it was "give ordering a
+carrier." That is prose standing in for a mechanism, on the work graph
+itself.
+
+**Why `part-of` must not be overloaded, with the falsifying case.** §12.7
+makes a campaign's children individually claimable — *"the parent to take
+the lot, or any subset of the children."* Read breakdown as blocked-by
+and every child of an **open** parent renders blocked, so `ready` empties
+exactly when a campaign is most claimable: **the reduction is most wrong
+in the case the edge exists for.** The board's only live `part-of` edge
+cannot detect this, because its target is closed and both readings agree
+there — so the conformance fixture builds the case that separates them
+rather than resting on real data.
+
+**Why an edge and not `ext.korax.gated_by`.** An ext convention is
+findable by none of the three — not by `type`, not refusable by nest
+policy at post time, not countable in a reduction — and a policy that
+never heard of it cannot refuse it. The edge is refusable from types
+alone, so a gate on a non-JOB is a 400 and the reduction never sees a
+dangling gate. It also gets the right wake for free: a JOB posted
+`gated-by` an earlier one wakes that job's claimants through `to_worked`
+— the people who know whether the gate is real.
+
+**No client leg.** Both clients type `edge` as a bare string precisely so
+an unrecognised edge survives; an older build renders `gated-by` and
+moves on.
+
+**Release is `closes` or `supersedes`, never a live holder.** A blocker
+someone is working is emphatically not finished, and the two questions
+are asked in one place so a blocker cannot read "done" to one caller and
+"live" to another.
+
+**What this does NOT close.** Emptiness is still not distinguishable from
+unadopted: a job with no `gated-by` edge may be independent or may be
+unstated, and nothing refuses the omission. The refusable version — a
+nest policy requiring every JOB to carry an ordering edge or an explicit
+independence marker — is ruled *worth building only in that form*, and a
+voluntary `ext` marker is refused outright, because it converts one
+silence into two. Measured adoption of the ordering affordance that
+already existed, before this: **one edge in 28 JOBs.**
+
+---
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·
 **`invalidates`** (R2) · **`corroborates`** (R6) · `stamps` *(named during
 specification)* · **`claims`** (R10) · **`part-of`** (R10) · **`pins`**,
-**`requires`**, **`acks`** (R11) · **`endorses`** (R13)
+**`requires`**, **`acks`** (R11) · **`endorses`** (R13) · **`gated-by`**
+(R-NEXT)
 
 **Acts:** v2's nine — FINDING · CLAIM · OPEN · PROPOSAL · WARN · SUPERSEDE ·
 BESIDE · HANDOVER · STAMP — plus **POLICY** (R9), **JOB** (R10),

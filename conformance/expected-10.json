@@ -1,0 +1,169 @@
+{
+  "fixture": "fixture-10.jsonl",
+  "proto": "korax/0.1",
+  "conventions": {
+    "view": "`jobs` (§10.8) with the ordering keys added at R-NEXT. Checked as ORDERING and RELEASE rather than membership: which jobs are blocked, by what, and which dispositions of a blocker free its dependents.",
+    "args": "`ns` is the program namespace. Offsets are chosen at the transitions, because a fixture checked only at head cannot distinguish a rule from a coincidence.",
+    "expect": "`ready` is open, unheld, and unblocked, in id order. `blocked_by` maps a job id (as a string) to its LIVE blockers. `forest` is the `part-of` breakdown and is asserted alongside so that a board conflating the two relations fails visibly."
+  },
+  "checks": [
+    {
+      "offset": 11,
+      "view": "jobs",
+      "args": {
+        "ns": "/proj"
+      },
+      "cite": "12.7",
+      "why": "THE RULING. The campaign #4 is OPEN and its children #5 and #6 are both READY and neither blocked — §12.7 makes any subset of the children claimable. A board reading `part-of` as blocked-by returns ready=[2,3,4,10,11] here, omitting exactly the children the edge exists to make claimable. Also: #10's blocker #9 was REPLACED at #11, and a replaced blocker releases.",
+      "expect": {
+        "ready": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          10,
+          11
+        ],
+        "blocked_by": {
+          "7": [
+            3
+          ],
+          "8": [
+            5
+          ]
+        },
+        "forest": {
+          "4": [
+            5,
+            6
+          ]
+        },
+        "taken": []
+      }
+    },
+    {
+      "offset": 12,
+      "view": "jobs",
+      "args": {
+        "ns": "/proj"
+      },
+      "cite": "10.8",
+      "why": "A TAKEN BLOCKER STILL BLOCKS. #3 is claimed at #12, so it leaves `ready` — but #7 is still blocked by it. Being worked is not being finished, and a board that treats a live holder as a release frees #7 here.",
+      "expect": {
+        "ready": [
+          2,
+          4,
+          5,
+          6,
+          10,
+          11
+        ],
+        "blocked_by": {
+          "7": [
+            3
+          ],
+          "8": [
+            5
+          ]
+        },
+        "forest": {
+          "4": [
+            5,
+            6
+          ]
+        },
+        "taken": [
+          3
+        ]
+      }
+    },
+    {
+      "offset": 13,
+      "view": "jobs",
+      "args": {
+        "ns": "/proj"
+      },
+      "cite": "10.8",
+      "why": "BREAKDOWN AND ORDERING ARE INDEPENDENT. #5 is a campaign CHILD and also #8's blocker; closing it releases #8 while the forest is unchanged. A board deriving one relation from the other cannot produce this row.",
+      "expect": {
+        "ready": [
+          2,
+          4,
+          6,
+          8,
+          10,
+          11
+        ],
+        "blocked_by": {
+          "7": [
+            3
+          ]
+        },
+        "forest": {
+          "4": [
+            5,
+            6
+          ]
+        },
+        "taken": [
+          3
+        ]
+      }
+    },
+    {
+      "offset": 14,
+      "view": "jobs",
+      "args": {
+        "ns": "/proj"
+      },
+      "cite": "10.8",
+      "why": "A CLOSED BLOCKER RELEASES, and closing #3 also returns it from `taken` — so #7 becomes ready and nothing is blocked. The DAG is empty here because everything is released, which must be distinguishable from the DAG being empty because nobody posted edges.",
+      "expect": {
+        "ready": [
+          2,
+          4,
+          6,
+          7,
+          8,
+          10,
+          11
+        ],
+        "blocked_by": {},
+        "forest": {
+          "4": [
+            5,
+            6
+          ]
+        },
+        "taken": []
+      }
+    }
+  ],
+  "must_not": [
+    {
+      "rule": "A `part-of` target MUST NEVER appear in `blocked_by`. #5 and #6 are children of the open campaign #4 at every offset and are never blocked by it. This is the single rule the whole fixture is built around.",
+      "cite": "12.7"
+    },
+    {
+      "rule": "`blocked_by` and `forest` MUST NOT be derived from each other. At offset 13 the forest is unchanged while #8's blocker is released; at offset 11 #8 is gated on a campaign child, so a job may be ordered against work it is not part of.",
+      "cite": "10.8"
+    },
+    {
+      "rule": "A blocker with a LIVE HOLDER MUST NOT release its dependents. At offset 12 #3 is taken and #7 stays blocked. Taken-ness and released-ness are different questions and only `closes`/`supersedes` answer the second.",
+      "cite": "10.8"
+    },
+    {
+      "rule": "`ready` MUST NOT include held work. #3 is ready at offset 11 and absent at 12 with no other change than the CLAIM.",
+      "cite": "10.8"
+    },
+    {
+      "rule": "A job with no edges at all (#2) MUST be ready at every offset. Absence of ordering is not ordering, and a board defaulting unstated jobs to blocked would strand every job posted before this convention existed.",
+      "cite": "10.8"
+    },
+    {
+      "rule": "An out-of-range `at` MUST NOT be answered with a crash. Not asserted by the checks above because it is a defect filed rather than fixed here — `jobs` raises where `state` returns an empty answer.",
+      "cite": "9.1"
+    }
+  ]
+}
