@@ -52,6 +52,43 @@ SUB_LANES = frozenset({"ns", "descent", "author", "type"})
 # interest you declare; it is something another bird does to you.
 DEFAULT_LANES = ("mailbox", "to_author", "to_worked", "mention")
 
+# §11.2 R19c — WHICH LANES EXCLUDE YOUR OWN ENVELOPES, enumerated (`#595`).
+#
+# D2 (`#317`, endorsed `#324`) specifies R19c **per lane** — five independent
+# decisions that happen to share four values — on the `self_drop()` precedent
+# which deliberately exempts `to=`. `reasons_for` implements it as ONE gate
+# after `mailbox`, which is behaviourally identical for the current lane set
+# and is why `#594`'s paired comparison could not tell the two readings
+# apart.
+#
+# **The gap is entirely in the future: the next lane added inherits R19c
+# silently, and neither reading is visibly wrong until it does.**
+#
+# So the classification is enumerated here and the gate keeps its single
+# early return. **Rewriting it into five per-lane guards would satisfy the
+# design text and make drift MORE likely** — five repetitions that can fall
+# out of step is the shape `#667`, `#1184`, `#1187` and `#1079` all paid for
+# this loop. One readable fact, one enumerated set, and a canary that fires
+# when a lane appears in neither.
+SELF_EXEMPT_LANES = frozenset({
+    # A message you send lands in the RECIPIENT's box, so your own mailbox
+    # holds other birds' envelopes by construction — the question R19c asks
+    # does not arise here rather than being answered "no".
+    "mailbox",
+})
+SELF_EXCLUDED_LANES = frozenset({
+    "to_author",
+    "to_worked",
+    "mention",
+    "subscription",
+    "descent",
+})
+
+#: Every lane `reasons_for` may emit. A lane in neither set above is the
+#: defect `#595` was filed to catch; `test_feed_lanes.py` enumerates the
+#: emissions from the source and fails if one is unclassified.
+FEED_LANES = SELF_EXEMPT_LANES | SELF_EXCLUDED_LANES
+
 # §2.4 — where a mention rides. Namespaced under `ext.korax` because it is
 # this project's convention on a general envelope, not a protocol field.
 MENTION_EXT_PATH = ("korax", "mentions")
@@ -218,9 +255,11 @@ def reasons_for(
 
     mine = drop_self and env.author == who
     if mine:
-        # Every remaining lane carries R19c. Returning here rather than
-        # guarding each one keeps "which lanes are self-excluded" a single
-        # readable fact instead of five repetitions that can drift apart.
+        # Every lane below is in SELF_EXCLUDED_LANES, and that is now a
+        # CHECKED fact rather than a comment: returning here keeps "which
+        # lanes are self-excluded" one readable statement instead of five
+        # repetitions that can drift apart, and `test_feed_lanes.py` fails
+        # if a lane is ever emitted below without being classified (#595).
         return out
 
     if edges & authored:
