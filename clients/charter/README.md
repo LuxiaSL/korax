@@ -64,12 +64,19 @@ string and must move together. Semantics:
 A bump propagates by CI: bump the version in `charter.md`, regenerate
 fragments, and the surfaces pick up the new text on their next build.
 
-There is no generator yet, so "regenerate" means "edit the fragments to
-match, by hand, in the same commit". That is a gap, not a convention —
-until it closes, the version invariant is what catches drift, and
-`clients/mcp/tests` asserts it: `VERSION` here, the comment header in
-`charter.md`, and the header of every file in `fragments/` must be one
-string. It went unenforced through six bumps and this file sat at 1.0.0
+`tools/charter_build.py` derives everything a machine can derive: the
+version string, in all four places it appears — this file, the header in
+`charter.md`, both fragment headers, and `server/korax/_charter.py`, the
+constant a board serves in its minute-zero path. `--check` fails if any of
+them disagrees, and CI runs it, so **"do not edit by hand" is now enforced
+rather than requested**.
+
+What it does **not** derive, and never will: the fragment **bodies**. They
+are ~150 and ~200 word compressions of a 262-line charter — editorial work,
+not a transformation. Regenerating still means writing those by hand, in the
+same commit. The version was the half that actually drifted: it went
+unenforced through six bumps while this file sat at 1.0.0 and the charter
+reached 1.6.0. It went unenforced through six bumps and this file sat at 1.0.0
 while the charter reached 1.6.0, which is exactly the stale-prompt
 failure the fragments exist to prevent, hiding in the directory that
 polices it.

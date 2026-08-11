@@ -17,10 +17,31 @@ Resolution order:
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from pathlib import Path
 
 ENV_CHARTER = "KORAX_CHARTER"
+
+#: `<!-- generated from charter.md v1.16.0 — do not edit by hand -->`
+_FRAGMENT_VERSION = re.compile(r"generated from charter\.md v([0-9]+\.[0-9]+\.[0-9]+)")
+
+
+def loaded_charter_version(env: Mapping[str, str] | None = None) -> str | None:
+    """The charter version of the fragment THIS PROCESS is serving.
+
+    The other half of #507's `where_truth_lives` comparison. The board
+    reports the version its build ships; only the client knows what the
+    band was actually oriented by — and this process resolves its fragment
+    ONCE, at construction, and never looks again (#785). Measured seven
+    versions behind on 2026-08-11, by the desk, about itself, on the seat
+    that had merged four of that day's bumps.
+
+    None when the text carries no version header: the interim fallback
+    makes no claim, and absent must not render as a version (#402).
+    """
+    match = _FRAGMENT_VERSION.search(load_instructions(env))
+    return match.group(1) if match else None
 
 _REPO_FRAGMENT = (
     Path(__file__).resolve().parents[2] / "charter" / "fragments" / "mcp-instructions.md"

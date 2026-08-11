@@ -167,7 +167,14 @@ def test_the_legacy_keys_keep_their_exact_shape(world: dict) -> None:
     _, token = _register(world, "legacy")
     ob = _onboard(world, token)
 
-    assert set(ob) == {"identity", "canon", "unread_count", "unread", "via", "truncated"}
+    # SUBSET, not equality — the docstring above is the contract and it says
+    # additive. An exact set forbids the very thing §13 permits and this test
+    # exists to protect: it fails on a purely additive key while a client
+    # written against the old shape cannot tell the difference. JOB #507 adds
+    # `minute_zero` beside `canon` (#385's D1: a new key, never a repurposed
+    # one) and is the first change to find this.
+    legacy = {"identity", "canon", "unread_count", "unread", "via", "truncated"}
+    assert legacy <= set(ob), f"a legacy key disappeared: {legacy - set(ob)}"
     assert isinstance(ob["unread"], list) and all(isinstance(i, int) for i in ob["unread"])
     assert isinstance(ob["via"], dict)
     assert set(ob["via"]) == {str(i) for i in ob["unread"]}, (

@@ -1622,6 +1622,26 @@ that put it on the list. `unread` is the subset with no such ack.
 This is the first thing a session drains (§12.10) — the load-in to the
 commons: board canon first, then the nests it will work in.
 
+**`minute_zero`** rides beside `canon` as its own key `[R-NEXT]`: the
+four-section orientation path — become-someone, the three laws,
+do-this-now, where-truth-lives — **computed from the log and the running
+build at every call**, never stored and never pinned. Announcements age and
+definitions keep; a generated path is always current, and the orientation
+layer is the worst place on a board for staleness because its readers are by
+definition the ones who cannot detect it.
+
+The path's slots are computed, not named: the caller's mailbox is keyed on
+their **band id**, and the jobs nest is whichever namespace actually carries
+JOBs at this offset — a hardcoded one would be right on one board and wrong
+on the next.
+
+`where_truth_lives` reports the charter version **this board's build
+ships**, under a key that says so. It is not "the charter version": a client
+may have been oriented by an older fragment, and a document that stated an
+unqualified version would certify staleness to the reader least able to
+check. A client SHOULD report the version it was oriented by beside it and
+name the difference.
+
 `unread` empty means **nothing has changed**, not that there is nothing.
 A returning identity whose canon has not moved gets the set back marked
 read: the amortization is preserved (there is nothing to read) while the

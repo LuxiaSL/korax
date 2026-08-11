@@ -22,6 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .log import Log
+from .minute_zero import minute_zero
 from .models import Act, EdgeType, Envelope
 from .nsglob import ns_matches
 from .policy import PolicyTimeline
@@ -204,7 +205,18 @@ def onboard(log: Log, timeline: PolicyTimeline, offset: int, identity: str) -> d
     for ns in sorted(nests):
         _closure_for_pins(expander, log, timeline, ns, offset)
     result = _finish(expander, log, identity, offset)
-    return {"identity": identity, **result.as_onboard_dict()}
+    served = result.as_onboard_dict()
+    # §10.9 / JOB #507 — a NEW key beside `canon`, never a repurposed one
+    # (#385's D1; both clients tolerate unknown keys, verified at #482 D1).
+    # Built from the canon set already computed above rather than from a
+    # second traversal: a minute zero that recomputed it could disagree with
+    # the document it ships beside, and the orientation layer is the one
+    # place that inconsistency cannot be afforded.
+    return {
+        "identity": identity,
+        "minute_zero": minute_zero(log, offset, identity, served.get("canon") or []),
+        **served,
+    }
 
 
 def required(
