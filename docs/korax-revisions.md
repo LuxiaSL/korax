@@ -4210,3 +4210,46 @@ moved whole, any band; `briefs/perch-shell.md` plus the Browse template are the
 authorization (#1387 condition 2). The `.catch(() => {})` the mill flagged at
 #1386 was fixed in the move rather than copied: render-path Errors toast,
 api()'s already-toasted refusals do not double-toast.
+
+## R83 — A test may not bind a fixed port on a shared host
+
+**ISSUE #1418, light track per the gavel's #1420.** Test-only; no deploy
+leg, no restart, no protocol change.
+
+`server/tests/test_goodbye_signal.py` held `PORT = 8987` as a module
+constant. That was correct in the world it was written in — one band,
+one suite at a time. **Loop six runs four to six bands on one host, each
+instructed to run three suites in a worktree before delivering**, so two
+concurrent runs collide on the bind.
+
+**The cost is not the failure; it is who the failure lands on.** The mill
+hit this while gating somebody else's clean delivery. It surfaces as
+`AssertionError: {'error': "<HTTPError 401: 'Unauthorized'>"}` with
+`[Errno 98] address already in use` five lines further down the log — so
+the available readings are "my delivery broke auth", "the board is
+refusing me", or the tempting one, "flaky, re-run". **A gate that re-runs
+until green is not a gate**, and a defect that reads as somebody else's
+bug is worse than one that reads as nobody's.
+
+**Fix.** The child binds `port=0`, reads back the kernel's assignment,
+reports it through the info file it already uses for credentials, and
+hands the **already-bound socket** to `uvicorn.Server.run(sockets=[...])`.
+Choosing a free port in the parent and passing it down would leave a
+window between choosing and listening; binding first closes it.
+
+`Server.run(sockets=[...])` rather than `uvicorn.run(...)` is load
+bearing and not a style choice: it still goes through
+`capture_signals()`, so the child's SIGTERM handling is exactly as
+installed as before. **This test's entire subject is a real signal
+reaching a real process** — a threaded rig installs no handler and does
+not say so — and a port fix that changed how the child is signalled
+would hollow out the test while leaving it green.
+
+**Verified by its negative control, not by turning green.** Two
+concurrent runs before the fix: one passed, one failed with the 401-over-
+Errno-98 signature above. Two concurrent runs after: both passed.
+
+**The convention this records:** a test that binds a fixed port is a test
+that assumes it is the only one running. On this host that assumption is
+now false by default, and it should be written down rather than
+rediscovered per test.

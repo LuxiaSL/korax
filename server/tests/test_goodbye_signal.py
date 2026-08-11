@@ -30,7 +30,6 @@ from __future__ import annotations
 import json
 import os
 import signal
-import socket
 import subprocess
 import sys
 import threading
@@ -44,8 +43,35 @@ REPO = Path(__file__).resolve().parents[2]
 SERVER_DIR = REPO / "server"
 PARKED_CLIENTS = 4
 
+# ISSUE #1418 — THE PORT IS ALLOCATED BY THE KERNEL, NOT BY THIS FILE.
+#
+# This used to be `PORT = 8987`, a module constant, and it was fine in the
+# world it was written in: one band, one suite at a time. Loop six runs four
+# to six bands on this host, each instructed to run three suites in a
+# worktree before delivering, so two concurrent runs collide on the bind and
+# **the failure lands on the wrong band** — it surfaces as an
+# `AssertionError: {'error': "<HTTPError 401: 'Unauthorized'>"}` one frame
+# away from an easily-scrolled-past `[Errno 98] address already in use`, so
+# the honest readings are "my delivery broke auth" or "the board is refusing
+# me". The tempting reading is "flaky, re-run", and **a gate that re-runs
+# until green is not a gate** (the mill, filing this at #1418, hit it while
+# gating somebody else's clean delivery).
+#
+# The child binds `port=0`, reads back what the kernel assigned, reports it
+# through the same info file it already uses for credentials, and hands the
+# **already-bound socket** to uvicorn. There is no window in which another
+# process could take the port between choosing it and listening on it, which
+# a "pick a free port in the parent and pass it down" fix would leave open.
+#
+# `Server.run(sockets=[sock])` and not `uvicorn.run(...)`: it is the
+# supported way to serve a socket you own, and — load-bearing here — it
+# still goes through `capture_signals()`, so uvicorn's SIGTERM handling is
+# exactly as installed as before. **This test's whole subject is a real
+# signal reaching a real process** (a threaded rig installs no handler at
+# all and does not say so), and a port fix that quietly changed how the
+# child is signalled would hollow the test out while leaving it green.
 _SERVER = """
-import sys
+import socket, sys
 sys.path.insert(0, sys.argv[1])
 import uvicorn
 from korax.api import create_app
@@ -56,26 +82,19 @@ store = Store(":memory:")
 operator, token = store.create_identity("operator")
 store.set_meta("genesis_identity", operator)
 board = Board(store); seed_board(board, operator)
-open(sys.argv[2], "w").write(f"{operator}\\n{token}\\n{board.head}\\n")
-uvicorn.run(create_app(board), host="127.0.0.1", port=%d, log_level="error")
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+sock.bind(("127.0.0.1", 0))
+port = sock.getsockname()[1]
+open(sys.argv[2], "w").write(f"{operator}\\n{token}\\n{board.head}\\n{port}\\n")
+uvicorn.Server(uvicorn.Config(create_app(board), log_level="error")).run(
+    sockets=[sock])
 """
 
 
-def _free_port() -> int:
-    # bind-then-close: the OS will not hand out this port to another
-    # `bind(0)` caller until it is released, and we release it only
-    # microseconds before uvicorn's own bind — #1418, this test's own
-    # fixed 8987 was colliding across the four to six bands this loop
-    # runs in parallel on one shared host.
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
-
-
 def test_a_real_sigterm_releases_every_parked_call(tmp_path) -> None:
-    port = _free_port()
     script = tmp_path / "serve.py"
-    script.write_text(_SERVER % port, encoding="utf-8")
+    script.write_text(_SERVER, encoding="utf-8")
     info = tmp_path / "info.txt"
 
     proc = subprocess.Popen([sys.executable, str(script), str(SERVER_DIR), str(info)])
@@ -87,7 +106,7 @@ def test_a_real_sigterm_releases_every_parked_call(tmp_path) -> None:
         else:
             pytest.skip("server did not start; not a statement about the goodbye")
         time.sleep(2.0)
-        operator, token, head = info.read_text().split()
+        operator, token, head, port = info.read_text().split()
 
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         results: list[dict] = []
