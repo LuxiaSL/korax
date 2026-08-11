@@ -12,6 +12,7 @@ import hashlib
 import inspect
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -822,6 +823,61 @@ def test_whoami_names_the_band_and_its_grants(cli, world) -> None:
     assert ("/korax-dev/**", "claimant") in held
     # the band:* floor resolves for this token too, not just its own grant
     assert ("/korax/canon/**", "reader") in held
+
+
+def test_whoami_surfaces_the_board_clock_and_head(cli, world) -> None:
+    """JOB #1361 — the CLI SURFACES both new fields, verified rather than
+    assumed to pass through.
+
+    `cmd_whoami` emits the server's own body, so this could look like a test
+    of nothing. It is not: `_check_shape` sits between them, and `WhoAmI`
+    declares `board_ts`/`head` REQUIRED WITH NO DEFAULT. So this asserts two
+    things at once — that the fields reach the terminal a band actually
+    reads, and that the model admits them rather than rejecting the response
+    it was supposed to describe."""
+    identity, token = register(cli, world, "clock-reader")
+
+    result = cli("whoami", token=token)
+    assert result.exit_code == 0, result.stderr
+    body = result.json
+
+    datetime.strptime(body["board_ts"], "%Y-%m-%dT%H:%M:%SZ")
+    assert isinstance(body["head"], int)
+    assert body["head"] >= 0
+
+
+def test_whoami_refuses_a_board_that_reports_no_clock(cli, world, monkeypatch) -> None:
+    """The other half of required-with-no-default, and the half worth having.
+
+    R61's ruling (#292/#1090) is that a client must not fabricate a board
+    fact. For a clock that is the sharpest case: a defaulted `board_ts` would
+    hand back the CLIENT's own `now` wearing the board's name, which is
+    exactly the bug #690 exists to kill — and it would look fixed.
+
+    Failure injected BELOW the client wrapper (the transport), not by raising
+    the error the client is supposed to produce: a test that constructs its
+    own refusal proves the assertion, not the code."""
+    from korax_cli import cli as cli_module
+
+    async def _clockless(self):  # noqa: ANN001 — test double
+        return {"identity": "band:whoever", "display": "old-board", "grants": []}
+
+    monkeypatch.setattr(cli_module.KoraxClient, "whoami", _clockless)
+
+    identity, token = register(cli, world, "skew-subject")
+    result = cli("whoami", token=token)
+
+    assert result.exit_code != 0, "a missing clock must refuse, not default"
+    combined = result.stderr + (result.stdout or "")
+    # Control: it refuses for the RIGHT reason. `exit_code != 0` alone would
+    # pass on a typo'd monkeypatch target or an unrelated crash, which is the
+    # failure mode where a green test certifies nothing.
+    assert "cannot read faithfully" in combined, combined
+    assert "board_ts" in combined, (
+        "the refusal must name the missing field; §13 says a client that "
+        "cannot render a response faithfully says so, and 'so' means saying "
+        "which part"
+    )
 
 
 def test_identities_lists_the_registry_with_the_floor(cli, world) -> None:

@@ -30,6 +30,25 @@ def _fmt(ts: datetime | None) -> str | None:
     return ts.strftime("%Y-%m-%dT%H:%M:%SZ") if ts is not None else None
 
 
+#: §10 / #690 — what `eval_ts` IS, served beside the value at the one
+#: surface a reader meets it. The doc half of JOB #1361, and it is not
+#: decoration: `eval_ts` is a correct-looking WRONG answer to "what time
+#: does the board think it is," and #689 was a real lease posted against
+#: that reading. The value must stay log time (reproducibility depends on
+#: it, §10); what changes is that it now says so where it is read, rather
+#: than only in `log.py`'s docstring, which nobody meets at the point of
+#: the mistake. Pointing at the right field is the load-bearing clause —
+#: naming a trap without naming the exit leaves the reader where they were.
+EVAL_TS_IS = (
+    "log time — the ts of the envelope at this offset, never the board's "
+    "wall clock. A reduction is reproducible only if its evaluation moment "
+    "comes from the log (§10), so at head on a quiet board this is the age "
+    "of the last thing anybody said and can be hours stale BY DESIGN. It is "
+    "not the board's clock and must not be used to compute a lease: "
+    "/whoami's `board_ts` is that clock (#690)."
+)
+
+
 def _eval_ts_or_none(log: Log, offset: int) -> datetime | None:
     """The evaluation moment for a reduction at `offset`, or None when
     this log has no envelope there.
@@ -1076,6 +1095,7 @@ def jobs(log: Log, timeline: PolicyTimeline, offset: int, ns: str) -> dict[str, 
 
     return {
         "eval_ts": _fmt(eval_ts),
+        "eval_ts_is": EVAL_TS_IS,
         "forest": forest,
         "open": open_,
         "taken": taken,

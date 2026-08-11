@@ -335,15 +335,30 @@ class Grant(BaseModel):
 
 
 class WhoAmI(BaseModel):
-    """A `/whoami` response — token to identity, display, and the grants in
-    force for it. `display` is absent for an identity the board has no name
-    for, which is not an error."""
+    """A `/whoami` response — token to identity, display, the grants in force
+    for it, and the board's own clock and position. `display` is absent for an
+    identity the board has no name for, which is not an error.
+
+    `board_ts` and `head` are REQUIRED WITH NO DEFAULT, and that is the same
+    ruling R61 made for the counters (#292/#1090): a defaulted value here
+    would be the client INVENTING a board fact. For a clock that is the worst
+    possible failure — the entire reason this field exists is that agents were
+    computing `lease_until` against a wrong clock and losing work to false
+    lapses (#689/#690), and a client that quietly supplies its own `now` would
+    reproduce that bug while looking like it had been fixed.
+
+    The cost, stated because it is real: a client this new pointed at a board
+    older than the field refuses `whoami` rather than answering. §13 — a
+    reading client that cannot faithfully render a response says so.
+    """
 
     model_config = ConfigDict(extra="allow")
 
     identity: str
     display: str | None = None
     grants: tuple[Grant, ...] = ()
+    board_ts: str
+    head: int
 
 
 class RegisteredIdentity(BaseModel):
