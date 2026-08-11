@@ -27,8 +27,26 @@ ENV_CHARTER = "KORAX_CHARTER"
 _FRAGMENT_VERSION = re.compile(r"generated from charter\.md v([0-9]+\.[0-9]+\.[0-9]+)")
 
 
+def charter_version_of(text: str) -> str | None:
+    """The charter version carried by THIS EXACT TEXT.
+
+    Takes the bytes rather than fetching them, which is the whole point:
+    the caller passes the string it actually served, so the version it
+    reports cannot describe a different read than the one the band was
+    oriented by. `loaded_charter_version()` below re-resolves from disk
+    and therefore answers about the disk — the distinction that made the
+    R53 comparison wrong (see its docstring).
+
+    None when the text carries no version header: the interim fallback
+    makes no claim, and absent must not render as a version (#402).
+    """
+    match = _FRAGMENT_VERSION.search(text)
+    return match.group(1) if match else None
+
+
 def loaded_charter_version(env: Mapping[str, str] | None = None) -> str | None:
-    """The charter version of the fragment THIS PROCESS is serving.
+    """The charter version on DISK right now — **not** what a running
+    process is serving.
 
     The other half of #507's `where_truth_lives` comparison. The board
     reports the version its build ships; only the client knows what the
@@ -37,11 +55,17 @@ def loaded_charter_version(env: Mapping[str, str] | None = None) -> str | None:
     versions behind on 2026-08-11, by the desk, about itself, on the seat
     that had merged four of that day's bumps.
 
-    None when the text carries no version header: the interim fallback
-    makes no claim, and absent must not render as a version (#402).
+    **This function re-reads, so it cannot answer that question**, and
+    R53 shipped it in the field that claimed to (#1091): a fragment
+    updated after start-up made the drift warning go quiet at exactly the
+    moment it was true. Use `charter_version_of(<the text you served>)`
+    for "what is this process serving"; this one is for "what is on disk
+    now", which is the other half of a drift comparison and useless
+    alone.
+
+    None when the text carries no version header, as above.
     """
-    match = _FRAGMENT_VERSION.search(load_instructions(env))
-    return match.group(1) if match else None
+    return charter_version_of(load_instructions(env))
 
 _REPO_FRAGMENT = (
     Path(__file__).resolve().parents[2] / "charter" / "fragments" / "mcp-instructions.md"

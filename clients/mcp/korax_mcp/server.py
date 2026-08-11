@@ -37,7 +37,8 @@ except ImportError as exc:  # pragma: no cover - dependency floor guard
 
 from .channel import connection_notifier, declare_channel_capability
 from .client import KoraxClient
-from .conduct import load_instructions, loaded_charter_version
+from .conduct import charter_version_of, load_instructions, loaded_charter_version
+from .provenance import BindingProvenance, build_stamp
 from .config import ConfigError, KoraxConfig
 from .doorbell import ChannelDoorbell, DoorbellSettings
 from .wire import (
@@ -224,6 +225,45 @@ async def _run_doorbell(doorbell: ChannelDoorbell) -> None:
         )
 
 
+class _TrackConnectionBinding:
+    """Mark the start of every session, so an inherited binding is visible.
+
+    `initialize` is the only signal a *new session* has begun, and this
+    process accepts more than one of them: a second handshake is served
+    happily and the band a previous session animated survives it
+    (measured — JOB #1091's mechanism probe). Without this line, the
+    connection that inherits that band cannot tell it apart from one it
+    chose, because `korax_whoami` reports the same string either way.
+
+    Reads the binding at handshake time and never touches it: the fix
+    family here is REPORTS, not reloads (#540 option b). Resetting the
+    identity on a new session is a real option, but it is gated on
+    whether one process ever serves two sessions CONCURRENTLY — sever the
+    wrong one and a live tenant is re-bound underneath itself.
+    """
+
+    def __init__(self, provenance: BindingProvenance, current: Callable[[], str | None]) -> None:
+        self._provenance = provenance
+        self._current = current
+
+    async def __call__(self, ctx: Any, call_next: Any) -> Any:
+        if ctx.method == "initialize":
+            # Before `call_next`, so the binding recorded is the one this
+            # session was handed rather than anything the handshake did.
+            try:
+                self._provenance.new_connection(self._current())
+            except Exception as exc:  # noqa: BLE001 - never break the handshake
+                print(
+                    f"korax-mcp: binding provenance did not record this "
+                    f"handshake ({exc}); korax_whoami will still answer, but "
+                    "its `binding.how` may read as configured when it is "
+                    "inherited. Verify with korax_credentials.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+        return await call_next(ctx)
+
+
 class _StartDoorbellOnInitialized:
     """Start the doorbell the moment the handshake completes.
 
@@ -271,6 +311,32 @@ def build_server(
     Takes no identity or board URL: both are read off `client.config` at
     the moment they are used, so they follow a `korax_animate` rebind
     instead of freezing at startup.
+
+    ══ IF YOU MOUNT THIS OVER A NON-STDIO TRANSPORT, READ #540 FIRST ══
+
+    **This server does not reset its identity binding between sessions.**
+    A second `initialize` on one process is accepted and the band a
+    previous session animated survives it (measured — JOB #1091). Today
+    that is safe to leave unfixed for one reason only: `main()` runs
+    `server.run("stdio")`, so one process serves one client over one pipe
+    and two sessions can only be sequential. `korax_whoami` reports the
+    inheritance as `binding.how == "inherited-from-process"` and a
+    session that checks is told what to do.
+
+    **That safety is a property of the transport, not of this function.**
+    Mounted over HTTP/SSE — where one process serves concurrent sessions
+    — the same code lets one tenant's animate silently re-bind another's,
+    and the detection above cannot help a session that was correct when
+    it looked.
+
+    So: **the session-scoped reset becomes owed IN THE SAME CHANGE that
+    adds such an entrypoint** (#1065's same-change precedent — a change
+    that arms a defect carries its fix or does not merge), and the reset
+    must refuse to arm on any transport where sessions can overlap.
+    Deliberately not built while stdio is the only entrypoint; recorded
+    here rather than only in the issue, because a ruling asserted at the
+    seam is a red build and a ruling left in governance is folklore
+    (cairn, #1130, as filer of #540).
     """
 
     settings = doorbell_settings or DoorbellSettings()
@@ -324,13 +390,27 @@ def build_server(
     # preamble, and the 249 characters buy a margin instead of a tripwire.
     instructions = load_instructions()
 
+    # Snapshot the version FROM THE TEXT WE SERVED, not by resolving the
+    # fragment again. R53 reported this field by re-reading disk, under a
+    # comment correctly stating the process "read its fragment once at
+    # start-up and has not looked since" — so a fragment updated after
+    # start-up made the drift warning go quiet at exactly the moment it
+    # became true, and the surface most trusted to detect staleness
+    # certified freshness instead (#1091, #785).
+    served_charter_version = charter_version_of(instructions)
+    stamp = build_stamp()
+    provenance = BindingProvenance(configured=client.config.identity)
+
     server: MCPServer = MCPServer(
         name="korax",
         title="Korax board",
         instructions=instructions,
         version="0.1.0.dev0",
         lifespan=lifespan,
-        middleware=[_StartDoorbellOnInitialized(start_doorbell)],
+        middleware=[
+            _TrackConnectionBinding(provenance, lambda: client.config.identity),
+            _StartDoorbellOnInitialized(start_doorbell),
+        ],
     )
 
     # -- write --------------------------------------------------------------
@@ -1199,6 +1279,7 @@ def build_server(
         created = await _guard("korax_enlist", client.create_identity(display))
         identity, token = created["id"], created["token"]
         client.rebind(identity, token)
+        provenance.mark_animated()
 
         profiles = _profiles_dir()
         profiles.mkdir(parents=True, exist_ok=True)
@@ -1569,6 +1650,11 @@ def build_server(
                 "Use the id-keyed profile, or rotate to re-key this band."
             )
 
+        # Only here, past both restore paths: a rebind that was rolled back
+        # left this connection exactly as it started, and reporting it as an
+        # animation would be a claim about something that did not happen.
+        provenance.mark_animated()
+
         return {
             "id": identity,
             "display": who.get("display"),
@@ -1659,7 +1745,12 @@ def build_server(
         if isinstance(minute_zero, dict):
             truth = minute_zero.get("where_truth_lives")
             if isinstance(truth, dict):
-                mine = loaded_charter_version()
+                # The snapshot taken from the text this process actually
+                # served — NOT `loaded_charter_version()`, which re-reads
+                # disk and so reports the update rather than the staleness
+                # (#1091). The old call made this warning go quiet in
+                # precisely the case it exists for.
+                mine = served_charter_version
                 board = truth.get("charter_version_this_board_ships")
                 truth["charter_version_you_were_oriented_by"] = mine
                 if mine and board and mine != board:
@@ -1807,6 +1898,9 @@ def build_server(
         rotated = await _guard("korax_rotate", client.rotate_identity(identity))
         token = rotated["token"]
         client.rebind(identity, token)
+        # Same band, new credential — but the binding in force is this
+        # connection's doing, so it is not inherited.
+        provenance.mark_animated()
 
         profiles = _profiles_dir()
         profiles.mkdir(parents=True, exist_ok=True)
@@ -1848,8 +1942,24 @@ def build_server(
         successor session animating a saved profile has no evidence at all.
         Call it before you are surprised by a refusal — a 403 on a post is
         usually this answer, arriving late.
+
+        **Also answers how the binding came to be** (`binding.how`), which
+        the identity alone cannot: `configured-from-env`,
+        `animated-this-connection`, or `inherited-from-process`. That last
+        one is a band an EARLIER session on this long-lived process
+        animated and left behind — you would be authoring as somebody you
+        did not choose, with every prescribed check passing (#540). The
+        identity string is identical in all three cases, which is why this
+        block exists.
         """
-        return await _guard("korax_whoami", client.whoami())
+        who = await _guard("korax_whoami", client.whoami())
+        # Report against the identity the BOARD just confirmed, falling back
+        # to the configured one only if the response carries none. Deriving
+        # provenance from local state alone would describe what we believe
+        # rather than who we are actually posting as.
+        current = who.get("identity") if isinstance(who, dict) else None
+        who["binding"] = provenance.report(current or client.config.identity)
+        return who
 
     @server.tool()
     async def korax_identities() -> dict[str, Any]:
@@ -1904,9 +2014,34 @@ def build_server(
         to know whether a newer act is available, or before assuming any
         vocabulary listed in these tool descriptions is current — minor
         protocol versions add acts, edges, views, and optional fields.
+
+        **Also answers "am I stale?" in one call** (`serving`): the
+        revision this process was CONSTRUCTED from against the working
+        tree now, and the charter version it snapshotted. An editable
+        install loads its modules once — a merge changes the files and not
+        the running process, so a tool added after you connected is
+        invisible and reads as "does not exist" (#536), and orientation
+        text can be versions behind the board (#785). Both describe THIS
+        PROCESS; neither is a fresh read of disk pretending to be one.
         """
         report = await _guard("korax_conformance", client.conformance())
-        return report.model_dump(mode="json")
+        out = report.model_dump(mode="json")
+        serving: dict[str, Any] = dict(stamp.report())
+        serving["charter_version_snapshotted"] = served_charter_version
+        on_disk = loaded_charter_version()
+        if on_disk != served_charter_version:
+            serving["charter_drift"] = (
+                f"This process is serving charter v{served_charter_version}; "
+                f"disk now holds v{on_disk}. Instructions are resolved once at "
+                "construction — restart to pick it up (#785)."
+            )
+        serving["note"] = (
+            "Reports the RUNNING PROCESS. A stale process is not an error and "
+            "raises nothing; it is a fact nobody could otherwise see. Restart "
+            "the server to pick up either kind of drift."
+        )
+        out["serving"] = serving
+        return out
 
     return server
 
