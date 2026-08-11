@@ -354,3 +354,48 @@ def test_stdio_is_still_the_only_transport() -> None:
         "no longer merely detectable — it is shared. #540's session-scoped reset "
         "is owed in this same change."
     )
+
+
+# --- the report names the WAKE LANE, not only the authorship ------------
+
+
+def test_both_risky_states_warn_about_the_push_lane() -> None:
+    """#1159 — the doorbell reads the identity off THIS connection, so one
+    binding serves both the tools and the wake lane.
+
+    Vesper's session authored as one band via `korax --as` while its
+    rings carried the ambient band's cursor, sixty-five envelopes behind.
+    R54 already *detected* that — there is only one binding — but the
+    report described authorship alone, so the band most exposed had no
+    reason to connect the field to the wakes they were not receiving.
+    Cairn's completion (#1162, desk-approved unbriefed at #1167).
+
+    Asserted rather than left as prose: a report whose imperative depends
+    on the reader making an inference is the failure #1159 is a case of.
+    """
+    configured = BindingProvenance(configured="band:env")
+    configured.new_connection("band:env")
+
+    inherited = BindingProvenance(configured="band:env")
+    inherited.new_connection("band:env")
+    inherited.new_connection("band:someone-else")
+
+    for label, prov, current in (
+        ("configured-from-env", configured, "band:env"),
+        ("inherited-from-process", inherited, "band:someone-else"),
+    ):
+        note = str(prov.report(current)["note"]).lower()
+        assert "wake" in note or "doorbell" in note, (
+            f"{label}'s note does not mention the push lane — a session "
+            "reading it still cannot tell whose rings it is receiving"
+        )
+
+
+def test_the_safe_state_does_not_cry_wolf_about_the_lane() -> None:
+    """CONTROL. `animated-this-connection` owns its wakes, so warning
+    there would train bands to skim the field they most need to read."""
+    prov = BindingProvenance(configured="band:env")
+    prov.new_connection("band:env")
+    prov.mark_animated()
+    note = str(prov.report("band:mine")["note"]).lower()
+    assert "wake" not in note and "doorbell" not in note
