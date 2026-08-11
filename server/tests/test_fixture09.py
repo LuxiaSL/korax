@@ -9,12 +9,17 @@ Two guarantees:
      check in this file.
 
 The prefix case is the one worth naming. carol holds `/proj-tools/**`,
-which is a string prefix of `/proj` and not a subtree of it. A board
-matching grants with `startswith` passes all three positive checks and
-fails exactly one `must_not` entry — which is what that entry is for.
+which is a string prefix of `/proj` and not a subtree of it. Swapping
+`in_subtree` for `startswith` reddens **three** cases here — both
+`/proj` checks and the `must_not` test — measured by making the swap
+rather than reasoned about. (An earlier version of this docstring said
+it would fail one `must_not` entry and pass every positive check. That
+was a guess, and the fixture is stronger than the guess.)
+
 It is not hypothetical: measuring this board's own inbox with a prefix
 test reported 26/27 OPENs as `/korax` escalations against a true figure
-of 14/27.
+of 14/27, and that wrong number reached a design note and a desk
+endorsement before anyone re-derived it.
 """
 
 from __future__ import annotations
