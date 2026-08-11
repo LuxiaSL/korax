@@ -8,6 +8,7 @@ rather than flattened into "the call failed" (§9.1).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 
@@ -32,7 +33,7 @@ TOOLS = {
     "korax_whoami", "korax_identities", "korax_policy", "korax_rotate",
     "korax_conformance", "korax_subscribe",
     "korax_search", "korax_neighbourhood",
-    "korax_docket", "korax_credentials",
+    "korax_docket", "korax_credentials", "korax_brief",
 }
 
 
@@ -897,3 +898,123 @@ async def test_credentials_with_no_profiles_is_empty_not_an_error(
     out = result.structured_content or {}
     assert out["profiles"] == []
     assert out["registry"] == "unchecked"
+
+
+# -- korax_brief: the boundary, executable (JOB #1029) -------------------------
+
+BRIEF_BYTES = b"# Brief: a thing\n\nDo the thing.\n"
+BRIEF_SHA = hashlib.sha256(BRIEF_BYTES).hexdigest()
+
+
+async def _job_with_pointer(board_tools, world: World, tmp_path):
+    """A JOB carrying a sha-pinned brief pointer, and the file it pins."""
+    path = tmp_path / "brief.md"
+    path.write_bytes(BRIEF_BYTES)
+    result = await board_tools.call_tool("korax_post", {
+        "ns": "/korax-dev/jobs", "type": "JOB", "grade": "n/a",
+        "payload": "JOB: a thing",
+        "pointer": {"uri": "briefs/thing.md", "sha256": BRIEF_SHA,
+                    "bytes": len(BRIEF_BYTES)},
+    })
+    return (result.structured_content or {})["id"], path
+
+
+async def test_brief_verifies_the_pinned_bytes(board_tools, world, tmp_path) -> None:
+    job, path = await _job_with_pointer(board_tools, world, tmp_path)
+    result = await board_tools.call_tool("korax_brief", {"id": job, "path": str(path)})
+    out = result.structured_content or {}
+    assert out["verified"] is True
+    assert out["expected_sha256"] == out["actual_sha256"] == BRIEF_SHA
+    assert out["bytes"] == len(BRIEF_BYTES)
+
+
+async def test_brief_RAISES_on_a_mismatch(board_tools, world, tmp_path) -> None:
+    """A brief that does not verify is not a smaller authorisation — it is
+    none. It must raise, not return a field a model may skim past."""
+    job, path = await _job_with_pointer(board_tools, world, tmp_path)
+    path.write_bytes(BRIEF_BYTES + b"and one more thing\n")
+
+    with pytest.raises(Exception) as exc:  # ToolError surfaces as a tool failure
+        await board_tools.call_tool("korax_brief", {"id": job, "path": str(path)})
+    assert "MISMATCH" in str(exc.value).upper()
+
+
+async def test_brief_refuses_a_job_with_no_pointer(board_tools, world) -> None:
+    """§12.7 — a CLAIM on a JOB without a brief is a claim on hearsay."""
+    posted = await board_tools.call_tool("korax_post", {
+        "ns": "/korax-dev/board", "type": "FINDING", "grade": "n/a",
+        "payload": "no pointer here",
+    })
+    envelope_id = (posted.structured_content or {})["id"]
+    with pytest.raises(Exception) as exc:
+        await board_tools.call_tool("korax_brief", {"id": envelope_id, "path": "/dev/null"})
+    assert "no pointer" in str(exc.value).lower()
+
+
+async def test_brief_refuses_an_unreadable_file_and_says_to_pass_a_path(
+    board_tools, world, tmp_path
+) -> None:
+    """The likeliest caller error is pasting the brief's TEXT as `path`.
+    The refusal has to teach the fix, because the alternative failure —
+    hashing retyped markdown — is indistinguishable from tampering."""
+    job, _ = await _job_with_pointer(board_tools, world, tmp_path)
+    with pytest.raises(Exception) as exc:
+        await board_tools.call_tool(
+            "korax_brief", {"id": job, "path": "# Brief: a thing\n\nDo the thing.\n"}
+        )
+    assert "path" in str(exc.value).lower()
+
+
+# -- lease_until: the trap the CLI removed and this client kept (JOB #1030) ----
+
+
+async def test_lease_until_lands_top_level_not_nested(board_tools, world) -> None:
+    """§4.2's lease is a BARE ext key. The natural `ext.korax.lease_until`
+    is refused by exactly the nests that demand one, which is why the
+    parameter exists rather than a paragraph telling you not to nest it."""
+    posted = await board_tools.call_tool("korax_post", {
+        "ns": "/korax-dev/board", "type": "FINDING", "grade": "n/a",
+        "payload": "leased", "lease_until": "2026-08-11T13:00:00Z",
+    })
+    ext = (posted.structured_content or {})["ext"]
+    assert ext["lease_until"] == "2026-08-11T13:00:00Z"
+    assert "korax" not in ext, "the lease must not be nested under a project key"
+
+
+async def test_lease_until_merges_with_other_ext_fields(board_tools, world) -> None:
+    posted = await board_tools.call_tool("korax_post", {
+        "ns": "/korax-dev/board", "type": "FINDING", "grade": "n/a",
+        "payload": "leased and extended",
+        "lease_until": "2026-08-11T13:00:00Z",
+        "ext": {"korax": {"mentions": ["band:000000000001"]}},
+    })
+    ext = (posted.structured_content or {})["ext"]
+    assert ext["lease_until"] == "2026-08-11T13:00:00Z"
+    assert ext["korax"]["mentions"] == ["band:000000000001"]
+
+
+async def test_an_explicit_ext_lease_wins_over_the_parameter(board_tools, world) -> None:
+    """A caller who wrote it themselves said what they meant. Silently
+    overwriting would be a second surprise on top of the one the parameter
+    exists to remove."""
+    posted = await board_tools.call_tool("korax_post", {
+        "ns": "/korax-dev/board", "type": "FINDING", "grade": "n/a",
+        "payload": "explicit wins",
+        "lease_until": "2026-08-11T13:00:00Z",
+        "ext": {"lease_until": "2026-08-11T09:00:00Z"},
+    })
+    assert (posted.structured_content or {})["ext"]["lease_until"] == "2026-08-11T09:00:00Z"
+
+
+async def test_the_ext_description_no_longer_contradicts_the_docstring(
+    board_tools,
+) -> None:
+    """#1017: MCP shipped the right answer and a contradicting one 23 lines
+    apart, with the WRONG one attached to the field being filled. The
+    defect survived a search for its own name — grep found the true
+    statement and stopped — so this asserts on the description a model
+    actually reads when constructing `ext`."""
+    tools = {t.name: t for t in await board_tools.list_tools()}
+    ext_description = tools["korax_post"].input_schema["properties"]["ext"]["description"]
+    assert "bare" in ext_description.lower()
+    assert "lease_until" in ext_description
