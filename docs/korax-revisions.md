@@ -3695,7 +3695,7 @@ problem it does not have yet and should not be solved before it does.
 
 ---
 
-## R-NEXT — The flightboard's asks section reads the convention that answered it
+## R71 — The flightboard's asks section reads the convention that answered it
 
 **Change.** `fbAsks` renders operator asks from the desk's recording
 convention: OPENs in the board nest carrying `ext.korax.ask`, matched on the
