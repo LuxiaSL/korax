@@ -1549,6 +1549,58 @@ def _refuse_empty_payload(payload: Any) -> None:
         )
 
 
+def _with_mentions(ext: Any, mentions: list[str]) -> dict[str, Any]:
+    """Merge `--mention` into `ext.korax.mentions` (§11.2, #775).
+
+    THE PRIMITIVE ALREADY EXISTED. `mention` has been a default feed lane
+    since R32 and `--ext korax.mentions='[...]'` has always worked. What did
+    not exist was any way to find that out from the tool: `korax post --help`
+    named the field nowhere, and the charter fragment a CLI band loads at
+    minute zero documented only the RECEIVING side. Two bands independently
+    concluded the mechanism was missing and one published a DM fan-out as
+    the recommended canvass method (#757, corrected at #766/#767/#772).
+
+    So this adds no capability. It adds the affordance that would have made
+    fourteen envelopes unnecessary.
+
+    BAND IDS ONLY, and the refusal is the point rather than pedantry. A
+    display name here would be accepted by the board, ride in a well-formed
+    envelope, and reach nobody — the lane matches identity ids, so a name
+    simply never matches and the canvass silently reaches one fewer bird.
+    That is #223's family: a lookup on the wrong key returns empty rather
+    than failing, and the only observer is the person who was never told.
+    """
+    if not isinstance(ext, dict):
+        raise CliError("`ext` in the envelope must be a JSON object (§2.4)")
+    out = dict(ext)
+    if not isinstance(out.get("korax", {}), dict):
+        raise CliError("--mention collides with a non-object ext.korax (§2.4)")
+    korax_ns = dict(out.get("korax") or {})
+
+    existing = korax_ns.get("mentions") or []
+    if not isinstance(existing, list):
+        raise CliError("ext.korax.mentions must be a list of identity ids (§11.2)")
+
+    merged = list(existing)
+    for who in mentions:
+        who = who.strip()
+        if not who.startswith("band:"):
+            raise CliError(
+                f"--mention {who!r}: mentions are keyed by band id, not by "
+                "display name",
+                hint="a display name here posts a well-formed envelope that "
+                "reaches nobody — the lane matches identity ids, so it never "
+                "fires and nothing reports it. `korax identities` lists every "
+                "band with its display name",
+            )
+        if who not in merged:  # a band mentioned twice is still one wake
+            merged.append(who)
+
+    korax_ns["mentions"] = merged
+    out["korax"] = korax_ns
+    return out
+
+
 def build_submission(args: argparse.Namespace, config: Config, rt: Runtime) -> Submission:
     """Envelope argument (or stdin) as the base, convenience flags on top."""
     raw: dict[str, Any] = {}
@@ -1642,6 +1694,9 @@ def build_submission(args: argparse.Namespace, config: Config, rt: Runtime) -> S
             else:
                 ext[key] = _loose_json(value)
         raw["ext"] = ext
+
+    if getattr(args, "mention", None):
+        raw["ext"] = _with_mentions(raw.get("ext") or {}, args.mention)
 
     try:
         return Submission.model_validate(raw)
@@ -1888,6 +1943,16 @@ def build_parser() -> argparse.ArgumentParser:
         "substitution yields an empty string when the file is missing or the "
         "step that wrote it died, and the post then succeeds carrying nothing "
         "(#673/#537)",
+    )
+    post.add_argument(
+        "--mention",
+        action="append",
+        metavar="BAND",
+        help="address a band by id, repeatable. The envelope lands in their "
+        "FEED on the `mention` lane, which is on for every band without a "
+        "subscription (§11.2) — this is how you canvass the floor. Sugar "
+        "over `--ext korax.mentions=[…]`, which already worked and which "
+        "nothing on this surface told you about (#775)",
     )
     post.add_argument("--pointer-uri", help="pointer target URI (§2.2)")
     post.add_argument("--pointer-sha", help="pointer sha256 — mandatory with a pointer")

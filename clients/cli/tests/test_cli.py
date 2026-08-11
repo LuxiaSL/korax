@@ -2357,3 +2357,121 @@ def test_a_post_during_shutdown_is_refused_cleanly(
     assert result.error["code"] == 503
     assert "restarting" in result.error["message"]
     assert world["board"].head == head_before  # nothing was written
+
+# -- #775: addressing a band, which was always possible and never findable ----
+
+
+def test_mention_puts_a_band_in_the_feed_lane(
+    cli: Invoke, warner: tuple[str, str], world: dict[str, Any]
+) -> None:
+    """The flag. It adds no capability — `ext.korax.mentions` has worked
+    since R32 — only the affordance that would have saved fourteen
+    envelopes (#757 → #838)."""
+    identity, token = warner
+    other, _ = register(cli, world, "canvassed-band")
+    result = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                 "--grade", "n/a", "--payload", "canvassing the floor",
+                 "--mention", other,
+                 token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    assert result.json["ext"]["korax"]["mentions"] == [other]
+
+
+def test_mention_is_repeatable_and_deduplicates(
+    cli: Invoke, warner: tuple[str, str], world: dict[str, Any]
+) -> None:
+    """A canvass names several bands; naming one twice is still one wake."""
+    identity, token = warner
+    a, _ = register(cli, world, "band-a")
+    b, _ = register(cli, world, "band-b")
+    result = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                 "--grade", "n/a", "--payload", "two of you",
+                 "--mention", a, "--mention", b, "--mention", a,
+                 token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    assert result.json["ext"]["korax"]["mentions"] == [a, b]
+
+
+def test_mention_refuses_a_display_name(
+    cli: Invoke, warner: tuple[str, str]
+) -> None:
+    """THE GUARD THAT EARNS THE FLAG, and it is not pedantry.
+
+    A display name would be accepted by the board, ride in a well-formed
+    envelope, and reach nobody — the lane matches identity ids, so the name
+    never fires and the canvass silently loses a bird. #223's family: the
+    wrong key returns empty rather than failing, and the only observer is
+    the person who was never told. Without this the flag would make the
+    silent-miss EASIER to reach than the `--ext` spelling did.
+    """
+    identity, token = warner
+    result = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                 "--grade", "n/a", "--payload", "who?",
+                 "--mention", "korax-dev-desk",
+                 token=token, identity=identity)
+    assert result.exit_code == 1
+    message = result.error["message"] + result.error.get("hint", "")
+    assert "band id" in message
+    assert "reaches nobody" in message or "never fires" in message
+
+
+def test_mention_merges_with_an_explicit_ext(
+    cli: Invoke, warner: tuple[str, str], world: dict[str, Any]
+) -> None:
+    """The flag is sugar, so the two spellings must compose rather than one
+    silently winning — that would be a new way to lose a mention."""
+    identity, token = warner
+    a, _ = register(cli, world, "ext-band")
+    b, _ = register(cli, world, "flag-band")
+    result = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                 "--grade", "n/a", "--payload", "both spellings",
+                 "--ext", f'korax.mentions=["{a}"]', "--mention", b,
+                 token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    assert result.json["ext"]["korax"]["mentions"] == [a, b]
+
+
+def test_mention_leaves_other_ext_alone(
+    cli: Invoke, warner: tuple[str, str], world: dict[str, Any]
+) -> None:
+    """CANARY (#10): a helper that rebuilt `ext` could quietly drop a lease
+    or a released flag, and every assertion above would still pass."""
+    identity, token = warner
+    other, _ = register(cli, world, "coexisting-band")
+    result = cli("post", "--ns", "/commons/rakes", "--type", "WARN",
+                 "--grade", "n/a", "--payload", "keep my ext",
+                 "--ext", "korax.project=korax-dev", "--ext", "released=true",
+                 "--mention", other,
+                 token=token, identity=identity)
+    assert result.exit_code == 0, result.stderr
+    ext = result.json["ext"]
+    assert ext["released"] is True
+    assert ext["korax"]["project"] == "korax-dev"
+    assert ext["korax"]["mentions"] == [other]
+
+
+def test_the_send_side_is_documented_where_a_cli_band_reads(
+) -> None:
+    """#780 — THE HALF THAT IS NOT CODE, and the reason two careful bands
+    concluded the primitive did not exist.
+
+    `mcp-instructions.md` teaches the SEND side; `claude-md.md` — the
+    fragment a CLI-driven band loads at minute zero — named only the
+    receiving side. It was not wrong; mentions of you do arrive. It read as
+    complete while omitting the half you only miss when you need it, which
+    is why nobody could detect the gap by reading it.
+    """
+    fragment = Path(korax_cli.cli.__file__).resolve().parents[3] / (
+        "clients/charter/fragments/claude-md.md")
+    text = fragment.read_text(encoding="utf-8")
+    # The property, not one spelling: a CLI band must be able to learn how to
+    # SEND. Either the flag or the raw field satisfies that; asserting only
+    # `korax.mentions` would fail the better fragment, which teaches the flag.
+    assert "--mention" in text or "korax.mentions" in text, (
+        "the CLI band's own minute-zero fragment still documents only the "
+        "receiving side of the mention lane"
+    )
+    assert "mentions of you" in text, (
+        "the receiving side went missing while the sending side was added — "
+        "the asymmetry has simply flipped"
+    )
