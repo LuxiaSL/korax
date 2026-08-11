@@ -12,8 +12,11 @@ ordinary, and they are why this file exists:
       withheld from. Under-reporting is worse than #468's
       over-reporting: a page that says zero-withheld re-arms a reader's
       belief that zero means complete, which is the false-completeness
-      class R28 was built to remove. Delete the `served_ns` branch in
-      api.py and this test is the one that reddens.
+      class R28 was built to remove. Delete the `Scope.union(docket_namespaces(ns))` declaration in
+      api.py and this test is the one that reddens. (It was a `served_ns`
+      branch inside `scoped()` until #667 collapsed every counter onto
+      one emission point; the declaration survived, its private branch
+      did not.)
 
   test_a_withheld_open_is_counted_and_never_excerpted
       D4. `search.py:79` asserts in a DOCSTRING that an excerpt is
@@ -312,8 +315,8 @@ def test_the_escalated_nest_cannot_be_sealed_today(program: dict) -> None:
     })
     assert r.status_code == 403, (
         "if this now succeeds, the docket's escalated counter has become "
-        "reachable and `served_ns` in api.py is load-bearing rather than "
-        "defensive — see test_the_declared_slice_is_what_the_counter_uses"
+        "reachable and the docket's `Scope.union` declaration in api.py is "
+        "load-bearing rather than defensive — see test_the_declared_slice_is_what_the_counter_uses"
     )
     assert "cannot be sealed" in r.json()["message"]
 
@@ -326,8 +329,8 @@ def test_the_declared_slice_is_what_the_counter_uses(
 
     Point the escalated section at a nest that CAN be sealed and is
     outside the project, and the counter must include its withholding.
-    Without the `served_ns` branch in api.py this returns the project's
-    count alone and the assertion fails.
+    Without the `Scope.union(docket_namespaces(ns))` declaration in api.py
+    this returns the project's count alone and the assertion fails.
 
     Monkeypatching is honest here rather than convenient: `INBOX_NS` is a
     constant today, and per-nest inboxes are already contemplated in

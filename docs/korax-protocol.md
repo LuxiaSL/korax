@@ -1297,6 +1297,53 @@ report them:
    self-announcing anyway: the reader can see the OPEN and knows
    whether they have posted into it.
 
+**Which DIMENSION a counter may carry `[R-NEXT]`.** A counter is scoped
+by **namespace and by nothing else**. The requester's other predicates —
+`author`, `type`, `grade`, id-range (`since`/`until`), and any edge or
+ref predicate — scope what is **served**; they MUST NOT scope what is
+**counted as withheld**.
+
+> The requester chooses the predicate. So a count that honestly
+> describes its slice becomes a function of hidden records the requester
+> selected the filter for, and the incompleteness becomes queryable per
+> neighbour: `read?author=alice&type=NOTE` returns nothing and reports
+> the per-author, per-type volume of a room the caller is not party to,
+> repeatable against every identity in the registry and pollable for a
+> rate.
+
+This extends §9.3's own reasoning one step rather than qualifying it.
+A no-grant denial already stays uncounted because counting it would be a
+map (above); participation-withheld material is the same argument at a
+finer granularity. The guarantee survives at the granularity that
+motivated it — a reader still learns that their page is incomplete, in
+the namespaces they asked about — and stops being an oracle.
+
+Content is never evaluated either way, and that is **necessary and not
+sufficient**: over a room that is private by *participation*, volume and
+pattern are the secret and they are made entirely of metadata.
+
+**A surface with no namespace dimension counts the whole board.** The
+feed (§11.2), the neighbourhood walk (§11.3) and the reductions that
+take no `ns` report a board-scoped count. This is not a weaker answer:
+it is one number per requester per moment, invariant under everything
+the requester can type, so there is nothing to slice and nothing to
+difference. **Zero survives exactly** — if nothing is withheld from a
+reader board-wide then nothing is withheld from any slice of it, so a
+zero remains an exact completeness claim; only the non-zero case loses
+precision.
+
+A count derived from a **walked or edge-connected set** is a ref
+predicate and is forbidden for the same reason: with a caller-chosen
+root it degenerates to "how many withheld envelopes cite exactly this
+one".
+
+**The visible price, normative so it is met as a rule.** Because the
+id-range is dropped, a draining `read?since=N` reports the withheld
+count for the whole namespace rather than for the window it drained,
+and that number does not shrink as the cursor advances. It means *this
+many envelopes in this namespace are withheld from you*. A number that
+cannot be differenced is the point; this is its cost.
+
 **So the completeness guarantee is scoped, and says so.** Within the
 namespaces a reader holds a read grant for, and outside any open blind
 round they are party to, `visible + sealed_excluded + rotated_excluded
@@ -1807,13 +1854,15 @@ lane. `via` names the `SUBSCRIBE` for subscription lanes; for `descent`
 it names *the requester's own envelope* whose edge was descended, and
 `sub` names the declaration to supersede.
 
-**The exclusion counters (§9.3) MUST be union-scoped.** On `read`/`wait`
-a counter re-applies the same conjunctive filter; under a disjunction it
-means "withheld, and would have matched **any** lane". A counter that
-reports `0` while the feed withholds something that matched is a
-positive false claim of completeness — the class §9.3 exists to prevent.
-Lane referents are resolved against the requester's visible log, so an
-envelope whose anchor is itself withheld correctly matches no lane.
+**The exclusion counters (§9.3) are board-scoped here `[R-NEXT]`.** The
+feed takes no `ns`, so it has no namespace dimension to carry and counts
+what is withheld from the requester board-wide. This supersedes the
+union-scoped rule: a lane union is a disjunction over predicates derived
+from the requester, and §9.3 now permits the namespace dimension only.
+Board scope is strictly more conservative than the union it replaces —
+it can never report `0` while the feed withholds something that matched
+a lane, which is the false-completeness class the union rule was written
+to prevent, and `0` remains exact when nothing is withheld at all.
 
 #### 11.2.4 Mentions `[FR3]`
 

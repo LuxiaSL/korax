@@ -236,14 +236,18 @@ def test_counters_are_union_scoped_not_zero_while_withholding(world: dict) -> No
     assert mine["participation_excluded"] == 0
     assert len(mine["envelopes"]) == 1, "my own mailbox is mine to read"
 
-    # `third` sees neither the envelope nor a zero: it is withheld, and the
-    # counter says so. Zero here would be the false completeness claim.
+    # `third` sees neither the envelope nor a false zero. Under JOB #667 the
+    # feed takes BOARD scope — it has no `ns` parameter at all — so the DM is
+    # counted as withheld from `third` even though it matches no lane of
+    # theirs. That is strictly more conservative than the old lane-union:
+    # the old answer was 0, and 0 is the completeness claim (§9.3).
     theirs = feed(world, third_token)
     assert theirs["envelopes"] == []
-    assert theirs["participation_excluded"] == 0, (
-        "the withheld DM matches no lane of `third`'s, so it is correctly "
-        "outside their union — the counter names the slice, not the board"
+    assert theirs["participation_excluded"] == 1, (
+        "board scope must count what is withheld from this requester, "
+        "whether or not it would have matched one of their lanes"
     )
+
 
     # Now make the withheld envelope match one of `third`'s lanes: peer
     # mentions `third` inside `me`'s mailbox. The mention lane would match;
@@ -251,6 +255,27 @@ def test_counters_are_union_scoped_not_zero_while_withholding(world: dict) -> No
     post(world, peer_token, peer, ns=f"/dm/{me}", type="NOTE",
          payload="naming a non-participant",
          ext={"korax": {"mentions": [third]}}, expect=403)
+
+
+def test_zero_survives_board_scope_where_it_matters(world: dict) -> None:
+    """#790's check on JOB #667: board scope must not cost §9.3's guarantee.
+
+    The worry about widening the feed's counter to the board is that zero
+    stops being sayable. It does not: if nothing is withheld from you
+    board-wide then nothing is withheld from your feed, so **zero remains
+    an exact completeness claim** and only the non-zero case loses
+    precision. This is the surface where losing it would have been worst.
+    """
+    me, my_token = register(world, "solo")
+    grant(world, (me, "/dm/**", "poster"))
+    open_nest(world, "/dm", me, grades=False)
+    post(world, my_token, me, ns=f"/dm/{me}", type="NOTE", payload="mine alone")
+
+    mine = feed(world, my_token)
+    assert mine["participation_excluded"] == 0, (
+        "nothing is withheld from this band board-wide, so the feed must "
+        "still be able to say so exactly"
+    )
 
 
 def test_a_withheld_envelope_that_matches_a_lane_is_counted(world: dict) -> None:
