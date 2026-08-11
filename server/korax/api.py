@@ -31,6 +31,8 @@ from .feed import (
     reasons_for,
 )
 from .models import (
+    EDGE_SAME_ACT,
+    EDGE_SAME_ACT_EXEMPT,
     EDGE_SOURCE_ACTS,
     EDGE_TARGET_ACTS,
     Act,
@@ -952,15 +954,42 @@ def create_app(board: Board) -> FastAPI:
         # truth and drifts from the validator silently. An edge absent from
         # `sources`/`targets` accepts any act there — the absence is the
         # rule, so it is reported as absence rather than as every act.
-        edge_rules: dict[str, dict[str, list[str]]] = {}
+        #
+        # `same_act` is JOB #1093 (#511). `sources`/`targets` are two
+        # INDEPENDENT sets and the supersedes rule is a CORRESPONDENCE, so it
+        # serialised as `{}` — which this contract defines as *unconstrained*.
+        # Two bands consulted the matrix properly, concluded a PROPOSAL may
+        # supersede a SUPERSEDE, and were refused (#502/#509): the endpoint
+        # punished correct method, which is worse than having no endpoint.
+        #
+        # The full act x edge x act product was swept against the validator
+        # before this was written: 3840 triples, 225 divergences, **all of
+        # them supersedes**. Every other `{}` is genuinely unconstrained, so
+        # this is the only relation-shaped rule on the board today and no
+        # `unexpressible` marker is needed for anything else. That sweep is
+        # now the permanent canary in `test_conformance_matrix.py` — it is
+        # what catches the NEXT relation-shaped rule at the commit that adds
+        # it, rather than at the band it burns.
+        edge_rules: dict[str, dict[str, Any]] = {}
         for edge in EdgeType:
-            rule: dict[str, list[str]] = {}
+            rule: dict[str, Any] = {}
             sources = EDGE_SOURCE_ACTS.get(edge)
             if sources is not None:
                 rule["sources"] = sorted(a.value for a in sources)
             targets = EDGE_TARGET_ACTS.get(edge)
             if targets is not None:
                 rule["targets"] = sorted(a.value for a in targets)
+            if edge in EDGE_SAME_ACT:
+                # additive keys: an older reader that ignores these still gets
+                # a correct-but-looser answer, so this is non-breaking (§13).
+                rule["same_act"] = True
+                exempt = EDGE_SAME_ACT_EXEMPT.get(edge)
+                if exempt:
+                    rule["source_exempt"] = sorted(a.value for a in exempt)
+                rule["note"] = (
+                    "source and target must carry the same act, except from "
+                    "the exempt source acts, which may target any act (§5)"
+                )
             edge_rules[edge.value] = rule
 
         return {

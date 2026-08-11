@@ -22,6 +22,8 @@ from .models import (
     Act,
     Band,
     BAND_RANK,
+    EDGE_SAME_ACT,
+    EDGE_SAME_ACT_EXEMPT,
     EDGE_SOURCE_ACTS,
     EDGE_TARGET_ACTS,
     EdgeType,
@@ -287,9 +289,13 @@ def _check_edge_types(sub: Submission, targets: dict[int, Envelope]) -> None:
                 f"legal targets: {_acts(allowed_targets)} (§5)",
             )
         # supersedes: any → same type, except the generic SUPERSEDE carrier (§5)
+        # Driven by EDGE_SAME_ACT / EDGE_SAME_ACT_EXEMPT rather than naming
+        # the edge here, so `/conformance` reports this rule from the same
+        # constant that enforces it (#511). Hard-coding the edge again would
+        # rebuild the two-sources-of-truth split one line lower.
         if (
-            ref.edge == EdgeType.SUPERSEDES
-            and sub.type != Act.SUPERSEDE
+            ref.edge in EDGE_SAME_ACT
+            and sub.type not in EDGE_SAME_ACT_EXEMPT.get(ref.edge, frozenset())
             and target.type != sub.type
         ):
             raise PostError(
