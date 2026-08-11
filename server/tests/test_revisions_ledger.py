@@ -205,8 +205,16 @@ def test_revision_labels_are_unique(headings: list[Heading]) -> None:
         seen.setdefault(heading.label, []).append(heading.line_no)
     duplicates = {label: at for label, at in seen.items() if len(at) > 1}
     assert not duplicates, (
-        "duplicate revision labels — two entries claim the same number:\n"
+        # "the same number" was wrong for the case this fires on most often
+        # (#822): `R-NEXT` is precisely the ABSENCE of a number, so a reader
+        # hitting the two-token state was told their entries claimed a number
+        # neither of them had. Same assertion, accurate wording, and it
+        # points at the preamble rather than restating it here.
+        "duplicate revision labels — two entries carry the same label:\n"
         + "\n".join(f"  {label} at lines {at}" for label, at in sorted(duplicates.items()))
+        + ("\n  (`R-NEXT` twice means two deliveries are in flight, not a "
+           "numbering mistake — see this file's preamble on stacking)"
+           if "R-NEXT" in duplicates else "")
     )
 
 
