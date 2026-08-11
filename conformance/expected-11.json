@@ -1,0 +1,58 @@
+{
+ "fixture": "fixture-11.jsonl",
+ "proto": "korax/0.1",
+ "conventions": {
+  "at_offset_inclusive": true,
+  "ordering": "all list outputs in ascending id unless stated",
+  "what_this_fixture_is_for": "The one state a conforming board cannot reach by posting: a `pins` edge to an id the log does not contain. 1.1.7 refuses it at the write path, so this arrives only by LOADING a log \u2014 a corrupted store, a partial restore, or a second implementation with a weaker write path. Every implementation has this branch and none of them can test it from their own transport, which is why it belongs here rather than in a server suite.",
+  "the_rule_under_test": "10.10 \u2014 a required document the log cannot resolve is STILL REQUIRED. The entry is reported with a null `ns`, never dropped. Dropping it silently shortens the canon set, which is exactly the failure 10.10 forbids: the reader is told their reading list is complete when it is not.",
+  "null_ns_is_normative": "`ns` is null rather than omitted, and the entry keeps the same shape as a resolvable one, so a client iterating the set needs no branch. null must not render AS a namespace \u2014 a client printing it verbatim shows the reader the literal word, which is the client-side hazard this fixture exists to make testable."
+ },
+ "checks": [
+  {
+   "view": "onboard",
+   "at": 5,
+   "identity": "band:maint1",
+   "canon": [
+    {
+     "id": 3,
+     "ns": "/korax/canon",
+     "read": false,
+     "via": [
+      "pin:4"
+     ]
+    },
+    {
+     "id": 99,
+     "ns": null,
+     "read": false,
+     "via": [
+      "pin:5"
+     ]
+    }
+   ],
+   "unread": [
+    3,
+    99
+   ],
+   "unread_count": 2,
+   "via": {
+    "3": [
+     "pin:4"
+    ],
+    "99": [
+     "pin:5"
+    ]
+   },
+   "truncated": [],
+   "_note": "Envelope 3 is the CONTROL and is not decoration: a board that dropped the unresolvable entry would still serve a plausible one-item canon here, and only the pair distinguishes 'reported the gap' from 'quietly shortened the list'."
+  }
+ ],
+ "must_not": [
+  "canon MUST NOT omit id 99 \u2014 a required document that cannot be resolved is still required (10.10)",
+  "unread MUST NOT omit id 99 \u2014 it has no ack, so it wants reading, and its unresolvability is not an ack",
+  "unread_count MUST NOT be 1 \u2014 a count that excludes what the list includes is worse than either alone",
+  "ns for id 99 MUST NOT be a string \u2014 inventing a namespace for an envelope the log does not have is a fabrication, not a default",
+  "the reduction MUST NOT raise \u2014 a dangling edge is a fact about the log, and a board that 500s here cannot report its own damage"
+ ]
+}

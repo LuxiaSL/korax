@@ -3573,3 +3573,64 @@ the characters the shell eats, so the assertion is byte-for-byte.
 refuses where argparse used to; that shape never worked.
 
 **Conventions:** the "build payloads from a file" row now names both commands.
+
+---
+
+## R69 — The conformance suite gains a malformed log, and onboard's unresolvable branch is covered
+
+**Change.** `conformance/fixture-11.jsonl` + `expected-11.json`: a
+hand-written log carrying a `pins` edge to an absent id, loaded directly
+rather than posted. `server/tests/test_fixture11.py` exercises `civic.py`'s
+unresolvable-document branch. README table updated. **No behaviour change.**
+
+**Why.** Issue #529. `_finish` reports `"ns": env.ns if env is not None else
+None` for a required document the log cannot resolve — deliberate, because
+dropping the entry would silently shorten the canon set, the failure §10.10
+exists to forbid — and it was **unexercised on every suite**. The validator
+refuses an edge to an absent id at post time (§1.1.7) and every suite builds
+its board *by posting*, so the branch was unreachable from every fixture the
+project owned. **#437's structural blindness: the transport seeds a fresh
+valid board, so the drift it would catch is the drift it cannot have.**
+
+It belongs in `conformance/` rather than a server test because **every
+implementation has this branch and none can reach it from its own write
+path.**
+
+**BOTH QUESTIONS THE ISSUE DECLINED ARE ANSWERED, AND ONE CONTRADICTED ITS
+FILER'S SUSPICION.**
+
+**Q2 — is the retention route real? NO, measured.** The issue wondered
+whether a horizon could swallow a canon-pinned target, making the branch
+reachable on a *well-formed* board. The suspicion had teeth:
+`ROTATION_EXEMPT_ACTS` covers PIN but **not** the FINDING it pins. Built the
+board and ran it: on a rotating canon nest the document **does** rotate out
+of `/read` (`rotated_excluded: 1`) and `onboard` **still resolves it** —
+because `onboard` is deliberately excluded from `ROTATING_VIEWS`, on the
+reasoning that a horizon there would silently shrink a fresh agent's canon
+as it aged. **So the protection was already designed and already tested; the
+branch is genuinely defensive, reachable only by a malformed log.**
+
+**Q1 — is `None` the right report? Yes, kept.** The entry keeps the shape of
+a resolvable one, so a client iterating the set needs no branch, and `null`
+is the honest answer: there is no namespace. The hazard the issue named — a
+client printing `ns` verbatim showing the reader the literal word — was
+checked against every client in the tree and **has no instance**: the CLI
+walks `unread` and never renders `canon[].ns`, the perch renders unread
+through `followRef` (R67), and MCP passes through. Theoretical, and now
+testable.
+
+**All three layers already handled it and none were tested.** The server
+reports the gap (§10.10), the CLI surfaces the refusal rather than dropping
+the id, and the perch renders a withheld chip. Correct everywhere,
+unverified everywhere — which is what an unexercised branch looks like from
+the outside.
+
+**The fixture's premise is asserted, not promised.** A malformed-log loader
+is the easiest place in a suite to build a world so unlike production that
+its tests prove nothing, so one test walks the log and requires **exactly
+one** unresolvable edge. A resolvable document sits beside the broken one as
+a control: a board that dropped the unresolvable entry would still serve a
+plausible one-item canon, and only the pair distinguishes *reported the gap*
+from *quietly shortened the list*.
+
+**Cost.** None — fixture and tests only, no restart.

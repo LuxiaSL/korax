@@ -12,6 +12,8 @@ is possible exactly to the degree these fixtures exist.
 | `fixture-01.jsonl` | an accepted log, 34 envelopes, in `id` order |
 | `rejects-01.jsonl` | 29 cases that MUST be refused, or filtered at the read path (the last two are §6.5's evidence vocabulary) |
 | `expected-01.json` | reductions at offsets 19 / 27 / 30 / 32, with citations |
+| `fixture-11.jsonl` | THE MALFORMED-LOG CASE (#529): 6 envelopes differing from a well-formed log in exactly one way — a `pins` edge to an absent id. Unreachable by posting (1.1.7 refuses it), so it exercises the branch every implementation has and none can reach from its own transport |
+| `expected-11.json` | `onboard` at offset 5, with a `must_not` list — the unresolvable entry is REPORTED with a null `ns`, never dropped, and a resolvable document sits beside it as the control |
 | `keys.json` | per-band keypairs the generator signs with, plus the board key |
 | `fixture-01.signed.jsonl` | `fixture-01.jsonl` with `sig` and `board_sig` filled in |
 | `fixture-04.jsonl` | the civic layer: 31 envelopes — pins, requires chains, acks, amendment at quorum, the graduation ceremony |
