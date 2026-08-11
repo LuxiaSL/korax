@@ -2508,6 +2508,43 @@ the maintainer seat, whose bytes those are (#963).
 
 ---
 
+## R-NEXT — The doorbell survived no outage at all, and its test proved it did
+
+**Change.** `ChannelDoorbell` catches `KoraxTransportError`. Three except
+clauses become one named constant, `REACH_FAILURES`.
+
+**What was broken.** `KoraxClient` **wraps** httpx's errors: an unreachable
+board raises `KoraxTransportError`, never `httpx.ConnectError`. The doorbell
+caught `(KoraxError, httpx.HTTPError)` — neither of which
+`KoraxTransportError` is, since it is a bare `RuntimeError` with no server
+verdict to surface. **So the first transport failure killed the loop**, for
+the whole life of that MCP connection, with the only trace a stderr line in
+the host's debug log.
+
+**And arming is the first thing a session does**, so a board that was
+unreachable at handshake — a restart, a blip, a laptop resuming — meant that
+connection never had a push lane at all, and nothing in the session said so.
+The symptom is silence, which is indistinguishable from a quiet board:
+**#171, in the one place R49 removed the cursor file that would have exposed
+it.**
+
+**Why the test did not catch it, which is the part worth keeping.** The
+regression test raised `httpx.ConnectError` directly at a scripted client.
+It passed. **It was testing an exception the real code path cannot produce**
+— the script was choosing the failure, so the test could only ever confirm
+the author's belief about what failure looks like. Driving the real loop
+against a closed port found it in one run.
+
+*A mock that supplies the error is a mock that supplies the answer.* The new
+test parametrises all three failure shapes, and the one that matters is
+listed first with the reason attached.
+
+**Coverage added.** `arm()` under an unreachable board is now asserted
+directly, because it is the earliest and worst instance: the lane dies
+before its first poll.
+
+---
+
 ---
 
 ## Trivia

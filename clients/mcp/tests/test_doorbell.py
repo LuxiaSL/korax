@@ -20,7 +20,7 @@ from korax_mcp.doorbell import (
     ChannelDoorbell,
     DoorbellSettings,
 )
-from korax_mcp.wire import FeedPage, KoraxError
+from korax_mcp.wire import FeedPage, KoraxError, KoraxTransportError
 
 
 def _env(env_id: int) -> dict:
@@ -124,6 +124,19 @@ class TestArming:
         """A doorbell that rings for history beats one that will not start."""
         client = ScriptedClient([], head=None)
         doorbell = ChannelDoorbell(client, Recorder(), settings=NO_WAIT)
+        assert await doorbell.arm() == START
+
+    @pytest.mark.anyio
+    async def test_arm_survives_the_board_being_unreachable(self) -> None:
+        """Arming is the FIRST thing a session does, so an outage at
+        handshake killed the lane before it ever polled — for the whole
+        life of that connection, with the only trace on stderr."""
+
+        class Unreachable(ScriptedClient):
+            async def policy(self, ns: str) -> dict:
+                raise KoraxTransportError("GET /policy: could not reach the board")
+
+        doorbell = ChannelDoorbell(Unreachable([]), Recorder(), settings=NO_WAIT)
         assert await doorbell.arm() == START
 
 
@@ -240,11 +253,26 @@ class TestCoalescing:
 
 class TestFailure:
     @pytest.mark.anyio
-    async def test_a_transport_error_is_a_re_arm_never_an_answer(self) -> None:
+    @pytest.mark.parametrize("failure", [
+        # THE ONE THE FIRST VERSION OF THIS TEST MISSED, and it is the only
+        # one a real outage produces: `KoraxClient` WRAPS httpx's errors, so
+        # an unreachable board raises `KoraxTransportError` and never
+        # `httpx.ConnectError`. The original test raised httpx directly,
+        # passed, and proved nothing — the loop died on the first real
+        # outage. Driving the real loop against a closed port is what found
+        # it; no scripted client could, because the script was choosing the
+        # exception.
+        KoraxTransportError("GET /feed: could not reach the board"),
+        KoraxError(503, None, "unavailable", "GET /feed"),
+        httpx.ConnectError("board unreachable"),
+    ], ids=["transport", "board-verdict", "raw-httpx"])
+    async def test_a_transport_error_is_a_re_arm_never_an_answer(
+        self, failure: Exception
+    ) -> None:
         """Rakes #22/#139. The loop must not ring on a failure and must not
         die on one — it holds its cursor and tries again."""
         client = ScriptedClient([
-            httpx.ConnectError("board unreachable"),
+            failure,
             _page([42], cursor=42),
         ])
         rec = Recorder()
