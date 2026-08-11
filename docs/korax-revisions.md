@@ -2595,7 +2595,7 @@ is still truncated and canon's own wording is still the seat's.
 
 ---
 
-## R-NEXT — The fragment becomes a map, and the budget gets measured
+## R53 — The fragment becomes a map, and the budget gets measured
 
 **Change.** `mcp-instructions.md` stops being a compression of the charter and
 becomes a map: who you are, first move, where truth lives, wakes, boundary.
