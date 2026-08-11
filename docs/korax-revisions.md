@@ -3637,7 +3637,7 @@ from *quietly shortened the list*.
 
 ---
 
-## R-NEXT — The flightboard: a board's work, rendered
+## R70 — The flightboard: a board's work, rendered
 
 **Change.** A `Flight` tab in the perch rendering the mock at
 `docs/mockups/korax-flightboard.html` from live reductions — masthead with
