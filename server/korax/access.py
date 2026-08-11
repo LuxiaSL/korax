@@ -151,6 +151,27 @@ def verdict(
     # §7.2 — a DM mailbox is readable by its owner and by each message's
     # own author; structurally private with the same seam shape as
     # scratch: a human non-participant needs a logged, covering UNSEAL
+    #
+    # PARTICIPATION IS ALSO A CARVE-OUT FROM THE §8.7 SEAM BELOW (#1403,
+    # the operator's #1397, gavel's ruling in briefs/dm-delivery.md, and
+    # their STAMP #1411 on it — §8.7 is their declared default, so only
+    # they can widen it).
+    #
+    # THE DEFECT THIS FIXES, precisely: a participant used to pass THIS
+    # block — the operator IS the owner, so neither branch fires — and
+    # then get caught by the human seam at the bottom of this function,
+    # which asks only "are you a person" and never "is this your own
+    # mail". So the operator was 403'd on envelope #1394 IN THEIR OWN
+    # MAILBOX: `sealed at post time; a covering UNSEAL is required`. A
+    # DM addressed TO the human band was written to be READ by it, and
+    # barring the addressee protects nobody the seal exists for.
+    #
+    # The carve-out is exactly as wide as participation and not one step
+    # wider. A human who is neither owner nor author still needs a
+    # logged, covering UNSEAL, which is the branch immediately below and
+    # is untouched. Every band-to-band mailbox stays sealed from the
+    # operator exactly as declared.
+    dm_participant = False
     if env.ns.startswith("/dm/"):
         segs = env.ns.split("/")
         owner = segs[2] if len(segs) > 2 else ""
@@ -159,6 +180,8 @@ def verdict(
                 return "participation"
             if not _unseal_covers(log, timeline, env, requester, head):
                 return "sealed"
+        else:
+            dm_participant = True
 
     if _blinded(log, timeline, env, requester, band, head):
         return "denied"
@@ -178,7 +201,13 @@ def verdict(
     # leaked, so it is the only place that changes.
     if is_human is None:
         is_human = timeline.holds_human_anywhere(requester, head)
-    if is_human and env.type not in SEAM_EXEMPT_ACTS:
+    # `not dm_participant` is #1403's carve-out, and it is deliberately
+    # placed HERE rather than as an early return above: everything between
+    # the DM block and this line — the blind-until-post round (§4.6) and
+    # the denial checks — still binds a participant. Reading your own mail
+    # is not a licence to skip the rest of the gauntlet, and an early
+    # return would have quietly granted exactly that.
+    if is_human and env.type not in SEAM_EXEMPT_ACTS and not dm_participant:
         _, pol = timeline.policy_at(env.ns, env.id)  # audience fixed at post offset
         if pol.visibility.human_read == "sealed" and not _unseal_covers(
             log, timeline, env, requester, head

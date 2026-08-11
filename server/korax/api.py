@@ -48,6 +48,7 @@ from .nsglob import has_glob_segment, in_subtree, ns_matches
 from .reductions import (
     browse,
     descendants,
+    mail,
     docket,
     docket_namespaces,
     fresh,
@@ -75,7 +76,7 @@ ROTATING_VIEWS = frozenset({"state", "jobs", "fresh", "of-record", "docket", "br
 
 VIEWS = [
     "state", "thread", "provenance", "descendants", "taint", "fresh",
-    "jobs", "of-record", "onboard", "required", "docket", "browse",
+    "jobs", "of-record", "onboard", "required", "docket", "browse", "mail",
 ]
 
 
@@ -1006,6 +1007,7 @@ def create_app(board: Board) -> FastAPI:
         sort: str = "hot",
         half_life: str = "P7D",
         limit: int | None = None,
+        since: int | None = None,
     ) -> dict[str, Any]:
         if horizon == PIERCE:
             # §9.2 — a reduction name means one thing across the colony, so
@@ -1107,6 +1109,11 @@ def create_app(board: Board) -> FastAPI:
                     # a bad sort or half-life is the caller's argument,
                     # not a missing referent — 422, never 500
                     raise HTTPException(422, str(exc)) from exc
+            elif name == "mail":
+                # #1403 half 2. `who` and never `identity`: whose mailbox
+                # is not a parameter, so asking about another band's mail
+                # is unspellable rather than refused (browse's D5 shape).
+                output = mail(log, offset, who, since if since is not None else -1)
             else:
                 raise HTTPException(404, f"unknown view; supported: {VIEWS}")
         except LookupError as exc:

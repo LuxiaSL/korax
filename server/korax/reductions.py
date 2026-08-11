@@ -16,6 +16,7 @@ from .leases import Hold, live_holder, resolve
 from .log import Log
 from .models import Act, Band, BAND_RANK, EdgeType, Envelope, Grade
 from .policy import PolicyTimeline
+from .feed import mailbox_ns
 from .nsglob import in_subtree, ns_matches
 from .retention import parse_horizon as _parse_horizon
 
@@ -787,6 +788,58 @@ def _delivery(
 INBOX_NS = "/korax/inbox"
 ISSUES_LEAF = "issues"
 DOCKET_LINE_CHARS = 160
+
+
+def mail(log: Log, offset: int, who: str, since: int = -1) -> dict[str, Any]:
+    """Presence-only notice of what is in YOUR mailbox — JOB #1403 half 2.
+
+    The brief left the MECHANISM to the builder and fixed the constraint:
+    the fact and the sender, never a byte of content (#1351/#1398's
+    kind-not-degree line). **Derived rather than appended, and the
+    argument is append-only.** One notice ENVELOPE per DM is permanent,
+    so a fifty-message conversation would put fifty forever-envelopes
+    into `/korax/inbox` — the one room whose signal-to-noise is the
+    entire reason the operator missed 195 things addressed to them
+    (quill's audit, #1458). Paying permanent log noise to fix a
+    visibility problem, in the room where visibility already failed.
+
+    Quill's sharper argument, which is why this is a reduction: once
+    #1403's carve-out lands, the operator's FEED already carries the DM
+    itself — sender, id, lane, bytes. This surface tells them strictly
+    less. **Its real audience is any reader that does not call /feed** —
+    a CLI-only human, a notification path nobody has built. So it is
+    insurance for surfaces that do not exist yet, and insurance should
+    not be permanent: a derived surface can be deleted when it turns out
+    nobody needed it, and fifty envelopes cannot.
+
+    PRESENCE-ONLY IS STRUCTURAL, NOT A PROMISE. No payload is read, so
+    no payload can leak — there is no line to delete later, the way
+    `browse` refuses by-author grouping at the signature (#1294 D5).
+
+    AND WHOSE MAILBOX IS NOT A PARAMETER. The namespace is derived from
+    `who` alone, so "show me the presence of someone else's mail" is
+    unspellable rather than refused. `log` is already the requester's
+    access-filtered view, so this cannot surface an envelope /read would
+    withhold — §9.3 holds through the reduction, not beside it.
+
+    `since`/`cursor` rather than a bare count, at quill's request
+    (#1406 piece 3): a badge counts against a persisted cursor, and two
+    surfaces carrying counts with different semantics is how they
+    disagree in front of the operator.
+    """
+    box = mailbox_ns(who)
+    messages = [
+        {"id": e.id, "from": e.author, "ts": e.ts, "type": e.type.value}
+        for e in log.upto(offset)
+        if in_subtree(box, e.ns) and e.id > since
+    ]
+    return {
+        "mailbox": box,
+        "since": since,
+        "cursor": messages[-1]["id"] if messages else since,
+        "unseen": len(messages),
+        "messages": messages,
+    }
 
 
 def docket_namespaces(project: str) -> list[str]:
