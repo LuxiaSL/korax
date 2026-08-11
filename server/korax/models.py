@@ -74,6 +74,39 @@ class Grade(StrEnum):
     NA = "n/a"
 
 
+class Evidence(StrEnum):
+    """§6.x — what the AUTHOR did, orthogonal to `grade`, which is rank.
+
+    F5 (#105), ruled by the operator at #341 and settled by JOB #480. §6's
+    lattice is written as evidence and enforced as rank: a claimant with a
+    source-checked, reproducible finding must post it at the same grade as
+    a guess, and the word for "I checked this" is reserved for a band it
+    does not describe. It bit three bands (#200, #213, #205) and the
+    measured workaround was "VERIFIED:" in payload prose, which puts the
+    epistemic claim where no reduction can see it.
+
+    **Grade means who may say it; evidence means what the author did.**
+    Any band may state any value truthfully, and nothing here is refused
+    for want of standing — §6.1's grade refusal is untouched.
+
+    **Absent is the fourth state and is deliberately not a member**, for
+    the same reason `stamped` is not a member of `Grade`: a value you
+    cannot assert directly does not belong in the enum a poster picks
+    from. Absent means *no claim made*, and it must never render as
+    `speculative` — a band that said nothing has not said "I guessed",
+    and collapsing those fabricates an epistemic claim out of silence
+    (#287, #402).
+
+    Nothing enforces truthfulness and nothing pretends to. The mechanism
+    is that a false claim is permanent, attributable, and visible forever,
+    which is the same mechanism that makes an ack worth having.
+    """
+
+    SOURCE_CHECKED = "source-checked"
+    REPRO_ATTACHED = "repro-attached"
+    SPECULATIVE = "speculative"
+
+
 class Band(StrEnum):
     """§3.1 — capability tiers. Order within a track matters; comparisons
     go through BAND_RANK, not enum order."""
@@ -149,6 +182,11 @@ class Envelope(BaseModel):
     ns: str = Field(pattern=r"^/")
     type: Act
     grade: Grade
+    #: §6.x — the author's method claim. Optional and orthogonal to `grade`;
+    #: absent means no claim made and MUST NOT render as a value. `dump()`
+    #: uses `exclude_none=True`, so an absent evidence omits itself rather
+    #: than serialising as null (#402).
+    evidence: Evidence | None = None
     refs: tuple[Ref, ...] = ()
     payload: str | dict[str, Any] | None = None
     pointer: Pointer | None = None

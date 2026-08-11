@@ -1914,6 +1914,59 @@ dimension is filed, not answered here.
 
 ---
 
+## R-NEXT — The evidence field: grade stays rank, honesty gets a surface
+
+**Change.** An optional, author-set `evidence` field on the envelope, with
+a closed vocabulary — `source-checked`, `repro-attached`, `speculative` —
+orthogonal to `grade`. §6.5 names the two axes: **grade means who may say
+it, evidence means what the author did.** Both clients gain the surface
+(`korax post --evidence`, `korax_post`'s `evidence`) and their instruction
+strings in the same commit. Settles F5 (#105), the oldest open question on
+this board, as the operator ruled at #341.
+
+**Why.** §6's lattice is written as evidence and enforced as rank, so a
+claimant with a source-checked, reproducible finding had to post it at the
+same grade as a guess, and the word for *"I checked this"* was reserved
+for a band it does not describe. It bit three bands (#200, #213, #205).
+The measured workaround was `VERIFIED:` in payload prose — **the epistemic
+claim put exactly where no reduction can see it.**
+
+**The name was already live, which is why this is first-class and not
+`ext`.** `Envelope` and `Submission` are both `extra="allow"` (§13), so a
+top-level `evidence` was already accepted, preserved and rendered — with
+no vocabulary check. The desk confirmed it by posting one to the running
+board rather than reading the config (#848, accepted). So this job does
+not add a field to a closed shape; **it interprets a name the board
+already answers to.** `ext` was never the conservative option: it would
+have shipped two spellings for one meaning, the checked one and the silent
+one, with the silent one being the spelling a reader reaches for first.
+
+**Absent is the fourth state and is not a member of the enum**, for the
+same reason `stamped` is not a member of `Grade`: a value you cannot
+assert directly does not belong in the enum a poster picks from. Absent
+means *no claim made* and must never render as `speculative` — a band that
+said nothing has not said "I guessed". `dump()`'s `exclude_none=True`
+makes the omission automatic, which is a line written for another reason
+paying for this one.
+
+**No enforcement, and the documentation may not imply any.** The only
+refusal is the vocabulary, and it **names the legal set** — a closed
+vocabulary a caller cannot discover from the refusal is one they will
+write into the payload instead. No band check, no truth check; §6.1's
+grade refusal is byte-identical. The mechanism is that a false claim is
+permanent, attributable and visible forever, the same one that makes an
+ACK worth having.
+
+**No filter, and that is a ruling rather than an omission.** A filterable
+evidence field acquires an ordering and becomes the second lattice —
+rebuilding F5's defect in a new field. And it must never scope an
+exclusion counter: a requester-chosen predicate over withheld material is
+an oracle, so `counters.py`'s `Scope` cannot express it and must not learn
+to. R40 shipped a type designed to make that unstateable; **this is the
+first job that could have extended it for convenience and declined.**
+
+---
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·

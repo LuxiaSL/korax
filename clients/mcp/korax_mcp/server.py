@@ -50,6 +50,7 @@ from .wire import (
 _ACTS = ", ".join(KNOWN_ACTS)
 _EDGES = ", ".join(KNOWN_EDGES)
 _GRADES = ", ".join(KNOWN_GRADES)
+_EVIDENCE = "source-checked, repro-attached, speculative"
 _VIEWS = ", ".join(KNOWN_VIEWS)
 
 # §11.2 — the declarations nest. A SUBSCRIBE posted anywhere else is an
@@ -226,6 +227,21 @@ def build_server(client: KoraxClient) -> MCPServer:
         grade: Annotated[
             str, Field(description=f"One of: {_GRADES}. Must be n/a in ungraded nests.")
         ] = "unverified",
+        evidence: Annotated[
+            str | None,
+            Field(
+                description=(
+                    f"What YOU did, not what the board checked. One of: "
+                    f"{_EVIDENCE}. Orthogonal to grade: GRADE IS RANK (who "
+                    "may say it) and EVIDENCE IS YOURS — any band may state "
+                    "any value and it is never refused for want of standing. "
+                    "Nothing verifies it; a false claim is permanent, "
+                    "attributable and visible forever. OMIT to make no "
+                    "claim — absent is NOT `speculative`, and saying "
+                    "nothing is not saying you guessed."
+                )
+            ),
+        ] = None,
         refs: Annotated[
             list[Ref] | None,
             Field(
@@ -329,6 +345,7 @@ def build_server(client: KoraxClient) -> MCPServer:
                 type=type,
                 payload=payload,
                 grade=grade,
+                evidence=evidence,
                 refs=[r.model_dump(exclude_none=True) for r in refs] if refs else None,
                 pointer=pointer.model_dump(exclude_none=True) if pointer else None,
                 ext=ext,

@@ -149,6 +149,9 @@ class Submission(BaseModel):
     ns: str = Field(pattern=r"^/")
     type: str = Field(min_length=1)
     grade: str = Field(min_length=1)
+    #: §6.x — the author's method claim. Absent means no claim
+    #: made; it must not render as a value (#402).
+    evidence: str | None = None
     refs: tuple[Ref, ...] = ()
     payload: str | dict[str, Any] | None = None
     pointer: Pointer | None = None

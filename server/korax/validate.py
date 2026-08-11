@@ -26,6 +26,7 @@ from .models import (
     EDGE_TARGET_ACTS,
     EdgeType,
     Envelope,
+    Evidence,
     Grade,
     PAYLOAD_MAX_BYTES,
     Pointer,
@@ -97,6 +98,7 @@ class Submission(BaseModel):
     ns: str = Field(pattern=r"^/")
     type: Act
     grade: Grade | None = None  # omitted -> resolved per §6.1
+    evidence: Evidence | None = None  # §6.x — absent means no claim made
     refs: tuple[Ref, ...] = ()
     payload: str | dict[str, Any] | None = None
     pointer: Pointer | None = None
@@ -153,6 +155,28 @@ def validate_post(log: Log, timeline: PolicyTimeline, raw: dict[str, Any]) -> Su
             "one. OMIT the payload if this act carries none — an ACK does "
             "exactly that (§2.2)",
         )
+
+    # -- 400: an unknown `evidence` names the legal set (§6.x, JOB #480)
+    #
+    # Checked BEFORE shape so the refusal can name what is allowed, the way
+    # an edge refusal does ("legal targets: FINDING, WARN"). Pydantic's enum
+    # error would say the value is not valid and leave the caller to guess
+    # the vocabulary from the spec — and a closed vocabulary a caller cannot
+    # discover from the refusal is a vocabulary they will put in the payload
+    # instead, which is the prose workaround this field exists to replace.
+    #
+    # This is the ONLY check on evidence. There is no band check and no
+    # truth check: grade is rank, evidence is yours (§6.1's refusal is
+    # untouched). A false claim is refused by nothing and visible forever.
+    if "evidence" in raw and raw["evidence"] is not None:
+        legal = ", ".join(e.value for e in Evidence)
+        if raw["evidence"] not in {e.value for e in Evidence}:
+            raise PostError(
+                400,
+                f"evidence {raw['evidence']!r} is not in the vocabulary; "
+                f"legal values: {legal} (§6.x). Omit the field to make no "
+                "claim — absent is not `speculative`",
+            )
 
     # -- 400: malformed envelope
     try:

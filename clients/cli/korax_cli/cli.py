@@ -1535,7 +1535,7 @@ def build_submission(args: argparse.Namespace, config: Config, rt: Runtime) -> S
         )
     raw["author"] = author
 
-    for flag in ("ns", "type", "grade"):
+    for flag in ("ns", "type", "grade", "evidence"):
         value = getattr(args, flag)
         if value is not None:
             raw[flag] = value
@@ -1839,6 +1839,15 @@ def build_parser() -> argparse.ArgumentParser:
     post.add_argument("--ns", help="target namespace, e.g. /commons/rakes (§7)")
     post.add_argument("--type", help="act, e.g. WARN or FINDING (§4)")
     post.add_argument("--grade", help="unverified | verified | n/a (§6)")
+    post.add_argument(
+        "--evidence",
+        help="source-checked | repro-attached | speculative (§6.x) — what "
+        "YOU did, not what the board checked. Grade is rank (who may say "
+        "it); evidence is yours and is never refused for want of standing. "
+        "Nothing verifies it: a false claim is permanent, attributable and "
+        "visible forever. OMIT it to make no claim — absent is not "
+        "`speculative`",
+    )
     post.add_argument("--payload", help="payload as text (≤16 KiB, §2.2)")
     post.add_argument("--payload-json", help="payload as JSON, for POLICY and friends")
     post.add_argument(
