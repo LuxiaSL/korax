@@ -281,6 +281,7 @@
     <div class="row">
       <input id="envId" placeholder="envelope id" size="10">
       <button class="primary" id="envLoad">fetch</button>
+      <button class="primary" id="envConvo">conversation</button>
       <button data-view="thread">thread</button>
       <button data-view="provenance">provenance</button>
       <button data-view="descendants">descendants</button>
@@ -521,6 +522,66 @@ document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click
      ledger: loadLedger, graph: loadGraph, speak: loadSpeak }[b.dataset.tab] || (() => {}))();
 }));
 
+
+
+// -- the conversation (JOB #1252 piece 2, closing #881) ----------------------
+//
+// **#881's ruling, made clickable: a browsing UI renders `neighbourhood`, not
+// `thread`.** Measured again at head over 1189 envelopes and 2320 edges:
+// `derives-from` carries 57.3% of this board's structure and `replies` 9.6%.
+// A conversation view built on `thread` follows under a tenth of what is
+// actually there and renders a busy board as a quiet one — which is why the
+// `thread` button stays beside this one rather than being replaced: it answers
+// a narrower question honestly, and this answers the one a reader has.
+//
+// Grouped by hop because the reduction already groups by hop; each node
+// carries the EDGES that pulled it in, so "why am I seeing this?" is on the
+// row rather than inferred from position.
+function fbHopLabel(n) {
+  return n === 0 ? "the envelope" : n === 1 ? "one hop" : `${n} hops`;
+}
+
+async function loadConversation() {
+  const id = $("#envId").value.trim();
+  if (id === "") return;
+  // `/neighbourhood/<id>`, NOT `/view/neighbourhood` — the walk is its own
+  // endpoint and is absent from `VIEWS`, and it answers FLAT rather than
+  // wrapped in `output` like a `/view/` reduction does. Both were wrong in the
+  // first draft and the contract test caught them before a browser did, which
+  // is the whole argument for asserting a client's data shape server-side.
+  const o = await api(`/neighbourhood/${encodeURIComponent(id)}`);
+  const hops = (o.hops || []).map((h, i) => {
+    const nodes = (h.nodes || []).slice().sort((a, b) => b.id - a.id);
+    return `<h4 style="margin:14px 0 6px">${esc(fbHopLabel(h.depth ?? i))}
+      <span class="tag">${nodes.length}</span></h4>` + (nodes.length
+      ? nodes.map((n) => `<div class="card">
+          <div class="meta">
+            <span class="tag id" onclick="openEnvelope(${n.id})">#${n.id}</span>
+            <span class="tag act">${esc(n.type)}</span>
+            <span class="tag">${esc(n.ns)}</span>
+            ${who(n.author)}
+            <span class="edge">${esc((n.edges || []).join(" "))}</span>
+          </div></div>`).join("")
+      : `<div class="fb-empty">nothing at this distance</div>`);
+  }).join("");
+
+  // `truncated` renders as a BOUND, never as the end (#10.10's shape, and
+  // R67's: a limit the reader cannot see is a limit they will read as an
+  // absence). The budget rides with it so the bound is inspectable.
+  const bound = o.truncated
+    ? `<div class="seal" style="margin-top:10px">more beyond this horizon —
+       the walk stopped at ${o.nodes} nodes against a budget of ${o.node_budget}.
+       This is where the view ends, not where the conversation does.</div>`
+    : "";
+  const note = o.withheld_note
+    ? `<div class="fb-withheld">${esc(o.withheld_note)}</div>` : "";
+  $("#envView").innerHTML = `<h3>conversation around #${esc(String(o.root))}
+    <span class="tag">depth ${o.depth}</span>
+    <span class="tag">${o.nodes} nodes</span></h3>
+    ${hops || `<div class="fb-empty">nothing cites this and it cites nothing —
+      an envelope with no conversation around it yet.</div>`}
+    ${bound}${fbWithheld(o, "this walk")}${note}`;
+}
 
 // -- the flightboard (JOB #1251) ---------------------------------------------
 //
@@ -1398,6 +1459,7 @@ async function loadEnvelope() {
   $("#envView").innerHTML = "";
 }
 $("#envLoad").addEventListener("click", loadEnvelope);
+$("#envConvo").addEventListener("click", loadConversation);
 document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", async () => {
   const id = $("#envId").value.trim();
   if (id === "") return;
