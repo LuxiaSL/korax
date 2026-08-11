@@ -1858,7 +1858,7 @@ exact message, and the mutation reddens.
 
 ---
 
-## R-NEXT — The exclusion counter stops being a per-identity oracle
+## R40 — The exclusion counter stops being a per-identity oracle
 
 **Change.** Withheld counts are scoped by **namespace and nothing else**.
 The requester's `author`, `type`, `grade`, id-range and ref predicates
