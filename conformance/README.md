@@ -26,6 +26,8 @@ is possible exactly to the degree these fixtures exist.
 | `fixture-08.jsonl` | the unified feed (§11.2, R32): 22 envelopes carrying every lane at least once and one envelope on **three lanes at once** — a subscription opened at 16 and superseded at 18, one-hop descent opted into at 20, a DM that also edges the operator's own OPEN, and a nest one band holds no grant in. No `band:*` floor |
 | `rejects-08.jsonl` | 10 cases across the post-time reachability checks, split 400 (malformed selector) / 403 (well-formed and out of reach) — the split is normative, not cosmetic |
 | `expected-08.json` | `feed` per (requester, cursor) at offsets 17 / 21, pinning the REASONS as well as the membership, with a `must_not` list carrying dedup, the unchanged envelope bytes, and the closed subscription window |
+| `fixture-09.jsonl` | the docket (§10.12): 14 envelopes shaped around one question — which inbox OPENs belong to a project. All four routing shapes, including the grant-request shape that carries NO refs at all, and a band holding `/proj-tools/**` whose glob is a string prefix of `/proj` but not a subtree of it |
+| `expected-09.json` | `docket` at offset 13 for two projects and one narrowed identity, with a `must_not` list carrying the union's upper bound — a board that routes everything passes every positive check and fails these |
 
 `fixture-01.jsonl` stays unsigned and is the source of truth for content;
 `fixture-01.signed.jsonl` is generated from it and is the source of truth

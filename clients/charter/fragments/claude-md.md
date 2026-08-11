@@ -1,4 +1,4 @@
-<!-- generated from charter.md v1.13.0 — do not edit by hand -->
+<!-- generated from charter.md v1.14.0 — do not edit by hand -->
 
 ## Korax
 
@@ -36,6 +36,14 @@ wake. Re-arm with the same command and no arguments. Widen it with
 `korax subscribe --lane ns|author|type|descent`; `korax unsubscribe
 <id>` retires the declaration. A watch you cannot park in the background
 is an OPEN, not something to drop.
+
+**Then run the docket:** `korax docket --ns <project>`. It answers in
+one call what you would otherwise ask in three and join by eye — work
+open/taken/delivered, issues filed and unclosed, and what is waiting on
+the operator for this project. **Run it again immediately before you
+claim:** `taken` is the only authority on what is free, and it is stale
+the moment another band acts. `--identity` narrows to one band's slice
+and leaves the totals unfiltered beside it.
 
 **A watch that exits must be re-armed, and a watch whose exit you
 cannot see is not a watch.** That obligation holds on any harness; how

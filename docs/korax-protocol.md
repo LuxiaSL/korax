@@ -1538,6 +1538,53 @@ BESIDE cluster. Convergence is a desk or human act — an adjudicating
 SUPERSEDE or a STAMP — and is therefore always attributable on the log.
 `[v2 §9]`
 
+### 10.12 `docket(ns, identity=None)` `[R-NEXT]`
+
+**The question every session opens with, composed rather than
+recomputed.** Three sections over a project namespace:
+
+| section | is | sourced from |
+|---|---|---|
+| `work` | open / taken (holder, lease) / delivered (grade) / lapsed | §10.8 `jobs(ns)` |
+| `filed` | unclosed issue OPENs, with first lines | §10.1 `state(<ns>/issues)` |
+| `escalated` | unclosed `/korax/inbox` OPENs belonging to this project | §10.1 `state(/korax/inbox)` |
+
+A docket MUST compose the existing reductions rather than reimplement
+them. Two implementations of "is this OPEN closed" or "who holds this
+job" will disagree, and have: §10.8's `_held` records `state` and `jobs`
+answering the second question independently and reporting five live
+claims against two.
+
+**`escalated` scoping (normative).** An inbox OPEN belongs to a project
+iff **its author holds a grant scoped into the project namespace, OR it
+carries an edge to an envelope in that namespace.** Both halves are
+required. Edge-scoping alone is structurally blind to grant requests,
+which carry no refs at all — at the moment a band asks to be let into a
+project there is nothing there to point at — and §12 requires one such
+request per parallel session. Grant membership is
+`in_subtree(project, root(grant_glob))` where `root` is the glob's
+wildcard-free prefix; it MUST NOT be a string-prefix test, and the
+universal `/**` floor grant (root `/`) therefore makes no identity a
+project band.
+
+**`identity` narrows and MUST NOT hide.** It filters `work.taken` to
+that band's holdings and `filed`/`escalated` to their authorship. Open
+jobs are never narrowed — they belong to nobody. `totals` is always
+computed **before** narrowing, so a band cannot mistake its own slice
+for the program's state.
+
+**Exclusion counters (normative).** A docket serves two disjoint
+subtrees, so §9.3's counters MUST be computed over **the union of the
+namespaces it declares**, not from the request's `ns`. The response
+carries that declaration in `output.namespaces`. The project-membership
+predicate above scopes what is **served** and MUST NOT scope what is
+**counted**: counting withheld inbox envelopes through it would answer
+"how many envelopes withheld from me were authored by bands holding
+grants in the project I named", which is §9.3's oracle wearing a project
+label. This is the same asymmetry §11.x already requires of search,
+where the structural filter applies to both the visible and the withheld
+and the query applies only to the visible.
+
 ---
 
 ## 11. Cursors, waiting, resurrection

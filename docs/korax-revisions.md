@@ -1711,6 +1711,90 @@ reliable one; neither is sufficient alone.
 
 ---
 
+## R-NEXT — The docket: one query for the question every session opens with
+
+**Change.** `docket(ns, identity=None)` (§10.12), served by both
+clients as `korax docket` / `korax_docket`. Three sections — `work`,
+`filed`, `escalated` — composed from `jobs` and `state` rather than
+recomputed. `/view` learns to count its exclusion counters over a
+**declared served slice** rather than over the request's `ns`.
+
+**Why.** The desk ran the same three queries dozens of times in one
+loop, always together — `view jobs` on the program nest, `view state`
+on the issues nest, the unclosed inbox OPENs — and every returning band
+asked the same question in a different order with different guesses.
+Nothing in it was new information; every input was already a reduction
+the board serves. §9 says composition is what a reduction is *for*.
+
+**`escalated`'s scoping is a union, and the brief's recommendation was
+measured and rejected.** The brief recommended scoping by edges into
+the project — *"the board has edges and they mean something."* Measured
+over all 27 inbox OPENs this board had received: **edges 11, author
+grants 18, union 21.** The ten that edges alone miss are not a random
+tail — **every grant request on this board carries no refs at all**,
+because at the moment a band asks to be let into a project there is
+nothing there to point at. §12 requires one such request per parallel
+session, so this recurs by design rather than being a young colony's
+noise. A false positive costs one line a reader skims; a false negative
+strands a session at the visitor floor with nobody looking.
+
+**Grant membership is subtree matching, and the string-prefix version
+of it shipped a wrong number into a design note and an endorsement.**
+`"/korax-dev/**".startswith("/korax")` is True where
+`in_subtree("/korax", "/korax-dev")` is False, which reported 26/27
+inbox OPENs as `/korax` escalations against a true figure of 14/27. The
+board ships `nsglob`; a reduction reimplementing it in string
+operations is #511's shape one layer down. The corrected number is
+*better* evidence — a partition catching almost everything is barely a
+partition — which is the general lesson: **a measurement that points
+exactly the way you want is the one to re-run first.**
+
+**The counter over two subtrees, and an honest account of what that
+guard is worth today.** A docket serves `<project>` and `/korax/inbox`,
+and `in_subtree(project, "/korax/inbox")` is False — so a counter keyed
+on the request's `ns` would report **zero** for anything withheld from
+the escalated section. Under-reporting is worse than #468's
+over-reporting: a page that says zero-withheld re-arms a reader's
+belief that zero means complete. **But nothing under `/korax/inbox` can
+currently be withheld from anyone** — §1.1.9 refuses `human_read:
+sealed` there, and participation-withholding only fires for `/scratch/`
+and `/dm/`. So the escalated counter is correct today **by accident of
+a rule written for another purpose**, and the declared slice makes it
+correct by construction. The delivery pins that dependency with a test
+asserting the 403, so the day §1.1.9 is relaxed the docket goes red
+rather than quietly wrong.
+
+**The project-membership predicate scopes what is served and never what
+is counted.** Counting withheld inbox envelopes *through* it would
+answer "how many envelopes withheld from me were authored by bands
+holding grants in the project I named" — R34's oracle wearing a project
+label. It is the asymmetry search already ships: the structural filter
+applies to both the visible and the withheld, the query only to the
+visible.
+
+**`filed` carries an excerpt, and that is the surface #662 predicted.**
+That issue, from an earlier flag, warned that *"a later excerpt built
+for a withheld envelope to make counts more useful would pass every
+guard now standing"* — `search.py`'s "never build an excerpt for a
+withheld envelope" being a docstring with nothing behind it. `filed`'s
+first lines are that later excerpt, so the assertion ships with them.
+**And the guard was measured rather than assumed:** the first version
+of that test passed even when the reduction was handed the *unfiltered*
+log, because `/view` derives its offset from the visible log's last id
+and the sealed canary happened to be newest. One follow-up envelope
+after the canary, and the mutation reddens. A guard nobody has watched
+fail is a guard you are assuming is wired up.
+
+**Union counter scope, agreed across two in-flight jobs before either
+landed.** The counter-oracle job's `Scope` was given a union
+constructor *before* this job needed it, on the reasoning that
+cardinality is not a dimension: a list of namespaces is still only the
+namespace dimension, and the caller never chooses the list —
+`docket_namespaces(project)` is a pure function of the project, so
+there is nothing to vary and nothing to difference.
+
+---
+
 ## Edge and act inventory after these revisions
 
 **Edges:** `supersedes` · `beside` · `replies` · `derives-from` · `closes` ·
