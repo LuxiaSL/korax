@@ -123,10 +123,19 @@ class Scope:
         Falling through to board scope is the deliberate answer to `#468`:
         the seven ns-less `/view` reductions used to `return len(envs)` and
         call the board a slice. They still count the board — and now say so.
+
+        **A BLANK `ns` IS BOARD, NOT A SLICE NAMED "".** `/read?ns=` reaches
+        FastAPI as `""`, not `None`, and `matches()` tests `if ns` — falsy,
+        so it does not filter and the caller is served the whole board. This
+        used to resolve to `subtree("")`, whose `in_subtree("", …)` matches
+        everything, so the COUNT was right by accident. The count is not the
+        problem: `withheld_scope` would have labelled that board-wide number
+        `slice`, which is precisely the lie this job exists to remove. The
+        two predicates now agree on emptiness rather than agreeing by luck.
         """
-        if ns is not None:
+        if ns:
             return cls.subtree(ns)
-        if ns_set is not None:
+        if ns_set:
             return cls.glob_set(ns_set.split(","))
         return cls.whole_board()
 
@@ -199,39 +208,114 @@ def bucketed(exact: int) -> int | dict[str, str]:
     return {"withheld": SOME, "why": WHY_BUCKETED}
 
 
+#: §8.2 / §9.3 — the two answers `withheld_scope` may give. Deliberately two,
+#: and deliberately not the namespaces themselves: see `scope_name`.
+BOARD = "board"
+SLICE = "slice"
+
+WITHHELD_SCOPE_MEANING = {
+    BOARD: (
+        "these counts name the whole board, not the slice you asked for — "
+        "invariant under anything you can type, so there is nothing to "
+        "difference against a second query"
+    ),
+    SLICE: (
+        "these counts name the namespace slice this response served, not "
+        "the board — a count for nests you did not ask about is a number "
+        "measured against horizons you did not choose (§8.2)"
+    ),
+}
+
+
+def scope_name(scope: Scope) -> str:
+    """What a count taken over `scope` NAMES, in the two words a reader needs.
+
+    **Coarse on purpose, and this is the whole of `#802`'s remaining risk.**
+    The obvious richer answer — echo the subtrees or globs back — is one step
+    from a scope vocabulary that describes a slice the requester did not
+    choose. `/view=docket`'s scope is a `Scope.union` reaching `/korax/inbox`,
+    which is *not* what the caller typed; serving that back teaches the shape
+    of a reduction's reach, and the next field after it is the one that
+    teaches volume. `Scope` is inexpressive so a predicate cannot reach a
+    count (`#645`/`#665`); its **description** has to be inexpressive for the
+    same reason, or the fence is rebuilt one field to the left.
+
+    Two words answer the question `#802` actually asked — *is this 12 about
+    my slice or about the board?* — and answer nothing else.
+    """
+    return BOARD if scope.board else SLICE
+
+
 def withheld_counts(
     *,
     scope: Scope,
     sealed: Iterable[Envelope] = (),
     private: Iterable[Envelope] = (),
     rotated: Iterable[Envelope] | None = None,
-    rotated_scope: Scope | None = None,
-) -> dict[str, int]:
-    """The §8.7.5 / §9.3 / §8.2 exclusion counters, scoped by namespace only.
+) -> dict[str, object]:
+    """The §8.7.5 / §9.3 / §8.2 exclusion counters, scoped by namespace only,
+    **and a declaration of what that scope names.**
 
     Keyword-only, so a caller cannot pass the withheld piles positionally
     and silently transpose sealed with private — these are counts a reader
     trusts, and a transposition would be invisible in every test that only
     checks a total.
 
-    `rotated` is §8.2 **retention**, not §9.3 participation, and this job does
-    not change any of its values. It is threaded through here so the scope
-    each caller uses becomes a stated decision rather than an accident of
-    whichever expression was written at the call site, and so the next reader
-    cannot "fix" the inconsistency in whichever direction they guess (`#790`).
+    ONE SCOPE, BECAUSE THE RULING COLLAPSED THE SECOND
+    --------------------------------------------------
+    `#667` threaded a separate `rotated_scope` here, because `/read`, `/wait`
+    and `/feed` counted §8.2 retention against the **board** while `/view`
+    counted it against the **query's namespace**. Both were preserved exactly
+    and the direction was filed as the operator's to rule, rather than guessed
+    (`#790`: consistency without a direction is how the inconsistency got
+    here).
 
-    `rotated_scope` must therefore be passed explicitly wherever it differs
-    from `scope`, and it genuinely does differ: `/read`, `/wait` and `/feed`
-    counted `len(rotated)` — the board — while `/view` already counted it
-    against the query's namespace. **Both are preserved exactly.** Whether a
-    retention count *should* carry the namespace dimension is a §8.2 ruling,
-    filed separately rather than folded in here; defaulting it silently would
-    have been this job answering a question it was not given.
+    **The operator ruled NAMESPACE at `#1099`, enacting `#1096`'s proposal on
+    the argument filed in `#802`:** retention horizons are configured per nest
+    (§8.2), so a count spanning nests sums things measured against different
+    rulers, and a reader of one nest learning the board's total learns a
+    number about nests they did not ask about.
+
+    So the parameter is **gone**, not defaulted. Every counter in a given
+    response is now taken over one scope, which is what makes a single
+    `withheld_scope` declaration honest rather than an average. Keeping the
+    parameter would leave a divergence stateable that the declaration could
+    not describe — a response whose three counts named two different things
+    while claiming to name one. `Scope` is inexpressive so the oracle cannot
+    be reintroduced (`#111`); this signature is inexpressive so the *label*
+    cannot start lying. A future job that genuinely needs per-counter scopes
+    must add per-counter declarations in the same change.
+
+    **AND THE VALUES DO NOT MOVE — MEASURED, NOT INFERRED.** The obvious
+    reading of the old code is that `/read` reported the board's retention
+    total; it did not. `rotated` is split out of `hits`, and `hits` has
+    already been narrowed by `matches()` using `in_subtree(ns, …)` — the
+    same predicate `Scope.subtree` counts with. A wider scope cannot widen a
+    pile that was filtered upstream, so `whole_board()` and `subtree(ns)`
+    counted the identical set on every reachable query. `#802`'s divergence
+    was between two *statements in the source*, and the wire was consistent
+    the whole time. Ruling it still mattered — a comment saying "this counts
+    the board" is a landmine for the next caller who threads a wider pile
+    through — but the delivery must not claim a value changed. (Rake `#998`:
+    a running system outranks a reading of its source. This module's own
+    call sites were the reading.)
+
+    Surfaces with no namespace dimension — `/feed`, `/neighbourhood`, the
+    ns-less `/view` reductions — still pass `Scope.whole_board()` and now
+    **say so on the wire**. That is `#468`'s complaint answered where it was
+    actually made: they never stopped counting the board, they stopped
+    *calling it a slice*.
     """
     counts: dict[str, object] = {
         "sealed_excluded": scope.count(sealed),
         "participation_excluded": bucketed(scope.count(private)),
+        # §9.3 / §8.2 — the reader can now tell "your slice" from "the board"
+        # without reading this file, which is the whole of `#802`'s second
+        # half. Always emitted: a response that carries counts and omits
+        # their dimension is the state the clients are being taught to refuse
+        # as a server bug, not to paper over with a default (`#662`).
+        "withheld_scope": scope_name(scope),
     }
     if rotated is not None:
-        counts["rotated_excluded"] = (rotated_scope or scope).count(rotated)
+        counts["rotated_excluded"] = scope.count(rotated)
     return counts

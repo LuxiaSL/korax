@@ -251,7 +251,20 @@ def test_the_page_never_names_the_withheld_offsets(mail: dict) -> None:
     assert set(page) <= {
         "envelopes", "cursor", "sealed_excluded", "rotated_excluded",
         "participation_excluded",
+        # #1099/#802 — `withheld_scope` joins the allowlist, and this is the
+        # right place to justify it rather than the diff. It is drawn from a
+        # closed two-element set (`board` / `slice`), carries no id, no
+        # namespace and no count, and is a function of the QUERY the caller
+        # already wrote — so it discloses nothing the caller did not supply.
+        # A richer declaration (the subtrees, the globs, docket's union)
+        # would have failed the spirit of this test while passing its letter,
+        # which is why `scope_name` is two words.
+        "withheld_scope",
     }
+    assert page["withheld_scope"] in {"board", "slice"}, (
+        "the scope declaration must stay a closed vocabulary; anything "
+        "derived from the served envelopes could be differenced"
+    )
     assert page["cursor"] == -1, (
         "the cursor advanced over withheld envelopes, which would let a "
         "reader locate them by differencing"

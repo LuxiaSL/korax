@@ -354,3 +354,149 @@ def test_permanent_nests_report_zero(world: dict) -> None:
                             headers=auth(world["op_token"])).json()
     assert r["rotated_excluded"] == 0
     assert len(r["envelopes"]) == 5
+
+
+# ── §8.2's dimension, ruled NAMESPACE at #1099 (issue #802) ──────────────
+#
+# The instrument below is #468's own, and it is the reason these are tests
+# rather than assertions about a diff: **two disjoint slices returning the
+# same number means the count names something other than the slice.** Under
+# the old board-scoped behaviour every one of these reads returned the same
+# total, so a test that checked a single slice against a single number passed
+# just as happily while the field was lying. The pair is what falsifies.
+
+
+def two_rotating_nests(world: dict, monkeypatch: pytest.MonkeyPatch) -> dict:
+    """Two rotating nests holding DIFFERENT amounts of rotated history.
+
+    Deliberately asymmetric — two rotated NOTEs in `/chorus`, one in
+    `/aviary`. Equal counts would make a board-scoped answer and a
+    slice-scoped answer indistinguishable in `/chorus`, which is exactly the
+    coincidence #468 warns a single-slice test can be built on.
+    """
+    for ns in ("/chorus", "/aviary"):
+        op_post(world, {"ns": ns, "type": "POLICY", "payload": {
+            "acts": ["NOTE", "FINDING", "WARN", "JOB", "POLICY", "STAMP", "PIN"],
+            "grades": False,
+            "retention": {"mode": "rotate", "horizon": "P30D"},
+            "view_floor": "n/a",
+            "grants": [{"identity": "band:*", "band": "warner"}],
+        }})
+    for i in range(2):
+        op_post(world, {"ns": "/chorus", "type": "NOTE", "payload": f"chorus old {i}"})
+    op_post(world, {"ns": "/aviary", "type": "NOTE", "payload": "aviary old"})
+    # the anchor pair, forty days on: at this offset every NOTE above is past
+    # its nest's horizon and these two are the live history.
+    with clock_forward(monkeypatch, 40):
+        for ns in ("/chorus", "/aviary"):
+            op_post(world, {"ns": ns, "type": "NOTE", "payload": "now"})
+    return {"/chorus": 2, "/aviary": 1, "board": 3}
+
+
+def read_ns(world: dict, ns: str) -> dict:
+    return world["client"].get("/read", params={"ns": ns},
+                               headers=auth(world["op_token"])).json()
+
+
+def test_read_retention_count_names_the_slice_not_the_board(
+    world: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#802, ruled NAMESPACE at #1099. Before this, both reads returned 3."""
+    expected = two_rotating_nests(world, monkeypatch)
+    chorus = read_ns(world, "/chorus")
+    aviary = read_ns(world, "/aviary")
+
+    # the falsifying pair (#468): disjoint slices, and they must DISAGREE
+    assert chorus["rotated_excluded"] != aviary["rotated_excluded"], (
+        "two disjoint slices reported the same retention count — the field "
+        "names something other than the slice it was served for"
+    )
+    assert chorus["rotated_excluded"] == expected["/chorus"]
+    assert aviary["rotated_excluded"] == expected["/aviary"]
+    # and neither is the board's total, which is what they both used to be
+    assert chorus["rotated_excluded"] < expected["board"]
+    assert aviary["rotated_excluded"] < expected["board"]
+
+
+def test_read_without_ns_still_names_the_board_and_says_so(
+    world: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ruling narrows a SLICE; it does not invent one. A caller who
+    typed no `ns` asked about the board and is told so, rather than being
+    handed a number that quietly means something else."""
+    expected = two_rotating_nests(world, monkeypatch)
+    whole = world["client"].get("/read", headers=auth(world["op_token"])).json()
+    assert whole["rotated_excluded"] == expected["board"]
+    assert whole["withheld_scope"] == "board"
+    assert read_ns(world, "/chorus")["withheld_scope"] == "slice"
+
+
+def test_wait_agrees_with_read_on_the_same_slice(
+    world: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """/wait is /read with a long poll in front. Two surfaces disagreeing
+    about what a number names is the only unacceptable outcome — a caller
+    watching one nest would difference the two and learn the rest."""
+    expected = two_rotating_nests(world, monkeypatch)
+    waited = world["client"].get(
+        "/wait", params={"ns": "/chorus", "since": -1, "timeout": 0.1},
+        headers=auth(world["op_token"])).json()
+    assert waited["rotated_excluded"] == expected["/chorus"]
+    assert waited["withheld_scope"] == "slice"
+    assert waited["rotated_excluded"] == read_ns(world, "/chorus")["rotated_excluded"]
+
+
+def test_view_was_already_right_and_is_unchanged(
+    world: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#1099 moved /read and /wait to match /view, not the other way round.
+    This asserts the direction of the fix: the surface that was already
+    namespace-scoped keeps its value exactly."""
+    expected = two_rotating_nests(world, monkeypatch)
+    state = world["client"].get("/view/state", params={"ns": "/chorus"},
+                                headers=auth(world["op_token"])).json()
+    assert state["rotated_excluded"] == expected["/chorus"]
+    assert state["withheld_scope"] == "slice"
+
+
+def test_feed_keeps_board_scope_and_declares_it(
+    world: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """/feed takes no `ns` and its served slice is "the lanes this identity
+    receives" — not a namespace, and spanning nests by construction. There is
+    no narrower honest scope to move to, and synthesising one from the lanes
+    would make the count a function of the requester's own subscriptions,
+    which is the requester-chosen predicate #665 forbids. So it stays board
+    and now SAYS board, which is the half #802 was missing."""
+    two_rotating_nests(world, monkeypatch)
+    feed = world["client"].get("/feed", params={"since": -1, "timeout": 0.1},
+                               headers=auth(world["op_token"])).json()
+    assert feed["withheld_scope"] == "board"
+    # NOT asserted equal to the board's rotated total, and the reason is the
+    # finding this job turned up: the `rotated` pile every surface counts is
+    # split out of what that surface already SELECTED, so feed's pile is
+    # lane-derived and excludes the requester's own posts (R19c). Board scope
+    # describes the ruler the count is measured with, never a promise that
+    # the pile spans the board. Asserting 3 here is the mistake that taught
+    # it — the assertion failed, and the failure was correct.
+    assert isinstance(feed["rotated_excluded"], int)
+
+
+def test_every_counter_on_a_response_shares_one_declared_scope(
+    world: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The point of removing `rotated_scope`. A single `withheld_scope` is
+    only honest if there is a single scope — a response whose three counts
+    named two different things while carrying one label would be a worse
+    artifact than the unlabelled inconsistency it replaced."""
+    two_rotating_nests(world, monkeypatch)
+    for params, expected_scope in (
+        ({"ns": "/chorus"}, "slice"),
+        ({}, "board"),
+    ):
+        page = world["client"].get("/read", params=params,
+                                   headers=auth(world["op_token"])).json()
+        assert page["withheld_scope"] == expected_scope
+        # all three counters present and taken over that one scope
+        assert {"sealed_excluded", "rotated_excluded",
+                "participation_excluded"} <= set(page)

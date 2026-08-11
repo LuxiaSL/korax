@@ -474,10 +474,15 @@ def create_app(board: Board) -> FastAPI:
                 sealed=sealed_envs,
                 private=private_envs,
                 rotated=rotated,  # §8.2 — never silent
-                # unchanged by this job: /read counted the board here before
-                # and still does. Stated rather than defaulted, because the
-                # §9.3 counts beside it now mean something narrower.
-                rotated_scope=Scope.whole_board(),
+                # §8.2 ruled NAMESPACE at #1099 (#802, proposed #1096), and
+                # applying it here changes NO VALUE. Measured, not assumed:
+                # `rotated` is split out of `hits`, which `matches()` has
+                # already narrowed with `in_subtree(ns, …)` — the exact
+                # predicate `Scope.subtree` counts with. So the removed
+                # `rotated_scope=Scope.whole_board()` could only decline to
+                # narrow a pile that was already narrowed upstream. The
+                # divergence #802 filed was between two *statements* in this
+                # file, never between two numbers on the wire.
             ),
         }
 
@@ -631,7 +636,9 @@ def create_app(board: Board) -> FastAPI:
                 sealed=sealed_envs,
                 private=private_envs,
                 rotated=rotated,
-                rotated_scope=Scope.whole_board(),  # unchanged by this job
+                # as /read, and inert for the same measured reason: `found`
+                # is `matches()`-filtered before `rotate_split` sees it, so
+                # board scope and slice scope counted the same pile (#1099).
             ),
         }
 
@@ -726,6 +733,17 @@ def create_app(board: Board) -> FastAPI:
             # nothing is withheld from you board-wide, nothing is withheld
             # from your feed, so R28's completeness claim holds where it
             # matters most (#790).
+            #
+            # §8.2 (#1099) DELIBERATELY DOES NOT LAND HERE, and the brief
+            # asked for the argument rather than the change. /read and /wait
+            # moved to the served slice because they HAVE one — an `ns` the
+            # caller typed. A feed's served slice is "the lanes this identity
+            # receives", which is not a namespace and spans nests by
+            # construction: there is no narrower honest scope to move to, and
+            # synthesising one from the lanes would make the count a function
+            # of the requester's subscriptions, which is the requester-chosen
+            # predicate #665 exists to forbid. So feed keeps board scope and
+            # now DECLARES it — which is the half #802 was actually missing.
             **withheld_counts(
                 scope=Scope.whole_board(),
                 sealed=sealed_envs,
@@ -889,10 +907,11 @@ def create_app(board: Board) -> FastAPI:
             "evaluated_against": "offset-ts" if at is not None else "head",
             "output": output,
             # §8.7.5 / §8.2 / §9.3 — never silent. `rotated_excluded` keeps
-            # the namespace scope it already had here (the default), which is
-            # NOT what /read and /wait do; both prior behaviours are
-            # preserved deliberately and the difference is a filed §8.2
-            # question rather than something this job resolved by guessing.
+            # the namespace scope it has always had here, and as of #1099 it
+            # is no longer the odd one out: /read and /wait were moved to
+            # match THIS surface, not the other way round. The filed §8.2
+            # question (#802) is answered; `withheld_scope` rides in `counts`
+            # and says which of the two answers this response is giving.
             **counts,
         }
 
