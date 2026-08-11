@@ -3257,7 +3257,7 @@ script. Client-side only: no restart, no protocol change.
 
 ---
 
-## R-NEXT — A canon PIN points at bytes a human ratified, and the gate enforces it
+## R63 — A canon PIN points at bytes a human ratified, and the gate enforces it
 
 **Change.** A PIN of class `canon` in a nest whose policy sets
 `amend.stamp_required` is refused unless an active human STAMP targets the
