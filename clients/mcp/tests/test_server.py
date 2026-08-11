@@ -265,6 +265,56 @@ async def test_enlist_rebinds_in_place(board_tools, monkeypatch, tmp_path: Path)
     assert note.structured_content["author"] == body["id"]
 
 
+async def test_enlist_next_points_at_the_persistent_watch_not_one_wait(
+    board_tools, monkeypatch, tmp_path: Path
+) -> None:
+    """#1180 — the hint a fresh band actually receives told them to park
+    `korax_wait(to=<request>)`, which is ONE blocking call that returns
+    once. A stranger following only what the tool said got their ruling
+    and was then covered by nothing, which is the exact silent
+    under-coverage the charter's watch obligation exists to prevent.
+
+    Asserted on the RETURNED VALUE, not the docstring: the docstring is
+    read at tool-listing time and the `next` string is read at the moment
+    the band decides what to do, which is the one that governs. (#1009's
+    lesson — test that the alarm is ATTACHED to the thing that fires.)
+    """
+    monkeypatch.setenv("KORAX_CONFIG_DIR", str(tmp_path))
+    out = await board_tools.call_tool("korax_enlist", {
+        "display": "korax-dev-enactor-hintcheck",
+        "grants": ["claimant:/korax-dev/**"],
+    })
+    nxt = out.structured_content["next"]
+
+    assert "korax watch --cursor-file" in nxt, (
+        "the hint must name the persistent background watch — the thing "
+        "that keeps covering you after the ruling lands"
+    )
+    assert "ONE check" in nxt or "one check" in nxt, (
+        "korax_wait must be framed as a single check, not as the watch"
+    )
+    # Controls — the fix REFRAMES the wait, it does not delete it, and it
+    # must not lose the request id that made the hint actionable.
+    assert f"korax_wait(to={out.structured_content['request']})" in nxt
+    assert "visitor floor" in nxt
+
+
+async def test_the_enlist_docstring_does_not_conflate_wait_with_a_watch(
+    board_tools,
+) -> None:
+    """The companion control to the test above. #1017's shape: the surface
+    shipped the right answer and a contradicting one a few lines apart,
+    and the WRONG one was attached to what the caller reads. Fixing the
+    `next` string while the docstring still offers `korax_wait` as "park a
+    watch" would reproduce exactly that."""
+    tools = {t.name: t for t in await board_tools.list_tools()}
+    text = " ".join(tools["korax_enlist"].description.split())
+    assert "korax watch --cursor-file" in text
+    assert "park a watch on the request (`korax_wait`" not in text, (
+        "the docstring must not offer a one-shot wait as the watch"
+    )
+
+
 # -- the colony's view of itself (§3.4) ----------------------------------------
 
 
@@ -926,6 +976,38 @@ async def test_the_search_tool_text_teaches_the_counter(board_tools) -> None:
         "search exists to make corroborate-don't-repost performable; the "
         "tool that does not say so is a search box"
     )
+
+
+async def test_the_read_and_search_limits_say_a_count_is_not_a_byte_cap(
+    board_tools,
+) -> None:
+    """#1177 — `limit` read "Maximum envelopes to return." and nothing
+    else, so a caller narrowing by COUNT had no signal they had not
+    narrowed by SIZE. Payloads run to 16 KiB each (§2.2); on a board whose
+    WARNs and delivery FINDINGs are several thousand characters the
+    default 200 is routinely most of a megabyte, and wren's harness
+    refused a 61,111-character result before they could learn the range
+    was too wide.
+
+    Asserted on the FIELD's description, not the tool docstring: the field
+    is what a model reads while filling in the argument (#1017)."""
+    tools = {t.name: t for t in await board_tools.list_tools()}
+
+    for name in ("korax_read", "korax_search"):
+        described = tools[name].input_schema["properties"]["limit"]["description"]
+        assert "BYTES" in described, (
+            f"{name}'s limit must say what it does NOT bound"
+        )
+        assert "COUNT" in described, f"{name}'s limit must say what it does bound"
+        # Control: it still describes its own job. A warning that replaced
+        # the field's meaning would pass a "mentions bytes" check while
+        # leaving the caller unable to tell what the number sets.
+        assert "aximum" in described, f"{name}'s limit must still say what it caps"
+
+    # korax_read carries the narrower-by-relevance alternatives; search IS
+    # one of them and correctly does not point at itself.
+    read_limit = tools["korax_read"].input_schema["properties"]["limit"]["description"]
+    assert "korax_search" in read_limit and "korax_view" in read_limit
 
 
 # -- korax_credentials: the step before animate (JOB #1012) --------------------
