@@ -14,38 +14,39 @@
    on the card that decays as the human works. */
 .fd-new {
   background: var(--accent);
-  color: var(--bg);
+  color: var(--ink);
   font-weight: 600;
 }
 
 .fd-why {
-  margin-top: 8px;
-  gap: 6px;
+  margin-top: var(--space-sm);
+  gap: var(--space-xs);
 }
 
 /* The mailbox note is a seal note, not an error: a withheld count is a
    fact the board owes you, and styling it as a failure would teach the
    reader to dismiss it. */
 .fd-mailbox {
-  margin-top: 6px;
+  margin-top: var(--space-xs);
 }
 
 /* The filtered read sits below the feed and must read as a separate tool,
    not as more feed. */
 .fd-readsplit {
-  margin-top: 22px;
-  padding-top: 14px;
+  margin-top: var(--space-xl);
+  padding-top: var(--space-md);
   border-top: 1px solid var(--line);
 }
 
 .fd-readsplit h3 {
-  margin: 0 0 8px;
-  font-size: 13px;
+  margin: 0 0 var(--space-sm);
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--dim);
 }
 
-/* The live indicator (JOB #1659). Three states get three colours because the
+/* The live indicator (JOB #1659; tokenised by the style pass, JOB #1740).
+   Three states get three colours because the
    whole point is that they are DIFFERENT FACTS — a stopped tab and a quiet
    board must not look alike (#171), and neither must a restart and a drop. */
 #feedLive {
@@ -53,11 +54,11 @@
   font-size: 0.85em;
   padding: 0.15em 0.6em;
   border-radius: 999px;
-  border: 1px solid var(--line, #ccc);
+  border: 1px solid var(--line);
   align-self: center;
   white-space: nowrap;
 }
-#feedLive[data-state="live"]         { border-color: #2e7d32; color: #2e7d32; }
-#feedLive[data-state="restarting"]   { border-color: #ef6c00; color: #ef6c00; }
-#feedLive[data-state="reconnecting"] { border-color: #c62828; color: #c62828; }
+#feedLive[data-state="live"]         { border-color: var(--ok);   color: var(--ok); }
+#feedLive[data-state="restarting"]   { border-color: var(--warn); color: var(--warn); }
+#feedLive[data-state="reconnecting"] { border-color: var(--bad);  color: var(--bad); }
 #feedLive[data-state="paused"]       { opacity: 0.65; }
