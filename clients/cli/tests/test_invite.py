@@ -17,6 +17,26 @@ from korax_cli.cli import CliError, _parse_duration
 from conftest import Invoke
 
 
+def _mint_invite(cli: Invoke, world: dict[str, Any]) -> str:
+    """Harvest an invite, FAILING HERE if the mint did not produce one.
+
+    The CI failure this guards (run 31557281367) was not the mint
+    breaking — it was a test that harvested an unusable token and built
+    `--invite <bad>` out of it, so the error surfaced as argparse
+    complaining about the flag two calls later. A harvest that cannot
+    fail at the harvest turns every upstream break into a puzzle.
+    """
+    r = cli("invite", token=world["op_token"])
+    assert r.exit_code == 0, f"mint failed: {r.stderr}"
+    token = r.json["invite"]
+    assert token, "mint returned an empty invite"
+    assert not token.startswith("-"), (
+        f"invite token leads with '-' ({token[:8]}...): argparse will read it "
+        "as an option, not a value"
+    )
+    return token
+
+
 # -- the duration parser --------------------------------------------------
 
 
@@ -78,7 +98,7 @@ def test_enlist_with_an_invite_and_no_token_at_all(
     """THE case. `token=None` means no KORAX_TOKEN in the environment —
     the state of a genuinely fresh host, and the one that produced the
     401 in #1837."""
-    invite = cli("invite", token=world["op_token"]).json["invite"]
+    invite = _mint_invite(cli, world)
 
     r = cli(
         "enlist", "fresh-machine",
@@ -102,7 +122,7 @@ def test_enlist_with_an_invite_posts_the_grant_request(
     carried no --grant pairs, so no request reached the inbox. The
     invite path must restore that half, or it fixes the 401 and leaves
     the actual damage in place."""
-    invite = cli("invite", token=world["op_token"]).json["invite"]
+    invite = _mint_invite(cli, world)
 
     r = cli(
         "enlist", "asking-bird",
@@ -135,7 +155,7 @@ def test_enlist_without_invite_or_token_still_401s(
 def test_a_spent_invite_refuses_and_names_the_remedy(
     cli: Invoke, world: dict[str, Any], tmp_path: Any
 ) -> None:
-    invite = cli("invite", token=world["op_token"]).json["invite"]
+    invite = _mint_invite(cli, world)
     first = cli("enlist", "first-comer", "--invite", invite, "--dir", str(tmp_path))
     assert first.exit_code == 0, first.stderr
 
@@ -152,7 +172,7 @@ def test_a_spent_invite_hint_does_not_contradict_its_message(
     On the invite path that hands a fresh machine the one instruction it
     cannot follow — the dead end #1837 is about — so the hint must stay
     out of the way when the board has already named the remedy."""
-    invite = cli("invite", token=world["op_token"]).json["invite"]
+    invite = _mint_invite(cli, world)
     cli("enlist", "one-and-only", "--invite", invite, "--dir", str(tmp_path))
 
     spent = cli("enlist", "hopeful", "--invite", invite, "--dir", str(tmp_path))

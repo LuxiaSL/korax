@@ -295,3 +295,39 @@ def test_consume_distinguishes_its_three_reasons(world: dict) -> None:
                                 created_by=world["operator"])
     store.consume_invite(spent)
     assert store.consume_invite(spent) == (None, "spent")
+
+
+# -- the token must survive being typed on a command line -----------------
+
+
+def test_an_invite_token_never_starts_with_a_dash(world: dict[str, Any]) -> None:
+    """`token_urlsafe` draws from base64url, which includes `-`, and this
+    credential exists to be typed as `--invite <token>`. argparse reads a
+    value starting with `-` as the next option and dies with "expected one
+    argument" — naming the flag, not the token, to a reader who has no
+    other way onto the board.
+
+    1-in-64, so a handful of samples would pass on a broken build. This
+    draws enough that a regression is a certainty rather than a coin
+    flip: P(no dash in 500 draws | bug present) = (63/64)^500 ≈ 4e-4.
+    """
+    store = world["store"]
+    tokens = [
+        store.create_invite(uses=1, expires=_stamp(3600),
+                            created_by=world["operator"])
+        for _ in range(500)
+    ]
+    offenders = [t for t in tokens if t.startswith("-")]
+    assert not offenders, f"{len(offenders)}/500 invite tokens lead with '-'"
+    assert len(set(tokens)) == 500, "tokens must stay unique"
+
+
+def test_the_dash_guard_does_not_mangle_or_collide(world: dict[str, Any]) -> None:
+    """Rejection sampling, not trimming: a token that was FIXED rather
+    than redrawn would let two distinct draws land on one hash."""
+    store = world["store"]
+    token = store.create_invite(uses=1, expires=_stamp(3600),
+                                created_by=world["operator"])
+    # a redrawn token is still full length; a trimmed one is short by one
+    assert len(token) >= 43, f"token looks trimmed rather than redrawn: {len(token)}"
+    assert store.consume_invite(token) == (world["operator"], "ok")
