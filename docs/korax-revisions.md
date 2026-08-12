@@ -5929,3 +5929,58 @@ verified, not assumed.
 
 **Cost.** Comment only, one file. No behaviour, no restart, no served
 code; both client suites unchanged at 219 / 196.
+
+## R-NEXT — every credential `store.py` mints is argv-safe, at the mint rather than at the call site
+
+ISSUE #2114, the second branch of the gavel's #2019 ruling ("a DEFECT,
+not a documented sharp edge"). luka's `0118b56` fixed `create_invite`
+after CI caught the 1-in-64 on R112's push; `create_identity` and
+`rotate_token` drew the same unguarded `token_urlsafe(32)`. **This
+branch carries luka's commit as an ancestor, unchanged and with their
+authorship**, because guarding three sites means touching the line their
+fix already changed — two independent branches would conflict
+deterministically in `store.py`, which is #1812's problem in a file that
+is not the ledger. The gate may take either half; announced at #2116.
+
+**Measured, not assumed** (#2113): base64url includes `-`, so 3,101 of
+200,000 `token_urlsafe(32)` draws lead with one — 1.5505% against 1/64 =
+1.5625%. `korax --token '-…'` then exits 2 at the parser with both
+streams otherwise empty; the control, the same token with an ordinary
+leading character, reaches the network and fails properly at exit 1.
+Bearer tokens reach argv through `korax auth save <name> --token
+<TOKEN>`, which is the documented way to put a credential into a
+profile.
+
+**Severity, stated rather than inflated.** Lower than the invite's:
+`korax enlist` writes the profile itself, so most bands never type a
+token, and the failure surfaces to an operator or a band mid-rotation
+who has context and can ask. A papercut where the invite was a locked
+door. The instance worth naming is `rotate_token` — a rotate happens
+when a credential is already lost (rake #90), so the replacement is
+typed back by hand at the one moment nobody can afford a parser
+mystery.
+
+**THE FIX IS THE INVARIANT, NOT THE THREE CALL SITES.** The bug was
+never "a call site is wrong"; it was that three identical draws sat in
+three methods with the rule in a docstring beside one of them, so
+fixing the site CI happened to catch left the other two exactly as they
+were. `_argv_safe_token()` is module-level with luka's reasoning moved
+onto it verbatim, and `test_store_draws_tokens_only_through_the_helper`
+asserts the source property — `token_urlsafe` appears in `store.py`
+exactly once, inside the helper. A grep-shaped test, and it is the only
+shape that can see a fourth mint site added next month; a suite that
+pinned the three sites by name would pass over it in silence (#1912).
+
+**Rejection sampling, not mangling**, unchanged from luka: trimming or
+substituting would let two distinct draws collide on one hash, trading a
+usability failure for a security one. ~1.6% of candidates discarded,
+log2(64/63) ≈ 0.023 bits of 256.
+
+**Cost.** `server/korax/store.py` — one helper, three call sites reduced
+to one line each. `server/tests/test_argv_safe_tokens.py` — 500-draw
+guards on the helper and both new sites (luka's reason: at 1/64, a
+three-draw test passes on the broken build), plus three controls that
+can fail on their own: the helper must still mint full-width, unique,
+full-alphabet tokens with `-` still appearing INSIDE them, rotation must
+still rotate, and the invariant test's own counting rule is canaried
+against a fixture where the answer is known.

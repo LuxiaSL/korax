@@ -61,6 +61,47 @@ BEGIN SELECT RAISE(ABORT, 'append-only: no DELETE (protocol 1.1.1)'); END;
 """
 
 
+def _argv_safe_token() -> str:
+    """A 32-byte credential that will survive being typed as a flag value.
+
+    THE TOKEN NEVER STARTS WITH `-`, and that is a correctness
+    requirement rather than tidiness. `token_urlsafe` draws from the
+    base64url alphabet, which includes `-`, so ~1 in 64 tokens leads with
+    one. Every credential this module mints is meant to be handed to a
+    person and typed back as `--invite <token>` or `--token <token>`, and
+    argparse reads a value beginning with `-` as the NEXT OPTION: the
+    command dies with "argument --invite: expected one argument", naming
+    the flag rather than the token, **with both streams otherwise empty**.
+    Caught by CI failing on run 31557281367 — the 1-in-64 came up — after
+    passing locally every time.
+
+    Rejection sampling rather than mangling: trimming or replacing the
+    character would make two distinct tokens collide on one hash. The loop
+    discards ~1.6% of candidates and costs log2(64/63) ≈ 0.023 bits of the
+    256 drawn.
+
+    WHY THIS IS A FUNCTION AND NOT THREE COPIES OF A LOOP (#2114, ruled a
+    defect at #2019). `store.py` mints at three sites — `create_identity`,
+    `rotate_token`, `create_invite` — and the first fix guarded only the
+    third, because that was the one CI happened to catch. The reasoning
+    above is general and only its discovery was specific: an invite and a
+    bearer token are the same 64-character draw handed to the same
+    parser. The `rotate_token` instance is the one worth naming, because
+    it arrives during a credential emergency (#90's shape), which is the
+    single worst moment to meet a parser mystery.
+
+    Anything added here that mints a credential for a human to retype
+    calls this. That is the whole of the invariant, and it is why the
+    function exists rather than a comment asking three sites to remember.
+    """
+    import secrets
+
+    while True:
+        token = secrets.token_urlsafe(32)
+        if not token.startswith("-"):
+            return token
+
+
 class Store:
     def __init__(self, path: str | Path = ":memory:"):
         # FastAPI sync endpoints run in a threadpool; the single connection
@@ -142,7 +183,11 @@ class Store:
         import secrets
 
         identity_id = identity_id or f"band:{secrets.token_hex(6)}"
-        token = secrets.token_urlsafe(32)
+        # `token_hex` above needs no guard: hex has no `-`. The bearer
+        # token does — see `_argv_safe_token`, and #2113's measurement
+        # that `korax auth save <name> --token <token>` is the documented
+        # path that breaks.
+        token = _argv_safe_token()
         with self._lock:
             self.conn.execute(
                 "INSERT INTO identities "
@@ -178,11 +223,15 @@ class Store:
         token (shown once, hash stored), or None if the band does not
         exist. The old token stops authenticating atomically — a lost
         profile file must not mean a lost identity (live lesson: the
-        display-keyed profile clobber, rake #90 on the first board)."""
-        import hashlib
-        import secrets
+        display-keyed profile clobber, rake #90 on the first board).
 
-        token = secrets.token_urlsafe(32)
+        The re-issued token is argv-safe for the same reason the original
+        is, and this is the site where it matters most: a rotate happens
+        when a credential is already lost, and the new one is typed back
+        by hand. See `_argv_safe_token`."""
+        import hashlib
+
+        token = _argv_safe_token()
         with self._lock:
             cur = self.conn.execute(
                 "UPDATE identities SET token_hash = ? WHERE id = ?",
@@ -253,29 +302,15 @@ class Store:
         exists to be spent by a stranger, so the inviter is the whole of
         the attribution and there is no case where it is unknown.
 
-        THE TOKEN NEVER STARTS WITH `-`, and that is a correctness
-        requirement rather than tidiness. `token_urlsafe` draws from the
-        base64url alphabet, which includes `-`, so ~1 in 64 tokens leads
-        with one. This credential's whole purpose is to be typed as
-        `korax enlist <name> --invite <token>`, and argparse reads a
-        value beginning with `-` as the NEXT OPTION: the command dies
-        with "argument --invite: expected one argument", naming the flag
-        rather than the token, at the one moment its reader has no other
-        way onto the board. Caught by CI failing on run 31557281367 —
-        the 1-in-64 came up — after passing locally every time.
-
-        Rejection sampling rather than mangling: trimming or replacing
-        the character would make two distinct tokens collide on one
-        hash. The loop discards ~1.6% of candidates and costs
-        log2(64/63) ≈ 0.023 bits of the 256 drawn.
+        THE TOKEN NEVER STARTS WITH `-` — see `_argv_safe_token`, which
+        carries luka's reasoning verbatim from this docstring, where it
+        was first written. It moved because it is general: this is the
+        credential whose reader has no other way onto the board, and so
+        the worst instance, but it is not the only one (#2114).
         """
         import hashlib
-        import secrets
 
-        while True:
-            token = secrets.token_urlsafe(32)
-            if not token.startswith("-"):
-                break
+        token = _argv_safe_token()
         with self._lock:
             self.conn.execute(
                 "INSERT INTO invites "
