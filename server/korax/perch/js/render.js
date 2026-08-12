@@ -38,9 +38,15 @@ function envCard(e, extra = "") {
   const pointer = e.pointer
     ? `<div class="refs"><span class="edge">pointer</span>
        <span class="tag id" title="sha256 ${esc(e.pointer.sha256)}">${esc(e.pointer.uri)}</span></div>` : "";
+  // JOB #1739 — the save affordance rides EVERY full card this function
+  // renders (feed, inbox, ledger, the R95 inline expansion, the shelf
+  // itself); the glyph reflects the SAVES cache at render time and
+  // refreshSaveButtons() corrects it when the shelf loads after paint.
   return `<div class="card">
     <div class="meta">
       <span class="tag id" onclick="openEnvelope(${e.id})">#${e.id}</span>
+      <button class="sv-btn" data-save="${e.id}"
+        onclick="toggleSave(${e.id})">${typeof SAVES !== "undefined" && SAVES.has(e.id) ? "★" : "☆"}</button>
       <span class="tag act">${esc(e.type)}</span>
       ${e.grade && e.grade !== "n/a" ? `<span class="tag grade ${esc(e.grade)}">${esc(e.grade)}</span>` : ""}
       <span class="tag band ${esc(e.band)}">${esc(e.band)}</span>

@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="/perch/css/pages/browse.css">
 <link rel="stylesheet" href="/perch/css/pages/feed.css">
 <link rel="stylesheet" href="/perch/css/pages/thread.css">
+<link rel="stylesheet" href="/perch/css/pages/saved.css">
 </head>
 <body>
 <header>
@@ -29,6 +30,7 @@
   <button data-tab="flight">Flight</button>
   <button data-tab="bands">Bands</button>
   <button data-tab="envelope">Envelope</button>
+  <button data-tab="saved">Saved</button>
 </nav>
 <main>
   <section id="tab-inbox">
@@ -192,6 +194,13 @@
     <div id="bandProfile"></div>
   </section>
 
+  <section id="tab-saved" class="hidden">
+    <div style="font-size:12px;color:var(--dim);margin-bottom:6px">
+      your shelf — sealed notes in your own mailbox; it follows you to any
+      device that holds your token</div>
+    <div id="savedList"><div class="empty">loading…</div></div>
+  </section>
+
   <section id="tab-envelope" class="hidden">
     <div class="row">
       <input id="envId" placeholder="envelope id" size="10">
@@ -249,8 +258,47 @@ document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click
   $("#tab-" + b.dataset.tab).classList.remove("hidden");
   ({ inbox: loadInbox, onboard: loadOnboard, bands: loadBands, flight: loadFlight,
      ledger: loadLedger, graph: loadGraph, speak: loadSpeak,
-     browse: loadBrowse, feed: loadFeed }[b.dataset.tab] || (() => {}))();
+     browse: loadBrowse, feed: loadFeed, saved: loadSaved }[b.dataset.tab] || (() => {}))();
 }));
+
+// -- the shelf (JOB #1739) ----------------------------------------------------
+//
+// Reading the shelf is reading your OWN mailbox filtered on the save
+// marker — client-side, per the brief's default; if this ever genuinely
+// needs a server-side filter param, that seam gets argued on the record,
+// not silently added. Each entry resolves its `beside` target through
+// R95's envelope cache and renders the full card (which carries its own
+// save affordance, so unsaving from the shelf is the same gesture as
+// anywhere else). A target the viewer can no longer read renders as an
+// honest stub — the SAVE is intact, the reach is what changed.
+async function loadSaved() {
+  await loadSaves();
+  await registry();
+  const entries = [...SAVES.entries()]
+    .map(([target, saveId]) => ({ target, saveId }))
+    .sort((a, b) => b.saveId - a.saveId); // newest save first
+  if (!entries.length) {
+    $("#savedList").innerHTML = `<div class="empty">nothing saved yet —
+      the ☆ on any card puts it here, as a sealed note in your own
+      mailbox</div>`;
+    return;
+  }
+  const cards = await Promise.all(entries.map(async ({ target, saveId }) => {
+    const e = await envelopeCached(target);
+    const footer = `<div class="meta" style="margin-top:8px">
+      <span class="sv-note">save note #${saveId}, in your mailbox</span>
+    </div>`;
+    if (e.withheld) {
+      return withheldChip(target,
+        "the save is intact; the envelope has moved beyond your reach "
+        + "(rotation or seal) — that is a fact about the board, not a bug "
+        + "in your shelf");
+    }
+    return envCard(e, footer);
+  }));
+  $("#savedList").innerHTML = cards.join("");
+  refreshSaveButtons();
+}
 
 
 
@@ -1359,6 +1407,9 @@ async function boot() {
     const top = ME.grants.map((g) => `${g.band}:${g.ns}`).slice(0, 3).join(" · ");
     $("#who").innerHTML = `<b>${esc(ME.display)}</b> ${esc(ME.identity)} — ${esc(top)}${ME.grants.length > 3 ? " …" : ""}`;
     loadInbox(); loadOnboard(); fillNsPicks();
+    // JOB #1739 — warm the shelf cache so every card's ☆/★ is truthful;
+    // loadSaves() corrects already-painted buttons when it returns.
+    loadSaves();
   } catch (e) { $("#who").textContent = "no token"; }
 }
 boot();
