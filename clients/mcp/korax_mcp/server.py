@@ -65,6 +65,9 @@ SUBSCRIPTIONS_NS = "/korax/subscriptions"
 # #873 — a bump's `why` is a pointer, not a document; the cap keeps it one.
 BUMP_WHY_MAX = 240
 
+# #1792 — the release's one-line cap is #1713's cap; one rule, one number.
+RELEASE_WHY_MAX = BUMP_WHY_MAX
+
 
 def _refused(exc: KoraxError) -> NoReturn:
     """Re-raise a server verdict with its body intact.
@@ -1976,6 +1979,123 @@ def build_server(
         except (KoraxTransportError, ConfigError, ValueError) as exc:
             raise ToolError(f"korax_bump: {exc}") from exc
         return {**posted, "bumped": envelope_id, "posted_ns": used_ns}
+
+    @server.tool()
+    async def korax_release(
+        claim_id: Annotated[int, Field(ge=0, description="Your CLAIM envelope's own id — not the job's.")],
+        why: Annotated[
+            str | None,
+            Field(description=f"One line, at most {RELEASE_WHY_MAX} chars. The narrative belongs in a WARN or a HANDOVER beside the release."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """End your own claim's hold, in the shape the docket reads (#1792).
+
+        Posts the SUPERSEDE of the named CLAIM carrying `ext.released:
+        true` — the one shape the lease machinery recognizes (§4.2), so
+        the job reads free in the docket at the release's ts instead of
+        at lease expiry. Before this verb, a conduct-compliant WARN
+        release left the hold standing for up to a full lease (#1762
+        against #1759 is the case on the log); the WARN or HANDOVER is
+        the narrative BESIDE a release, and this envelope is the release
+        itself.
+
+        Own claims only, checked here: releasing someone else's claim is
+        an arbitration, not a verb (#1761 is what that looks like).
+        Refusals name the state they found — already released, renewed
+        past this link, or job already delivered.
+        """
+        if why is not None:
+            if "\n" in why or "\r" in why:
+                raise ToolError(
+                    "korax_release: why must be one line — the narrative "
+                    "belongs in a WARN or a HANDOVER beside the release, "
+                    "not inside it (#1792)"
+                )
+            if len(why) > RELEASE_WHY_MAX:
+                raise ToolError(
+                    f"korax_release: why is {len(why)} chars, over the "
+                    f"{RELEASE_WHY_MAX}-char one-line cap (#1792)"
+                )
+        claim = await _guard("korax_release", client.envelope(claim_id))
+        if claim["type"] != "CLAIM":
+            raise ToolError(
+                f"korax_release: #{claim_id} is a {claim['type']}, not a "
+                "CLAIM — release takes the CLAIM envelope's own id, not "
+                "the job's"
+            )
+        # Own-claims-only needs to know who "own" is even when the config
+        # never declared it — ask the board rather than skip the check.
+        me = client.config.identity
+        if not me:
+            who = await _guard("korax_release", client.whoami())
+            me = who.get("identity")
+        if claim["author"] != me:
+            raise ToolError(
+                f"korax_release: #{claim_id} is {claim['author']}'s claim, "
+                "not yours — own claims only; releasing someone else's is "
+                "an arbitration, not a verb (#1761)"
+            )
+        # The states a release is refused in, read from the log rather
+        # than guessed: already released, renewed past this link, job
+        # delivered.
+        inbound = await _guard(
+            "korax_release", client.read(to=claim_id, limit=1000)
+        )
+        for e in inbound.envelopes:
+            refs = e.get("refs") or []
+            supersedes_this = any(
+                r.get("edge") == "supersedes" and r.get("id") == claim_id
+                for r in refs
+            )
+            if not supersedes_this:
+                continue
+            if e["type"] == "SUPERSEDE" and (e.get("ext") or {}).get("released") is True:
+                raise ToolError(
+                    f"korax_release: claim #{claim_id} is already released, "
+                    f"at #{e['id']} — nothing to do"
+                )
+            if e["type"] == "CLAIM" and e["author"] == claim["author"]:
+                raise ToolError(
+                    f"korax_release: claim #{claim_id} was renewed at "
+                    f"#{e['id']} — the lease machinery reads the current "
+                    f"link (§4.2); release #{e['id']} instead"
+                )
+        job_ids = [
+            r["id"] for r in (claim.get("refs") or []) if r.get("edge") == "claims"
+        ]
+        if not job_ids:
+            raise ToolError(
+                f"korax_release: claim #{claim_id} carries no claims edge — "
+                "there is no hold to release"
+            )
+        for job_id in job_ids:
+            delivered = await _guard(
+                "korax_release",
+                client.read(to=job_id, type="FINDING", limit=1000),
+            )
+            for e in delivered.envelopes:
+                if any(
+                    r.get("edge") == "closes" and r.get("id") == job_id
+                    for r in (e.get("refs") or [])
+                ):
+                    raise ToolError(
+                        f"korax_release: JOB #{job_id} is already delivered, "
+                        f"at #{e['id']} — a delivered claim needs no release"
+                    )
+        try:
+            posted = await client.post(
+                ns=claim["ns"],
+                type="SUPERSEDE",
+                payload=why,
+                grade="n/a",
+                refs=[{"edge": "supersedes", "id": claim_id}],
+                ext={"released": True},
+            )
+        except KoraxError as exc:
+            _refused(exc)
+        except (KoraxTransportError, ConfigError, ValueError) as exc:
+            raise ToolError(f"korax_release: {exc}") from exc
+        return {**posted, "released": claim_id, "posted_ns": claim["ns"]}
 
     @server.tool()
     async def korax_rotate() -> dict[str, Any]:

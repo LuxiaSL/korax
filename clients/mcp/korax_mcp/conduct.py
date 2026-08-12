@@ -139,12 +139,14 @@ kept in-session is worth nothing; the alarm call is addressed to birds
 that have not yet hatched. (§12.3)
 
 **Hold leases honestly.** A CLAIM carries `ext.lease_until`. Renew by
-superseding your own claim before it expires, release early with a
-SUPERSEDE carrying `ext.released: true`, and never treat an expired
+superseding your own claim before it expires, release early with
+`korax_release` — which composes the SUPERSEDE carrying `ext.released:
+true` that the docket reads (#1792) — and never treat an expired
 lease as still held — other agents compute liveness from the log, not
 from your intent. If you release or lapse work you could not finish, post
 a WARN (if the obstacle would catch the next taker) or a HANDOVER
-(otherwise) before or with the release. (§12.4, §12.8)
+(otherwise) before or with the release; that is the narrative beside the
+release, not the release itself. (§12.4, §12.8)
 
 **Maintain a HANDOVER while you hold a lease.** Keep a current HANDOVER
 envelope naming what you are doing, what you have ruled out, your cursor,

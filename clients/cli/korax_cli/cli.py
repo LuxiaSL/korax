@@ -1540,6 +1540,111 @@ async def cmd_bump(
     return 0
 
 
+# #1792 — the release's one-line cap is #1713's cap; one rule, one number.
+RELEASE_WHY_MAX = BUMP_WHY_MAX
+
+
+async def cmd_release(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """#1792 — end your own claim's hold, in the shape the machinery reads.
+
+    Composes the SUPERSEDE of the named CLAIM carrying `ext.released:
+    true` — the one shape the lease resolution recognizes (§4.2 step 3),
+    so the docket stops reporting the hold at the release's ts instead
+    of at lease expiry. The conduct rule's WARN or HANDOVER is the
+    narrative BESIDE a release; this envelope is the release itself,
+    and before this verb the two could diverge for a full lease (#1762
+    against #1759 is the case on the log).
+
+    Own claims only, checked here: releasing someone else's claim is an
+    arbitration, not a verb (#1761 is what that looks like). The server
+    may or may not refuse a foreign supersede; this verb does not
+    explore that. Refusals name the state they found — the error is the
+    instruction (#415)."""
+    why = args.why
+    if why is not None:
+        if "\n" in why or "\r" in why:
+            raise CliError(
+                "--why must be one line — the narrative belongs in a WARN "
+                "or a HANDOVER beside the release, not inside it (#1792)"
+            )
+        if len(why) > RELEASE_WHY_MAX:
+            raise CliError(
+                f"--why is {len(why)} chars, over the {RELEASE_WHY_MAX}-char "
+                "one-line cap (#1792)"
+            )
+    author = await _resolve_author(args, client, config)
+    claim = await client.envelope(args.claim_id)
+    _check_shape(Envelope, claim, f"/envelope/{args.claim_id}")
+    if claim["type"] != "CLAIM":
+        raise CliError(
+            f"#{args.claim_id} is a {claim['type']}, not a CLAIM — release "
+            "takes the CLAIM envelope's own id, not the job's"
+        )
+    if claim["author"] != author:
+        raise CliError(
+            f"#{args.claim_id} is {claim['author']}'s claim, not yours — "
+            "own claims only; releasing someone else's is an arbitration, "
+            "not a verb (#1761)"
+        )
+    # The states a release is refused in, read from the log rather than
+    # guessed: already released, renewed past this link, job delivered.
+    inbound = await client.read(to=args.claim_id, limit=1000)
+    for e in inbound.get("envelopes", []):
+        refs = e.get("refs") or []
+        supersedes_this = any(
+            r.get("edge") == "supersedes" and r.get("id") == args.claim_id
+            for r in refs
+        )
+        if not supersedes_this:
+            continue
+        if e["type"] == "SUPERSEDE" and (e.get("ext") or {}).get("released") is True:
+            raise CliError(
+                f"claim #{args.claim_id} is already released, at "
+                f"#{e['id']} — nothing to do"
+            )
+        if e["type"] == "CLAIM" and e["author"] == author:
+            raise CliError(
+                f"claim #{args.claim_id} was renewed at #{e['id']} — the "
+                "lease machinery reads the current link (§4.2); release "
+                f"#{e['id']} instead"
+            )
+    job_ids = [
+        r["id"] for r in (claim.get("refs") or []) if r.get("edge") == "claims"
+    ]
+    if not job_ids:
+        raise CliError(
+            f"claim #{args.claim_id} carries no claims edge — there is no "
+            "hold to release"
+        )
+    for job_id in job_ids:
+        delivered = await client.read(to=job_id, type="FINDING", limit=1000)
+        for e in delivered.get("envelopes", []):
+            if any(
+                r.get("edge") == "closes" and r.get("id") == job_id
+                for r in (e.get("refs") or [])
+            ):
+                raise CliError(
+                    f"JOB #{job_id} is already delivered, at #{e['id']} — "
+                    "a delivered claim needs no release"
+                )
+    submission = Submission(
+        author=author,
+        ns=claim["ns"],
+        type="SUPERSEDE",
+        grade="n/a",
+        refs=({"edge": "supersedes", "id": args.claim_id},),
+        payload=why,
+        ext={"released": True},
+    )
+    body = await client.post_envelope(submission.to_wire())
+    _check_shape(Envelope, body, "/post")
+    body = {**body, "released": args.claim_id, "posted_ns": claim["ns"]}
+    rt.emit(body)
+    return 0
+
+
 SUBSCRIPTIONS_NS = "/korax/subscriptions"
 
 
@@ -2845,6 +2950,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bump.add_argument("--author", help="identity id (default $KORAX_IDENTITY, else /whoami)")
     bump.set_defaults(func=cmd_bump)
+
+    # -- release ------------------------------------------------------------
+    release = sub.add_parser(
+        "release",
+        parents=[common],
+        help="end your own claim's hold, in the shape the docket reads (#1792)",
+        description="Post the SUPERSEDE of your own CLAIM carrying "
+        "ext.released: true — the one shape the lease machinery recognizes "
+        "(§4.2), so the job reads free in the docket at the release's ts "
+        "instead of at lease expiry. Own claims only: releasing someone "
+        "else's claim is an arbitration, not a verb (#1761). The conduct "
+        "rule's WARN or HANDOVER is the narrative beside a release; this "
+        "envelope is the release itself.",
+    )
+    release.add_argument("claim_id", type=int, help="your CLAIM envelope's id")
+    release.add_argument(
+        "--why",
+        metavar="TEXT",
+        help=f"one line, at most {RELEASE_WHY_MAX} chars — the narrative "
+        "belongs in a WARN or a HANDOVER beside the release",
+    )
+    release.add_argument("--author", help="identity id (default $KORAX_IDENTITY, else /whoami)")
+    release.set_defaults(func=cmd_release)
 
     # -- subscribe / unsubscribe ------------------------------------------------
     subscribe = sub.add_parser(
