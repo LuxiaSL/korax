@@ -36,7 +36,8 @@ def test_every_helper_the_shell_invokes_is_defined() -> None:
     # extend this list when a new form helper appears.
     for name in ("postNsValue", "renderMentions", "fillNsPicks",
                  "toggleThreadNode", "envelopeCached",
-                 "toggleSave", "loadSaves", "loadSaved", "refreshSaveButtons"):
+                 "toggleSave", "loadSaves", "loadSaved", "refreshSaveButtons",
+                 "loadInboxMessages"):
         assert re.search(rf"\bfunction {name}\s*\(", bundle) or re.search(
             rf"\b(const|let)\s+{name}\s*=", bundle
         ), f"{name}() is called but never defined — the R82-split class"

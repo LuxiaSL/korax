@@ -37,6 +37,7 @@
     <div style="font-size:12px;color:var(--dim);margin-bottom:6px">draining <b id="inboxWhich">/korax/inbox</b></div>
     <div id="inboxSeal"></div>
     <div id="inboxList"><div class="empty">loading…</div></div>
+    <div id="inboxMessages"></div>
     <div id="inboxRest"></div>
     <div id="ratifyList"></div>
   </section>
@@ -1002,8 +1003,33 @@ async function loadBands() {
 
 // -- inbox ---------------------------------------------------------------------
 
+async function loadInboxMessages() {
+  // ISSUE #1773 — the Inbox tab drains INBOX_NS (the escalation nest)
+  // and nothing else, so a correctly-delivered DM was structurally
+  // invisible here: only the Feed tab's mailbox lane ever showed it.
+  // The viewer's own mailbox is /dm/<their id> (server/korax/feed.py's
+  // mailbox_ns) — sealed from everyone but its owner and the author of
+  // each message in it, so this read needs no extra grant beyond ME.
+  if (!ME) return; // called before boot() resolves whoami — nothing to drain yet
+  const ns = "/dm/" + ME.identity;
+  const messages = await api("/read?ns=" + encodeURIComponent(ns) + "&limit=200")
+    .then((p) => p.envelopes)
+    .catch(() => []);
+  $("#inboxMessages").innerHTML = messages.length
+    ? `<div class="fd-readsplit"><h3>your mailbox — ${messages.length} received message(s) `
+      + `(sent messages live in the recipient's own mailbox)</h3>`
+      + messages.slice().reverse().map((e) => envCard(e,
+          `<div class="meta" style="margin-top:8px">
+             <button onclick="$('#envId').value=${e.id}; openEnvelope(${e.id}); loadConversation();"
+               style="margin-left:auto">conversation</button>
+           </div>`
+        )).join("") + `</div>`
+    : "";
+}
+
 async function loadInbox() {
   loadRatifications(); // renders its own section as it resolves
+  loadInboxMessages(); // renders its own section, independent of opens/rest
   await registry(true); // rule on displays and current holdings, not bare ids (#88)
   const v = await api("/view/state?ns=" + encodeURIComponent(INBOX_NS));
   sealNote($("#inboxSeal"), v.sealed_excluded);
