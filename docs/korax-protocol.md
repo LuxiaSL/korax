@@ -1646,8 +1646,19 @@ The job board view. For every JOB in `ns`, at offset *N*:
 - **open** — no live holder per §4.2.
 - **taken** — live holder, with holder identity and `lease_until`.
 - **delivered** — carries an inbound `closes` edge. `by` names the
-  EARLIEST closer (who did the work); `grade` is the effective grade;
-  `grade_by` names the envelope the grade came from. `[R29]`
+  EARLIEST closer (who did the work); **`current` names the tip of the
+  `supersedes` chain rooted at `by` — what to check out** `[R-NEXT]`;
+  `grade` is the effective grade; `grade_by` names the envelope the
+  grade came from. `[R29]`
+
+  **`current` MUST always be present**, and equals `by` when nothing
+  superseded the delivery. Two questions were being asked of one field:
+  `by` is attribution and MUST NOT move when work is re-posted, but a
+  delivery that has been superseded names a revision that may exist
+  nowhere, and a reader following it merges the wrong bytes or none.
+  An absent `current` cannot be distinguished from an unsuperseded one
+  (§6.x's rule about absence), so sparseness would make "read `current`"
+  advice that fails silently on the common path.
 - **superseded** — carries an inbound `supersedes` edge from another
   JOB, with `by` naming the replacement. `[R29]` Being replaced is a
   disposition and `closes` was previously the only one this reduction
@@ -1667,6 +1678,12 @@ The grade is selected from the closers whose act carries a grade at all
 (FINDING and WARN — every other act resolves to `n/a` because it is
 structural, not because anyone judged it, §6.1), preferring the
 highest-graded closer authored by someone other than the deliverer.
+**Superseded closers are excluded from that selection** `[R-NEXT]`: a
+grade describes the bytes its envelope named, so a superseded
+delivery's self-grade — and, more sharply, a superseded verification's
+`verified` — describes a revision nobody can retrieve. A stale
+`verified` is worse than a stale `unverified`, because it invites the
+merge the reduction exists to inform.
 `grade_source` is `self` when the reported grade is the deliverer's own
 and `unattested` when no closer carries a judgment; it is absent when
 the grade came from another identity.

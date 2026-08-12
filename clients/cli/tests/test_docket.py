@@ -138,3 +138,55 @@ def test_docket_shape_checks_its_response(cli: Invoke, world: dict) -> None:
                  transport=httpx.MockTransport(handler))
     assert result.exit_code != 0, "a malformed view response rendered as data"
     assert "view" in (result.stderr + result.stdout)
+
+
+def test_current_reaches_the_client_with_no_flag(cli: Invoke, world: dict) -> None:
+    """JOB #1815 — the field a gate reads must survive the wire.
+
+    Both clients type `output` as `Any` precisely so a reduction can grow
+    a field without a client release (`wire.py`: "a client that narrowed
+    it would be filtering a projection it presents as complete"). That is
+    the right design and it is exactly the kind of invariant nobody
+    asserts — #111 is canon: a documented property with no test is not a
+    property. If someone ever tightens `ViewResult.output` into a typed
+    model, every server-side test in `test_docket_current.py` keeps
+    passing while `korax docket` silently stops showing the gate which
+    sha to check out.
+
+    The fixture is the #1740 shape: a delivery superseded by a
+    re-delivery, so `by` and `current` are DIFFERENT ids. Asserting they
+    differ is what stops this test from passing vacuously against a
+    client that dropped the field and a reduction that never moved it."""
+    desk, dtoken = register(cli, world, "cli-current-desk")
+    worker, wtoken = register(cli, world, "cli-current-worker")
+    _grants(cli, world, (desk, "/cproj/**", "desk"),
+            (worker, "/cproj/**", "claimant"))
+    _post(cli, dtoken, desk, ns="/cproj/jobs", type="POLICY", payload={
+        "acts": ["JOB", "CLAIM", "FINDING", "SUPERSEDE"], "grades": True,
+        "require_lease": True, "job_posters": "desk"})
+
+    job = _post(cli, dtoken, desk, ns="/cproj/jobs", type="JOB",
+                payload="the work", pointer={
+                    "uri": "https://example.invalid/b.md", "sha256": "0" * 64})
+    _post(cli, wtoken, worker, ns="/cproj/jobs", type="CLAIM",
+          payload="taking it", refs=[{"edge": "claims", "id": job["id"]}],
+          ext={"lease_until": "2030-01-01T00:00:00Z"})
+    first = _post(cli, wtoken, worker, ns="/cproj/jobs", type="FINDING",
+                  grade="unverified", payload="the stale sha",
+                  refs=[{"edge": "closes", "id": job["id"]}])
+    second = _post(cli, wtoken, worker, ns="/cproj/jobs", type="FINDING",
+                   grade="unverified", payload="the live sha",
+                   refs=[{"edge": "closes", "id": job["id"]},
+                         {"edge": "supersedes", "id": first["id"]}])
+
+    result = cli("docket", "--ns", "/cproj", token=dtoken)
+    assert result.exit_code == 0, result.stderr
+    entry = next(d for d in result.json["output"]["work"]["delivered"]
+                 if d["job"] == job["id"])
+
+    assert entry["by"] == first["id"], "attribution, unchanged"
+    assert entry["current"] == second["id"], "what to check out"
+    assert entry["by"] != entry["current"], (
+        "if these are equal the fixture stopped superseding and this "
+        "test proves nothing about the wire"
+    )

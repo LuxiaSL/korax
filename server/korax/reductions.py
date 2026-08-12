@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from .civic import current_version
 from .leases import Hold, live_holder, resolve
 from .log import Log
 from .models import Act, Band, BAND_RANK, EdgeType, Envelope, Grade
@@ -717,6 +718,33 @@ def _delivery(
     EARLIEST closer — it answers "who did the work" and readers rely on
     it — while `grade_by` names where the grade came from.
 
+    `current` IS THE FIELD A GATE READS (JOB #1815, from quill's #1807).
+    `by` answers "who did the work" and must never move — #269's history
+    is a reduction reporting the wrong closer forever. But a delivery can
+    be superseded, and then `by` names a sha that exists on no branch:
+    JOB #1740 was delivered three times in forty minutes (#1764 -> #1794
+    -> #1801), every supersession a ledger conflict rather than a change
+    of substance (#1812), and the docket kept advertising the first one.
+    A gate nearly merged it; the correction traveled by DM, which is a
+    channel with no memory. So the entry now carries BOTH: `by` for
+    attribution, `current` for what to check out. **`current` is always
+    present and equals `by` when nothing superseded it** — an absent
+    field cannot be told from an unsuperseded one (#287), and "read
+    `current`, full stop" is only teachable if it is always there.
+
+    THE GRADE IS COMPUTED OVER LIVE CLOSERS ONLY, which is this
+    enactor's answer to the question the brief left open. The brief's
+    lean was that grade should "read from the chain tip"; the same
+    result falls out of a filter instead of a redirect, and the filter
+    is the more honest shape. `grade_by` has always meant *where the
+    grade came from* — provenance, not attribution — and that meaning is
+    correct and worth keeping. What was wrong is that it could come from
+    bytes that no longer exist: a superseded delivery's self-grade, or a
+    superseded gate's `verified`, describing a sha nobody can check out.
+    Dropping superseded closers from the candidate set fixes both
+    without moving what any field means, and it generalises to the gate
+    case, which "follow the delivery's chain tip" does not reach.
+
     `grade_source: "self"` is the part that is not merely correct but
     legible. A grade someone else can set is necessary and not
     sufficient: an unreviewed delivery still reads `unverified`, which is
@@ -726,7 +754,18 @@ def _delivery(
     equipped to catch it — so the fix changes the shape, not just the
     number.
     """
-    deliverer = min(closers, key=lambda e: e.id)
+    first = min(closers, key=lambda e: e.id)
+    current = current_version(log, first.id, offset)
+
+    # Superseded closers describe bytes that are gone. `or closers` is
+    # the degenerate guard: a closer superseded by an envelope that does
+    # not itself close the job would otherwise empty the set, and a
+    # reduction that raises is worse than one reporting a stale grade.
+    standing = [
+        c for c in closers
+        if not log.inbound(c.id, EdgeType.SUPERSEDES, offset)
+    ] or closers
+    deliverer = min(standing, key=lambda e: e.id)
 
     # Only FINDING and WARN carry a grade on the ladder (§6.1 — every
     # other act resolves to n/a because it is structural, not because
@@ -747,10 +786,10 @@ def _delivery(
 
     if not grades_nest:
         # Nothing here carries grade information in either direction.
-        return {"job": job.id, "by": deliverer.id,
+        return {"job": job.id, "by": first.id, "current": current,
                 "grade": deliverer.grade.value, "grade_by": deliverer.id}
 
-    others = [c for c in closers if c.author != deliverer.author and attests(c)]
+    others = [c for c in standing if c.author != deliverer.author and attests(c)]
     best = max(others, key=lambda e: (_GRADE_RANK.get(e.grade, 0), e.id), default=None)
     if best is not None and _GRADE_RANK.get(best.grade, 0) >= _GRADE_RANK.get(
         deliverer.grade, 0
@@ -767,7 +806,8 @@ def _delivery(
     )
     entry: dict[str, Any] = {
         "job": job.id,
-        "by": deliverer.id,
+        "by": first.id,
+        "current": current,
         "grade": grade,
         "grade_by": source.id,
     }
