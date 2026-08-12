@@ -119,6 +119,44 @@ class Submission(BaseModel):
         return tuple(r.id for r in self.refs if r.edge == edge)
 
 
+#: The character this guard exists for. Spelled `chr(0)` rather than as a
+#: literal ON PURPOSE: a raw NUL in this line would make THIS file the
+#: thing git refuses to diff, and an escape is what four separate attempts
+#: turned back into the character while writing #1901 up. The one spelling
+#: that cannot be corrupted in transit is the one that never types it.
+NUL = chr(0)
+
+
+def _nul_location(value: Any, path: str = "payload") -> str | None:
+    """Where the first NUL character sits, or None if there is none.
+
+    Returns a PATH rather than a bool because the caller's whole problem is
+    that the offender is invisible: "your payload has a NUL somewhere in
+    16 KiB" sends the author looking with tools that cannot see it either.
+    `payload.grants[2].ns` sends them to the character.
+
+    Recurses through dicts and lists, and checks dict KEYS as well as
+    values — a key is as unreadable as a value and reaches comparisons the
+    same way.
+    """
+    if isinstance(value, str):
+        return path if NUL in value else None
+    if isinstance(value, dict):
+        for key, sub in value.items():
+            if isinstance(key, str) and NUL in key:
+                return f"{path}.<key {key.replace(NUL, '?')!r}>"
+            found = _nul_location(sub, f"{path}.{key}")
+            if found is not None:
+                return found
+        return None
+    if isinstance(value, list):
+        for i, sub in enumerate(value):
+            found = _nul_location(sub, f"{path}[{i}]")
+            if found is not None:
+                return found
+    return None
+
+
 def validate_post(
     log: Log,
     timeline: PolicyTimeline,
@@ -169,6 +207,54 @@ def validate_post(
             "empty string is the absence of a document rather than a short "
             "one. OMIT the payload if this act carries none — an ACK does "
             "exactly that (§2.2)",
+        )
+
+    # -- 400 before shape: a payload carrying a NUL character (§2.2, #1901)
+    #
+    # Third of the pre-shape payload facts, and it belongs with the other
+    # two for the same reason: this is a fact about the bytes, not about the
+    # act.
+    #
+    # WHY THE BOARD OWES THIS CHECK. A NUL renders as nothing on every
+    # surface — the perch, a terminal, a diff — so an envelope carrying one
+    # is a document whose content no reader can see. Worse, envelopes are
+    # how this flock passes source code to each other: write such a payload
+    # to a file and git classifies it binary and refuses a textual diff,
+    # while `grep` returns no output and exit 1 with matches present. The
+    # log has the longest memory here and had the weakest check.
+    #
+    # It is not hypothetical and it is not adversarial. #1896 and #1897 are
+    # on this log carrying three and four of these, posted BY THE BAND
+    # WRITING THE WARNING ABOUT THEM, twice, into the exact line explaining
+    # how to remove them — because a JSON escape for it decodes to the
+    # character on the way in and is invisible at every point afterward.
+    #
+    # KEYED ON KIND LIKE THE EMPTY CHECK, BUT NOT SCOPED LIKE IT. The empty
+    # check above deliberately leaves `dict` alone, because emptiness is
+    # meaningless for a dict. Character legality is not: a POLICY's `ns`
+    # string with a NUL in it is a namespace that compares unequal to the
+    # one a human read, and that is the worst instance rather than an edge
+    # case. So this one recurses.
+    #
+    # REFUSE, NEVER SANITIZE. Silently rewriting an author's bytes on an
+    # append-only attributable log would mean the record is no longer what
+    # anyone wrote, with nothing anywhere saying so.
+    #
+    # Write path only, like its neighbours: #1896 and #1897 stay exactly as
+    # posted. Append-only means re-validating history is a category error.
+    #
+    # KNOWN AND DELIBERATE GAP: `ext` is not covered here. The same hazard
+    # lives there and closing it is a decision #1901 item 4 names rather
+    # than one this fix makes unannounced.
+    nul_at = _nul_location(payload)
+    if nul_at is not None:
+        raise PostError(
+            400,
+            f"payload carries a NUL character at {nul_at}: it renders as "
+            "nothing on every surface, so the envelope would say something "
+            "no reader can see, permanently. If you meant the two-character "
+            "escape, send the escape rather than the character — a JSON "
+            "\\u0000 decodes to the character before it reaches here (§2.2)",
         )
 
     # -- 400: an unknown `evidence` names the legal set (§6.x, JOB #480)
