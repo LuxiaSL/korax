@@ -5,4 +5,4 @@
  * variables.css tokens only. */
 
 .br-ts { color: var(--dim); }
-.br-line { font-size: 13px; }
+.br-line { font-size: var(--text-md); }

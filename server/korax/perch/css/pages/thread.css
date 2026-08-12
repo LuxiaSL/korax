@@ -10,9 +10,9 @@
    control that floor exists for — a class selector would outrank the
    media query's element selector and quietly undo R-NEXT(mobile). */
 .ti-toggle {
-  padding: 2px 8px;
-  font-size: 11px;
-  font-family: var(--mono);
+  padding: var(--space-2xs) var(--space-sm);
+  font-size: var(--text-xs);
+  font-family: var(--font-ui);
   color: var(--dim);
 }
 .ti-toggle[aria-expanded="true"] {
@@ -24,8 +24,8 @@
    glance — indentation says "this is inside that", the rail says it
    louder than whitespace can. */
 .ti-inline {
-  margin: 8px 0 4px 10px;
-  padding-left: 10px;
+  margin: var(--space-sm) 0 var(--space-xs) var(--space-sm);
+  padding-left: var(--space-sm);
   border-left: 2px solid var(--accent2);
 }
 .ti-inline .card { margin-bottom: 0; }

@@ -5136,3 +5136,64 @@ refused; posts into the bumped envelope's own ns when granted; falls
 back to `/korax/meta` when not (`/korax/notices` is the fixture's
 example of a nest permitting NOTE with `band:* reader` only — deliberate
 per JOB #163, not a bug I found).
+## R102 — The style pass: a token layer the swap actually reaches
+
+**Change.** CSS only. `variables.css` grows from 12 lines to a full token
+layer — surfaces, text, lines, accent, status, geometry, spacing, type,
+depth, motion, layers — and `base.css` plus `css/pages/*` are substituted
+onto it. **No JS, no markup, no behaviour.** JOB #1740, the last unstarted
+item of the operator's perch slate (#1342 §4).
+
+**The register, and where it deliberately diverges.** The brief names
+`~/projects/aethera-server/admin/public/css/variables.css` as the worked
+example — terminal-meets-void: sharp geometry, one mono family, a
+disciplined scale, glow instead of chrome. What is adopted is that
+DISCIPLINE: radius-0 as a token, a 4px spacing scale replacing fourteen
+literals, a seven-step type scale replacing eleven, named layers replacing
+bare `z-index: 5`. What is not adopted is that product's brand — its
+palette, its Libertinus face, its transparent-for-a-shader background.
+
+**One divergence is a judgement and is argued rather than inherited.** The
+example sets ONE mono family for everything because it is an admin
+dashboard: all chrome, no prose. **The perch is a reading surface** — an
+envelope's payload runs to a thousand words. So the chrome is monospace
+(nav, tags, tables, numbers: instruments) and the payload is not (texts).
+
+**That decision was made twice, and the first screenshot is why.** The
+initial pass put `body` in mono and stopped, which set `#fbLegend` — ~400
+words of argument on the flight tab — in monospace at reading length. That
+is the exact cost the token file's own comment names, committed by the pass
+that wrote the comment. The reading face now covers `.payload` and
+`#fbLegend`, with `code` spans inside prose staying mono because they are
+instruments quoted inside a text.
+
+**`--ink` is a token now, and it is the example's named lesson.** That file
+carries a comment earning it the hard way: never use a background token as
+a text colour. The perch spelled the same value `#0b0c10` inline on primary
+buttons and the nav badge, and `feed.css` used `var(--bg)` as the text
+colour on `.fd-new`. All three are `--ink`, which is the one colour that
+must stay dark if the palette ever inverts.
+
+**The guards** (`test_perch_style.py`, each canaried both ways on disk):
+every colour lives in `variables.css` and nowhere else — the swap-one-file
+premise asserted rather than promised; every `var(--x)` resolves to a
+defined token, because a misspelled custom property is dropped silently by
+every browser with no console, no build and no test saying a word; the
+mobile pass's three ergonomic literals (44px, 40px, 16px) stay LITERAL,
+because a threshold expressed as a scale step moves when the scale moves
+and nothing about that failure is visible on a desktop; and both halves of
+the type decision are bound, since asserting only "chrome is mono" would
+pass the broken first version.
+
+**And it absorbs R99's indicator.** The live feed (JOB #1659) landed while
+this branch was in flight and brought three raw hexes into `feed.css` for
+the live/restarting/reconnecting states. **Those ARE the board's status
+palette** — `--ok`, `--warn`, `--bad`, which predate both jobs — so they are
+tokens now, and `var(--line, #ccc)` loses a fallback that could never fire.
+Two of one band's deliveries colliding while each was green alone, because
+neither contained the other; warned at #1774, measured at #1783, and R99
+merging first is what chose this branch to carry the fix.
+
+**Cost.** Perch-only: merge is the deploy, no restart. Verified in a real
+browser — every tab console-clean and free of horizontal overflow at 390px
+and 360px, before/after screenshots in the delivery.

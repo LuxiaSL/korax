@@ -1,12 +1,151 @@
-/* variables.css — the perch's design tokens (#1385 D1/D5, JOB #1389).
+/* variables.css — the perch's design tokens (#1385 D1, JOB #1389;
+ * the style pass, JOB #1740).
  *
- * The style pass (#1342 §4) lands HERE and almost nowhere else: swap
- * these tokens and every tab follows, because no tab file names a raw
- * color. The aethera-server admin's variables.css is the register this
- * file is built to be swapped toward. */
+ * The style pass lands HERE and almost nowhere else: swap these tokens and
+ * every tab follows, because no tab file names a raw color. R92 left this
+ * file byte-clean for exactly that reason.
+ *
+ * THE REGISTER, AND WHERE THIS DELIBERATELY DIVERGES FROM IT.
+ * `~/projects/aethera-server/admin/public/css/variables.css` is the worked
+ * example the operator already likes: terminal-meets-void — sharp geometry,
+ * one monospace family, a disciplined scale, glow instead of chrome. What is
+ * adopted here is that DISCIPLINE. What is not adopted is that product's
+ * brand: its palette, its Libertinus face, its transparent-for-a-shader
+ * background. Those belong to æthera; the perch is not it.
+ *
+ * ONE DIVERGENCE IS A JUDGEMENT AND SHOULD BE ARGUED WITH RATHER THAN
+ * INHERITED: the example sets ONE mono family for everything, because it is
+ * an admin dashboard — all chrome, no prose. **The perch is a reading
+ * surface.** Envelope payloads here run to a thousand words of argument, and
+ * monospace at that length costs real legibility. So the chrome goes mono
+ * (nav, tags, labels, tables, numbers — everything that is an INSTRUMENT)
+ * and the payload keeps a proportional face (everything that is a TEXT).
+ * That split is the adaptation; if the operator wants it uniform, it is one
+ * token.
+ */
 
 :root {
-  --bg: #0e0f12; --panel: #16181d; --panel2: #1c1f26; --line: #262a33;
-  --text: #d8dbe2; --dim: #8b90a0; --accent: #7c8cff; --accent2: #9a6cf0;
-  --ok: #58c08a; --warn: #e0b054; --bad: #e06c75; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* -- surfaces -----------------------------------------------------------
+     Four steps, darkest to lightest, the way the example stacks them. */
+  --bg: #0b0c0f;
+  --panel: #131519;
+  --panel2: #1a1d23;
+  --elevated: #21252d;
+
+  /* Solid dark, for text sitting ON a filled accent surface. The example
+     carries a comment earning this token the hard way — never use a
+     background token as a text color. The perch had the same value spelled
+     `#0b0c10` inline in two places (primary buttons, the nav badge); it is
+     a token now, and it is the one color that must stay dark if the palette
+     ever inverts. */
+  --ink: #0b0c0f;
+
+  /* -- text ---------------------------------------------------------------
+     Three weights of voice, not five: primary reads, dim annotates, faint
+     is for the things you only look at when you are looking for them. */
+  --text: #dfe2e9;
+  --dim: #8f95a5;
+  --faint: #676d7c;
+
+  /* -- lines --------------------------------------------------------------
+     `--line` is the visible rule; `--line-soft` divides things that belong
+     together (rows inside one table) and must not read as a boundary. */
+  --line: #272b34;
+  --line-soft: #1c2028;
+
+  /* -- accent -------------------------------------------------------------
+     The perch's own hue, kept: this is not the example's white-on-void.
+     `--accent-quiet` is for large fills where full-strength accent shouts. */
+  --accent: #7c8cff;
+  --accent-hover: #99a5ff;
+  --accent-quiet: #232a4d;
+  --accent2: #9a6cf0;
+  --accent2-quiet: #2e2440;
+
+  /* -- status -------------------------------------------------------------
+     Slightly desaturated, per the example: a board full of saturated status
+     chips reads as an alarm panel, and most of these are ordinary facts. */
+  --ok: #58c08a;
+  --ok-quiet: #1e3229;
+  --warn: #e0b054;
+  --warn-quiet: #332a18;
+  --bad: #e06c75;
+  --bad-quiet: #331f22;
+  --seal: #c9a9e8;
+  --seal-quiet: #241d2e;
+  --seal-line: #4a3a5a;
+
+  /* -- geometry -----------------------------------------------------------
+     SHARP. The example is radius-0 throughout and that is the single
+     loudest thing about its register. Kept as tokens rather than literals
+     so softening it back is one edit rather than forty.
+     `--radius-pill` exists because two elements (the identity chip, the nav
+     badge) are pills by MEANING — they are counts and labels, not panels —
+     and squaring them made them read as buttons. */
+  --radius: 0;
+  --radius-lg: 0;
+  --radius-pill: 999px;
+
+  /* -- spacing ------------------------------------------------------------
+     A 4px-based scale. Before this pass the perch used 4, 5, 6, 7, 8, 9,
+     10, 12, 14, 16, 18, 20, 24 and 26 as literals; those are now these. */
+  --space-2xs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 18px;
+  --space-xl: 24px;
+  --space-2xl: 36px;
+
+  /* -- type ---------------------------------------------------------------
+     `--font-ui` is the instrument face, `--font-text` the reading face.
+     The scale replaces eleven ad-hoc sizes (10, 11, 12, 12.5, 13, 13.5,
+     14, 15, 16, 22, 26, 28) with seven steps. */
+  --font-ui: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-text: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: var(--font-ui);   /* kept: tab CSS already names --mono */
+
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-base: 15px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+  --text-2xl: 28px;
+
+  --leading-tight: 1.15;
+  --leading-ui: 1.35;
+  --leading-text: 1.6;   /* payload prose only — the reading measure */
+  --tracking-eyebrow: .12em;
+
+  /* -- depth --------------------------------------------------------------
+     Glow rather than drop-shadow is the example's core move: light bleeding
+     off a surface, not a card floating above paper. Used sparingly here —
+     focus rings and the toast, nothing ambient. */
+  --glow-accent: 0 0 0 1px var(--accent), 0 0 18px rgba(124, 140, 255, .18);
+  --glow-bad: 0 0 18px rgba(224, 108, 117, .18);
+  --shadow-lift: 0 8px 24px rgba(0, 0, 0, .55);
+
+  /* -- motion -------------------------------------------------------------
+     Two speeds. Anything slower than `--t-slow` on a board that repaints on
+     every wake reads as lag rather than polish. */
+  --t-fast: 120ms ease;
+  --t-slow: 220ms ease;
+
+  /* -- layers -------------------------------------------------------------
+     Named, because the perch previously used 5 and 20 as bare literals and
+     a third stacking context would have been guesswork. */
+  --z-sticky: 200;
+  --z-modal: 300;
+  --z-toast: 400;
+}
+
+/* The board is dark by design and has no light mode to keep coherent, so
+   there is no second palette to drift out of sync — the discipline the
+   brief asks for is met by there being ONE definition of every color, here.
+   `prefers-reduced-motion` is honoured because the transitions above are
+   decoration and somebody's vestibular system is not. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 0ms; --t-slow: 0ms; }
 }
