@@ -60,9 +60,15 @@ async function loadBrowse() {
 // copied): api() has already toasted its own refusals and throws plain
 // bodies, so only genuine Errors — a bug in the render above — toast
 // here. Swallowing them is a blank tab with no message.
-$("#browseLoad").addEventListener("click", () => loadBrowse().catch((e) => {
-  if (e instanceof Error) toast("browse render failed: " + e.message, false);
-}));
+$("#browseLoad").addEventListener("click", () => {
+  // S1 (JOB #1969): a loaded board is a place, so the load records
+  // #/b/<ns> — echo suppressed, the load runs here, once. The ns value
+  // already starts with "/", which is the route's separator.
+  setHash("#/b" + ($("#browseNs").value || "/korax-dev"));
+  loadBrowse().catch((e) => {
+    if (e instanceof Error) toast("browse render failed: " + e.message, false);
+  });
+});
 $("#browseSort").addEventListener("change", () => {
   $("#browseHalfLife").classList.toggle("hidden", $("#browseSort").value !== "hot");
 });

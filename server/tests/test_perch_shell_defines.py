@@ -61,7 +61,13 @@ def test_every_helper_the_shell_invokes_is_defined() -> None:
                  # failed to ship is a dead tab and nothing else.
                  "loadBands", "loadConversation", "loadEnvelope",
                  "loadFlight", "loadGraph", "loadInbox", "loadLedger",
-                 "loadOnboard", "loadRatifications", "loadSpeak"):
+                 "loadOnboard", "loadRatifications", "loadSpeak",
+                 # JOB #1969 (S1) — the router's own seams: renderProfile is
+                 # called from the shell's route() ACROSS the file boundary
+                 # (it lives in bands.js), and setHash is called from three
+                 # modules back into the shell. Same distance-break class.
+                 "renderProfile", "setHash", "route", "parseRoute",
+                 "showTab", "routeFor", "setNsPick"):
         assert re.search(rf"\bfunction {name}\s*\(", bundle) or re.search(
             rf"\b(const|let)\s+{name}\s*=", bundle
         ), f"{name}() is called but never defined — the R82-split class"

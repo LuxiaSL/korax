@@ -1,4 +1,9 @@
-"""ISSUE #1597, JOB #1615 — a real browser clicks every tab.
+"""ISSUE #1597, JOB #1615 — a real browser walks every route (JOB #1969).
+
+S1 (the router) turned the TABS list into a ROUTES list, per the forum
+base's own acceptance: every route navigated warm, walked back with the
+back button, and cold-loaded as a deep link; plus the #1941 census —
+every markup-bound symbol exercised through a real click.
 
 The R82-split bug (`postNsValue`, R90) was a called-but-undefined
 identifier: a runtime ReferenceError, invisible to `node --check` (proves
@@ -105,8 +110,14 @@ post(operator, "/korax-dev", "POLICY", {
     "grades": True,
     "retention": {"mode": "permanent"},
     "view_floor": "unverified",
+    # The operator holds human on /** from seed_board and NOTHING scoped:
+    # a SCOPED human grant here made inboxFor() route the operator's inbox
+    # tab to /korax-dev/inbox, so the OPEN this seed plants in /korax/inbox
+    # was never visible to the tab and the old probe passed on the
+    # empty-state text — green-by-empty-read (#1843), caught by the S1
+    # census's "untouched" assertion. The live board's operator is root
+    # human with no scoped grant; the rig now mirrors that.
     "grants": [
-        {"identity": operator, "ns": "/korax-dev/**", "band": "human"},
         {"identity": alice, "ns": "/korax-dev/**", "band": "claimant"},
         {"identity": bob, "ns": "/korax-dev/**", "band": "claimant"},
     ],
@@ -139,6 +150,12 @@ post(alice, "/korax-dev", "NOTE", "smoke: mentioning the operator",
      ext={"korax": {"mentions": [operator]}})
 post(alice, "/dm/" + operator, "NOTE", "smoke: a DM for the feed's mailbox lane")
 
+# a thread with a child, so the census (JOB #1969) has a ▸ toggle to click:
+# the conversation walk around the root must contain at least one node
+thread_root = post(alice, "/korax-dev", "NOTE", "smoke: thread root for the toggle census")
+post(bob, "/korax-dev", "NOTE", "smoke: a reply the census expands",
+     refs=[{"edge": "replies", "id": thread_root.id}])
+
 probe_envelope_id = j1.id
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -146,7 +163,7 @@ sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 sock.bind(("127.0.0.1", 0))
 port = sock.getsockname()[1]
 open(sys.argv[2], "w").write(
-    f"{operator}\\n{op_tok}\\n{port}\\n{probe_envelope_id}\\n")
+    f"{operator}\\n{op_tok}\\n{port}\\n{probe_envelope_id}\\n{thread_root.id}\\n")
 uvicorn.Server(uvicorn.Config(create_app(board), log_level="error")).run(
     sockets=[sock])
 """
@@ -154,7 +171,7 @@ uvicorn.Server(uvicorn.Config(create_app(board), log_level="error")).run(
 
 @pytest.mark.browser
 @pytest.mark.skipif(bool(_SKIP_REASON) and not _REQUIRED, reason=str(_SKIP_REASON))
-def test_every_tab_renders_without_console_errors(tmp_path) -> None:
+def test_every_route_renders_without_console_errors(tmp_path) -> None:
     if _REQUIRED and _SKIP_REASON:
         # #1697's flip: where the environment DECLARED the browser leg
         # required, a missing dependency is a failure that names itself —
@@ -184,7 +201,7 @@ def test_every_tab_renders_without_console_errors(tmp_path) -> None:
                 )
             pytest.skip("server did not start; not a statement about the smoke")
         time.sleep(1.0)
-        operator, token, port, probe_id = info.read_text().splitlines()
+        operator, token, port, probe_id, thread_root_id = info.read_text().splitlines()
         origin = f"http://127.0.0.1:{port}"
 
         chrome = subprocess.Popen([
@@ -204,8 +221,9 @@ def test_every_tab_renders_without_console_errors(tmp_path) -> None:
             pytest.fail("headless Chrome did not answer its CDP port")
 
         driver = subprocess.run(
-            [NODE, str(DRIVER), str(cdp_port), origin, token, probe_id],
-            capture_output=True, text=True, timeout=90,
+            [NODE, str(DRIVER), str(cdp_port), origin, token, probe_id,
+             thread_root_id],
+            capture_output=True, text=True, timeout=240,
         )
     finally:
         if server.poll() is None:
@@ -218,26 +236,51 @@ def test_every_tab_renders_without_console_errors(tmp_path) -> None:
     )
     report = json.loads(driver.stdout.strip().splitlines()[-1])
 
-    assert not report["tabMismatch"], (
-        f"the driver's tab list has drifted from the shell's own nav — "
-        f"nav now serves {report['navTabs']}; update TABS in "
+    assert not report["routeMismatch"], (
+        f"the driver's ROUTES list has drifted from the shell's own nav — "
+        f"nav now serves {report['navTabs']}; update ROUTES in "
         f"perch_smoke_driver.js to match before trusting this sweep"
     )
 
     # The general guard: no console error, no uncaught exception, anywhere,
-    # on any tab — the #1597 class's superset, not a known-identifier list.
+    # on any route — the #1597 class's superset, not a known-identifier list.
     assert not report["errors"], (
         "console error(s) or uncaught exception(s) in a real browser:\n"
-        + "\n".join(f"  [{e['tab']}] {e['kind']}: {e['detail']}"
+        + "\n".join(f"  [{e['where']}] {e['kind']}: {e['detail']}"
                      for e in report["errors"])
     )
 
-    # A tab that renders nothing exercises nothing (the brief's own words).
-    empty_tabs = [tab for tab, value in report["tabs"].items() if not value]
-    assert not empty_tabs, (
-        f"these tabs rendered empty against the seeded corpus: {empty_tabs} "
-        f"— either the seed script needs to feed them or the probe "
-        f"selector in perch_smoke_driver.js no longer matches the DOM"
+    # A route that renders nothing exercises nothing (the brief's own
+    # words) — and a route whose SECTION is wrong reports 0 here, so this
+    # also asserts the router showed the right view.
+    empty_warm = [h for h, value in report["routes"].items() if not value]
+    assert not empty_warm, (
+        f"these routes rendered empty (or the wrong section) on the warm "
+        f"walk: {empty_warm}"
+    )
+
+    # JOB #1969 — the back button walks the history the routes pushed,
+    # hash and visible section agreeing at every step.
+    bad_back = [step for step in report["backTrail"] if not step["ok"]]
+    assert not bad_back, (
+        f"back-button traversal diverged from the pushed history: {bad_back}"
+    )
+
+    # JOB #1969 — a cold load of a deep link lands ON that view, loaded:
+    # the URL is the state, from the first paint.
+    empty_cold = [h for h, value in report["cold"].items() if not value]
+    assert not empty_cold, (
+        f"these routes failed as COLD deep-loads (blank or wrong section): "
+        f"{empty_cold}"
+    )
+
+    # #1941's census: every markup-bound symbol reached through a real
+    # click (or the render that carries it, for the two lexical ones),
+    # judged by its effect.
+    failed_census = sorted(k for k, v in report["census"].items() if not v)
+    assert not failed_census, (
+        f"census clicks whose effect did not land: {failed_census} — a "
+        f"markup-bound symbol may have been stranded by a move (#1941)"
     )
 
 

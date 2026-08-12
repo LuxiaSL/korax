@@ -56,7 +56,13 @@ async function loadEnvelope() {
     + await stampBlock(e));
   $("#envView").innerHTML = "";
 }
-$("#envLoad").addEventListener("click", loadEnvelope);
+// S1 (JOB #1969): a fetched envelope is a place, so the fetch button
+// records #/e/<id> — the echo is suppressed and the load runs here, once.
+$("#envLoad").addEventListener("click", () => {
+  const id = $("#envId").value.trim();
+  if (id !== "") setHash("#/e/" + id);
+  loadEnvelope();
+});
 $("#envConvo").addEventListener("click", loadConversation);
 document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", async () => {
   const id = $("#envId").value.trim();

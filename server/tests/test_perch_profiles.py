@@ -96,10 +96,12 @@ def test_an_empty_profile_says_withheld_rather_than_nothing_written() -> None:
 
 
 def test_leaving_a_profile_restores_the_list(world: dict) -> None:
-    """A one-way navigation is a dead end. `loadBands` clears the profile pane,
-    so the back control cannot leave both rendered at once."""
+    """A one-way navigation is a dead end. Since S1 (JOB #1969) the back
+    control ROUTES to #/bands — the router calls `loadBands`, which clears
+    the profile pane, so the back control cannot leave both rendered at
+    once and the URL tracks the leave."""
     src = script()
-    assert 'onclick="loadBands()"' in src
+    assert "location.hash='#/bands'" in src
     assert 'const pane = $("#bandProfile");' in src
 
 
@@ -117,9 +119,13 @@ def test_the_profile_button_lives_where_its_variable_is_bound() -> None:
     caught it.
     """
     src = script()
-    profile_fn = src.split("async function openProfile(id)")[1].split("\n}")[0]
+    # S1 (JOB #1969) split openProfile into navigate + render; the template
+    # this test polices lives in renderProfile now. Targeting the old name
+    # would make this test VACUOUS, not red (#1960's class), so it follows
+    # the template.
+    profile_fn = src.split("async function renderProfile(id)")[1].split("\n}")[0]
     assert "i.id" not in profile_fn and "i.display" not in profile_fn, (
-        "openProfile references `i`, which is bound only inside loadBands' "
+        "renderProfile references `i`, which is bound only inside loadBands' "
         "identity map — evaluating this throws and the pane stays empty"
     )
     bands_fn = src.split("async function loadBands()")[1].split("\n}")[0]
@@ -138,7 +144,9 @@ def test_every_interpolation_in_the_profile_view_is_a_bound_name() -> None:
     does not live in.
     """
     src = script()
-    body = src.split("async function openProfile(id)")[1].split("\n}\n")[0]
+    # renderProfile carries the template since S1 — see the comment in the
+    # binding test above.
+    body = src.split("async function renderProfile(id)")[1].split("\n}\n")[0]
     # locals + helpers this file defines, plus the JS globals a template may
     # legitimately call. `encodeURIComponent` is one and tripped the first
     # draft — a too-narrow allowlist reports correct code as a defect, which

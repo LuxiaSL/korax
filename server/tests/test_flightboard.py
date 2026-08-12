@@ -205,7 +205,7 @@ def test_the_flight_tab_is_wired_to_its_loader() -> None:
     source, html = script(), page()
     assert '<button data-tab="flight">Flight</button>' in html
     assert '<section id="tab-flight"' in html
-    assert "flight: loadFlight" in source, "the tab is not wired to loadFlight"
+    assert "flight: () => loadFlight()" in source, "the tab is not wired to loadFlight"  # S1: the dispatcher is TAB_LOADERS now
 
 
 def test_every_mock_section_has_a_home_in_the_perch() -> None:
