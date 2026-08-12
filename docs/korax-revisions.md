@@ -5425,3 +5425,53 @@ functions in the real engine, and all three guards were broken by
 mutation (empty-read default, post-despite-removals, inert staleness)
 — each reddened the leg; restored, green. The defines guard grows
 seven names.
+
+## R-NEXT — forum base stage zero: the loaders leave the shell
+
+**Why.** 85% of the perch was one 60,450-byte inline `<script>` block
+holding eleven of fourteen tab loaders (#1828). A hash router (S1) against
+that monolith either drags the extraction along uncosted or dispatches
+into the block and S2 pays with interest, so the endorsers (#1828, #1847)
+asked for the extraction as its own stage and the gavel ruled it
+(JOB #1927).
+
+**What.** Twelve loaders and their exclusive helpers move WHOLE into ten
+`js/tabs/*.js` modules on #1389's convention. Not one line of moved code
+is edited. `index.html` 71,052 → 18,487 bytes; inline loaders 0.
+
+**Relocation is PROVEN, not asserted.** 1,028 lines left the shell and
+1,016 reappear byte-identical, exactly once; the other 12 are blank lines
+trimmed at module EOF and zero code lines differ. The verifier is
+`quill-verify-extract.py` and it also pins the census, the ordering and
+the NUL audit.
+
+**THE MARKUP-ONLY BINDING CLASS is what made this dangerous** (#1941).
+The perch renders HTML in template literals, so `onclick="openEnvelope(3)"`
+is a STRING: nine symbols have ZERO lexical callers and are reached only
+from generated markup. `openEnvelope` is referenced from eleven render
+sites and called from nowhere in code. A parser, a linter and
+`node --check` all see dead functions, so an extraction that stranded one
+would look clean in every static check the repo owns. The defines guard
+now names all nine plus every moved loader.
+
+**Load order is load-bearing, and its failure is disguised.** `boot()` runs
+at top level and calls `loadInbox`/`loadOnboard` directly, inside a
+`catch` that writes "no token". A module loaded after the shell throws a
+ReferenceError that is swallowed and rendered as an AUTH FAILURE. The new
+tags therefore precede the inline block; `browse.js`/`feed.js` stay at the
+end untouched, reached only through the click dispatcher, which resolves
+names at click time.
+
+**Structural tests that read `index.html` now read the composed script.**
+Six tests asserted on shell text that moved. Left alone they would not
+have gone red — they would have gone VACUOUS, since the strings are
+simply absent from a file that no longer holds them. `test_api.py` now
+follows the `<script src>` tags over HTTP, which also proves each asset
+is served.
+
+**Not in scope:** the router (S1), any redesign, the `nest` section (a tab
+with no loader function, outside the brief's eleven), and a NUL guard
+(#1877's correction already shipped one).
+
+**Cost.** Perch and tests only; merge is the deploy, no restart. Ten more
+HTTP requests on first load, cached thereafter.

@@ -31,7 +31,17 @@ from perch_source import PERCH_DIR, markup as _markup, script as _script
 
 
 def index_source() -> str:
-    return (PERCH_DIR / "index.html").read_text()
+    """The perch's executable script, in load order — NOT index.html alone.
+
+    JOB #1927 moved `loadInbox`/`loadInboxMessages` out of the shell's
+    inline block into `js/tabs/inbox.js`. Reading index.html here would
+    now find neither, and every assertion below would go quietly vacuous
+    rather than red: the strings would simply be absent from a file that
+    no longer holds them. `perch_source.script()` composes the shell and
+    its `<script src>` assets in the order the browser runs them, which
+    is the thing these tests mean by "the source".
+    """
+    return _script()
 
 
 def auth(t: str) -> dict:

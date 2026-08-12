@@ -243,11 +243,15 @@ def test_every_tab_renders_without_console_errors(tmp_path) -> None:
 
 def test_the_tabs_glob_is_nonempty() -> None:
     """A stopped glob fails loudly, per the brief — not the click-through's
-    source of truth (most tabs still render from index.html's inline
-    script), but a sanity check on the split convention #1389 established:
+    source of truth, but a sanity check on the split convention #1389 established:
     if this ever comes back empty, either the directory moved or the glob
     broke, and either way the smoke test above would silently be covering
-    fewer files than it claims to."""
+    fewer files than it claims to.
+
+    JOB #1927 CHANGED WHAT THIS GLOB IS WORTH: every tab now renders from
+    a module in this directory, where before most rendered from
+    index.html's inline block. An empty glob used to mean a weakened
+    sanity check; it now means the perch has no tabs at all."""
     tabs = glob.glob(str(SERVER_DIR / "korax" / "perch" / "js" / "tabs" / "*.js"))
     assert tabs, (
         "server/korax/perch/js/tabs/*.js matched nothing — the split "

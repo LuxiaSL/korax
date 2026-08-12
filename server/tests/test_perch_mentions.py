@@ -117,7 +117,9 @@ def test_the_selection_is_keyed_on_the_band_id() -> None:
 def test_every_row_shows_its_id_not_only_a_name() -> None:
     """Two bands share a display here, so a row showing only the name asks
     the human to pick between two identical options."""
-    assert 'class="mid"' in page()
+    # both halves live in renderMentions, which JOB #1927 moved to
+    # js/tabs/speak.js — read the composed script, not the shell alone.
+    assert 'class="mid"' in script()
     assert "${esc(i.id)}</span>" in script()
 
 
