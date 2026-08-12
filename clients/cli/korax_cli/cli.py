@@ -50,6 +50,7 @@ from .wire import (
     FeedPage,
     IdentityCreated,
     IdentityRegistry,
+    InviteCreated,
     NeighbourhoodResult,
     PolicyInForce,
     ReadPage,
@@ -1052,15 +1053,69 @@ def _server_block(repo: str, env: dict[str, str]) -> dict[str, Any]:
     }
 
 
+_DURATION_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+
+
+def _parse_duration(text: str) -> int:
+    """`90s`, `30m`, `2h`, `7d` — or a bare integer read as seconds.
+
+    Refuses rather than guesses: an invite's expiry is a security
+    parameter, and a typo silently read as "3 seconds" or "3 days" is
+    the same class of mistake in opposite directions.
+    """
+    raw = text.strip().lower()
+    if not raw:
+        raise CliError("empty duration", hint="try 30m, 2h, 7d")
+    unit = _DURATION_UNITS.get(raw[-1])
+    number = raw[:-1] if unit else raw
+    try:
+        value = int(number)
+    except ValueError:
+        raise CliError(
+            f"could not read {text!r} as a duration",
+            hint="use a number with an optional s/m/h/d suffix, e.g. 30m",
+        ) from None
+    if value < 1:
+        raise CliError("a duration must be at least 1 second")
+    return value * (unit or 1)
+
+
+async def cmd_invite(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """Mint a bootstrap credential for a machine that has none (JOB
+    #1839). HUMAN band only — the board refuses anyone else, and that
+    refusal is the reason this verb does not move §3.4's boundary.
+
+    The token prints ONCE. It is not written anywhere: an invite that
+    lands in a file on the inviter's host is a credential nobody
+    remembers deleting."""
+    body = await client.create_invite(
+        uses=args.uses, expires_in_s=_parse_duration(args.expires)
+    )
+    _check_shape(InviteCreated, body, "/invite")
+    rt.emit(dict(body, next=(
+        f"on the fresh machine: korax enlist <display> --invite {body['invite']} "
+        f"--url {config.url}"
+    )))
+    return 0
+
+
 async def cmd_enlist(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
     """R18 self-service: mint your *own* identity (the token comes back
     to you over the authenticated channel — it never crosses the log),
     write the project config, and post the grant request to the
-    operator's inbox. Work at the band:* floor until the ruling lands."""
+    operator's inbox. Work at the band:* floor until the ruling lands.
+
+    On a FRESH MACHINE pass `--invite <token>`: with no credential of
+    its own, a host has nothing to authenticate with, and this command
+    used to 401 on the very credential it exists to produce (#1837).
+    The invite authorises the mint and records who issued it.
+    """
     grants = _parse_grants(args.grant)
-    created = await client.create_identity(args.display)
+    created = await client.create_identity(args.display, invite=args.invite)
     _check_shape(IdentityCreated, created, "/identity")
     identity, new_token = created["id"], created["token"]
 
@@ -2924,6 +2979,13 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="BAND:/ns/glob",
         help="bands to request, repeatable; omit to just mint",
     )
+    enlist.add_argument(
+        "--invite",
+        metavar="TOKEN",
+        help="an invite from the operator (`korax invite`) — THE flag for a "
+        "machine with no korax credential of its own, which cannot "
+        "authenticate the mint any other way (#1837)",
+    )
     enlist.add_argument("--dir", default=".", help="project directory (default: cwd)")
     enlist.add_argument("--no-write", action="store_true", help="print the config; write nothing")
     enlist.add_argument(
@@ -2932,6 +2994,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="korax monorepo path used in the MCP command (default: this install)",
     )
     enlist.set_defaults(func=cmd_enlist)
+
+    # -- invite ------------------------------------------------------------------
+    invite = sub.add_parser(
+        "invite",
+        parents=[common],
+        help="mint a bootstrap invite for a machine with no credential (human band)",
+        description="Mint an invite so a FRESH machine can enlist. Without "
+        "one, `korax enlist` needs the credential it exists to produce "
+        "(#1837) — an invite is the second way to be authenticated, and "
+        "the mint stays authenticated either way. HUMAN band only: an "
+        "invite delegates the power to mint, so widening who may issue "
+        "one is a canon question, not a flag. The token PRINTS ONCE and "
+        "is written nowhere; send it to the new machine yourself.",
+    )
+    invite.add_argument(
+        "--uses",
+        type=int,
+        default=1,
+        help="how many machines may spend it (default: %(default)s)",
+    )
+    invite.add_argument(
+        "--expires",
+        default="1h",
+        metavar="DURATION",
+        help="lifetime as 30m / 2h / 7d, or bare seconds (default: %(default)s)",
+    )
+    invite.set_defaults(func=cmd_invite)
 
     # -- auth ------------------------------------------------------------------
     auth = sub.add_parser(

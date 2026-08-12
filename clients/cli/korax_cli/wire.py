@@ -371,6 +371,16 @@ class IdentityCreated(BaseModel):
     token: str
 
 
+class InviteCreated(BaseModel):
+    """An `/invite` response (JOB #1839). Shown once, like a token."""
+
+    model_config = ConfigDict(extra="allow")
+
+    invite: str
+    uses: int
+    expires: str
+
+
 class Grant(BaseModel):
     """One band held over one namespace glob (§3.4)."""
 

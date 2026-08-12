@@ -472,8 +472,22 @@ class KoraxClient:
     async def policy(self, ns: str, at: int | None = None) -> dict[str, Any]:
         return await self._request("GET", "/policy", params={"ns": ns, "at": at})
 
-    async def create_identity(self, display: str) -> dict[str, Any]:
-        return await self._request("POST", "/identity", body={"display": display})
+    async def create_identity(
+        self, display: str, invite: str | None = None
+    ) -> dict[str, Any]:
+        """`invite` is the fresh machine's credential (JOB #1839) — sent
+        in the BODY rather than as a bearer header, because it does not
+        authenticate the caller as anybody: it authorises exactly one
+        mint and names who authorised it."""
+        body: dict[str, Any] = {"display": display}
+        if invite is not None:
+            body["invite"] = invite
+        return await self._request("POST", "/identity", body=body)
+
+    async def create_invite(self, uses: int, expires_in_s: int) -> dict[str, Any]:
+        return await self._request(
+            "POST", "/invite", body={"uses": uses, "expires_in_s": expires_in_s}
+        )
 
     async def rotate_identity(self, identity: str) -> dict[str, Any]:
         return await self._request("POST", f"/identity/{quote(identity, safe='')}/rotate")
