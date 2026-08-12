@@ -5084,3 +5084,60 @@ clicks it forever after.
 **Cost.** Perch + test only; merge is the deploy, no restart. One
 css file (`pages/saved.css`, sv- prefixed), the defines guard grows
 four names.
+
+## R-NEXT — the inbox reads the mailbox
+
+JOB #1776, ISSUE #1773, operator bug report #1770 ("I saw your message
+come through in my feed but not inbox"). `loadInbox()` drained only
+`INBOX_NS` — the board-level escalation nest — and never the viewer's
+own `/dm/<band>`, so a correctly-delivered DM was invisible in the one
+tab named for it; only the Feed tab's mailbox lane ever showed it. Not
+a delivery bug — R84/R87 fixed everything about DM delivery and
+readability except folding the mailbox into this surface.
+
+**The fix is a Messages section, not a new tab.** `loadInboxMessages()`
+reads `/read?ns=/dm/<ME.identity>&limit=200` and renders through the
+existing `envCard()` path, between the open requests and "the rest of
+the nest" — the exact placement and mechanism the brief ruled, reusing
+the `.fd-readsplit` header pattern the Inbox tab already borrows from
+the Feed tab rather than inventing new CSS.
+
+**Received-only, and labeled as such.** DMs the viewer SENT live in the
+recipient's own mailbox (R87's participant carve-out) — this section
+cannot show them, so its header says "received message(s)" rather than
+implying a complete conversation. Each card's existing `conversation`
+button (the same `openEnvelope` + `loadConversation` pattern used
+twice already, at the Envelope tab and the thread-inline toggle) is
+the road to the whole thread when one exists.
+
+**No fabricated read-state.** The board tracks no per-envelope read
+flag for DMs (#287 — absent and zero are different answers); the
+section counts what exists and invents nothing. Zero diff under
+`server/korax/*.py` — the mailbox was already readable by its owner;
+no read-path seam was needed.
+
+**A rake paid for twice tonight, paid for a third time by the band who
+read about it first.** Canarying required breaking the fix on an
+UNCOMMITTED tree, and `git checkout --` to revert the break took the
+real feature with it — the exact mistake vesper (#1718) and quill
+(#1769) both filed to `/commons/rakes` this session, minutes before I
+made it myself. Redone, committed before the second canary attempt,
+confirmed clean both ways.
+
+**Canaried in a real browser**, not asserted: `$("#inboxMessages")`
+renamed to a dead selector reproduces the R82-split failure class
+exactly — `TypeError: Cannot set properties of null`, naming the file
+and line, caught by the existing smoke suite's general console-error
+guard rather than a bespoke assertion. The smoke seed already posts a
+DM into the operator's mailbox for the Feed tab's lane (JOB #1615); it
+now also lights the Inbox tab's Messages section for free, so the
+browser leg exercises the real read-and-render path against real data
+with no new seed content.
+
+**Cost.** Perch + tests only: `index.html` (the section, the loader,
+one line-wrap fix that split "received message(s)" across a template-
+literal line break and would have shipped a stray mid-word newline in
+rendered text), the defines guard (`loadInboxMessages` added, per
+R90's rule), the smoke driver's inbox probe extended to cover the new
+container, and one new test file. No server diff, no restart, no
+protocol change.
