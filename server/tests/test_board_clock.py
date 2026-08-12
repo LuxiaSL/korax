@@ -207,31 +207,63 @@ def test_eval_ts_is_unchanged_and_still_log_time(world: dict) -> None:
     assert first["output"]["eval_ts"] == _fmt(world["board"].log.get(at).ts)
 
 
-def test_the_reduction_says_what_eval_ts_is_where_it_is_read(world: dict) -> None:
-    """The doc half of #690, and it is not decoration.
+def test_every_reduction_that_serves_eval_ts_says_what_it_is(world: dict) -> None:
+    """The doc half of #690 as a STRUCTURAL SWEEP — #1417's lesson.
 
-    #690's sharpest sentence: the field that LOOKS like the board's clock is
-    a correct-looking wrong answer, and the docstring explaining that lives
-    in `log.py`, which nobody reads at the moment they make the mistake. The
-    explanation now rides beside the value.
+    The first version of this test pinned ONE instance (`jobs`), so it
+    stayed green through the exact merge that broke the class: browse
+    (R77) and this doc field (R79) were in flight simultaneously, and
+    browse landed serving a bare `eval_ts` that neither author could see
+    from their own branch. Attach the guard to the class, not the case
+    (#993/#1009): every view is called, every dict in every response is
+    walked, and wherever `eval_ts` appears, `eval_ts_is` must sit beside
+    it — so the NEXT time-shaped reduction is caught at the commit that
+    adds it, not at the band it burns.
 
-    Two assertions, because naming a trap without naming the exit leaves the
-    reader exactly where they were: it must say what the field is NOT, and it
-    must point at the field that IS the clock."""
-    body = world["client"].get(
-        "/view/jobs", params={"ns": "/korax-dev/jobs"},
-        headers=auth(world["op_token"]),
-    ).json()
-
-    described = body["output"]["eval_ts_is"]
-    assert described == EVAL_TS_IS
-    assert "never the board's wall clock" in described
-    assert "board_ts" in described, (
+    Content asserted once on the constant (every site serves the same
+    bytes): it must say what the field is NOT, and it must point at the
+    field that IS the clock — naming a trap without naming the exit
+    leaves the reader exactly where they were."""
+    assert "never the board's wall clock" in EVAL_TS_IS
+    assert "board_ts" in EVAL_TS_IS, (
         "the exit must be named; a warning that does not say where to go "
         "leaves the reader with the same question and less confidence"
     )
-    # The value it describes is beside it, not somewhere else in the document.
-    assert "eval_ts" in body["output"]
+
+    def sites(node: object) -> list:
+        found = []
+        if isinstance(node, dict):
+            if "eval_ts" in node:
+                found.append(node)
+            for value in node.values():
+                found.extend(sites(value))
+        elif isinstance(node, list):
+            for item in node:
+                found.extend(sites(item))
+        return found
+
+    from test_read_path_refuses import ALL_VIEWS
+
+    emit_sites = 0
+    for name, params in ALL_VIEWS:
+        r = world["client"].get(f"/view/{name}", params=params,
+                                headers=auth(world["op_token"]))
+        if r.status_code != 200:
+            continue
+        for holder in sites(r.json()["output"]):
+            emit_sites += 1
+            assert holder.get("eval_ts_is") == EVAL_TS_IS, (
+                f"view `{name}` serves eval_ts with no eval_ts_is beside "
+                f"it — the #690 trap, back at a new emit site"
+            )
+    # The sweep must not pass vacuously: jobs and browse both emit today,
+    # and a rename that silently removed every site would otherwise turn
+    # this guard green (the mill's non-empty-glob rule, same shape).
+    assert emit_sites >= 2, (
+        f"the sweep found only {emit_sites} eval_ts emit site(s) — either "
+        "the field was renamed out from under this guard or ALL_VIEWS no "
+        "longer reaches the time-shaped reductions"
+    )
 
 
 # -- the class of bug this closes (brief acceptance 3) ------------------------

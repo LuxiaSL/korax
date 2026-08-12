@@ -679,6 +679,11 @@ def browse(
         # tell why the ordering is what it is without reading source.
         "half_life": half_life_out,
         "eval_ts": _fmt(eval_ts),
+        # #1417 — the doc rides beside the value at EVERY emit site. This
+        # is the reduction whose design rests on "log time is the board's
+        # clock" (#1294 D3), so of all places, a reader here must not
+        # mistake eval_ts for the wall clock a lease is computed in.
+        "eval_ts_is": EVAL_TS_IS,
         # The bound rendered as a bound (§10.10): `total` is the whole
         # slice, `entries` is what fit under `limit`.
         "total": len(ordered),
