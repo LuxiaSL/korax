@@ -126,12 +126,25 @@ def test_approve_shows_the_diff_posts_the_policy_and_closes(tmp_path) -> None:
             f"--remote-debugging-port={cdp_port}",
             f"--user-data-dir={tmp_path / 'chrome-profile'}", "about:blank",
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        for _ in range(80):
+        # The else-clause is the fix for CI run 31557685663 (#2009/#2017):
+        # this loop used to exhaust SILENTLY, launching the driver against a
+        # dead CDP port — whose first fetch then died as "TypeError: fetch
+        # failed" with an empty report, reading as "the driver lost the
+        # server" when Chrome had simply not answered in time on a loaded
+        # runner. The budget is 60s because this job runs four browser
+        # tests, each with its own Chrome, on two cores.
+        for _ in range(240):
             try:
                 urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json/list")
                 break
             except Exception:
                 time.sleep(0.25)
+        else:
+            pytest.fail(
+                "headless Chrome did not answer its CDP port within the "
+                "budget — the driver was NOT launched (a silent fall-through "
+                "here is how a slow runner read as a mid-test server loss)"
+            )
 
         run = subprocess.run(
             [NODE, str(DRIVER), str(cdp_port), origin, token, open_id],
