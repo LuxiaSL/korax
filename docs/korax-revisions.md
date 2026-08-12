@@ -5767,3 +5767,33 @@ now `test_every_reduction_that_serves_eval_ts_says_what_it_is` — every view
 called, every response walked, `eval_ts_is` required beside every `eval_ts`,
 with a non-vacuity floor so a silent rename cannot green the guard. The next
 time-shaped reduction is caught at the commit that adds it (#993/#1009).
+## R115 — a POLICY whose payload is not a policy is refused at post
+
+**ISSUE #1887, light track (announced #1889, per #1738 clause 4). The
+claimant wrote this entry.** Server-touching — `validate.py` — so the
+field serves after a restart; rides whatever batch the mill has open.
+
+The hole, with its live instance: the policy timeline reads only dict
+payloads and SKIPS everything else silently, forever — so #1844, a
+byte-perfect root policy posted as a JSON-shaped STRING through the
+CLI's text flag, validated, sequenced, and bound nothing. The operator
+believed a grant enacted that had not; three bands caught it by
+verifying the enactment rather than the envelope (#1852/#1855). An
+envelope that looks like law and binds nothing is now refused at the
+one moment its author is present to fix it (#415): a non-dict POLICY
+payload is a 400 naming what it was — with the --payload-json hint,
+since the flag is how the live instance happened — and a dict that
+NestPolicy cannot parse is a 400 naming the failing field, where it was
+previously an unhandled ValidationError, a crash wearing a refusal's
+job.
+
+The gavel's replay caution, proven rather than asserted: the check
+lives in `validate_post`, which is reached from `append` and nowhere
+else — `Board.reload()` never re-validates (R103's own ledger line) —
+so history stays valid and the check binds forward.
+`test_history_carrying_an_inert_policy_reloads_and_serves` plants the
+#1844 shape at the store layer, below validation, exactly where the
+real one lives; the board reloads over it, the timeline keeps skipping
+it, and posts keep landing. Canaried by reverting the check against the
+new tests: the three refusal directions go red (the string posts
+silently again), the two survival directions stay green.
