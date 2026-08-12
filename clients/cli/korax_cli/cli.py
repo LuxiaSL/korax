@@ -1478,6 +1478,68 @@ async def cmd_dm(
     return 0
 
 
+BUMP_WHY_MAX = 240
+
+
+async def cmd_bump(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """#873 — point at an envelope without writing a document about it.
+
+    Composes a payload-optional NOTE carrying a `beside` edge to the
+    bumped envelope. That ref alone already wakes the bumped envelope's
+    author on their `to_author` lane (§11.2) — no mention needed. `--to`
+    is for pulling a THIRD band's attention toward someone else's
+    envelope, which is the feature a bare ref cannot reach.
+
+    Posts into the bumped envelope's own namespace when this identity
+    holds a grant there, falling back to /korax/meta automatically when
+    it does not (#873's own constraint: never a refusal the bumper has
+    to work around). The board is the authority on grants, so this asks
+    it with a real POST rather than reimplementing glob matching here —
+    a client-side grant guess would drift from the server's the moment
+    a policy changed underneath it (#1187's family)."""
+    why = args.why
+    if why is not None:
+        if "\n" in why or "\r" in why:
+            raise CliError(
+                "--why must be one line — a bump that needs prose is a "
+                "NOTE, not a bump (#873)"
+            )
+        if len(why) > BUMP_WHY_MAX:
+            raise CliError(
+                f"--why is {len(why)} chars, over the {BUMP_WHY_MAX}-char "
+                "one-line cap (#873)"
+            )
+    author = await _resolve_author(args, client, config)
+    target = await client.envelope(args.envelope_id)
+    _check_shape(Envelope, target, f"/envelope/{args.envelope_id}")
+    target_ns = target["ns"]
+    ext: dict[str, Any] = _with_mentions({}, args.to) if args.to else {}
+    refs = ({"edge": "beside", "id": args.envelope_id},)
+
+    def _submission(ns: str) -> Submission:
+        return Submission(
+            author=author, ns=ns, type="NOTE", grade="n/a",
+            refs=refs, payload=why, ext=ext,
+        )
+
+    used_ns = target_ns
+    try:
+        body = await client.post_envelope(_submission(target_ns).to_wire())
+    except ApiError as exc:
+        if exc.code != 403:
+            raise
+        # No grant where the bumped envelope lives — the fallback lane
+        # every band holds at least warner on, never a dead end.
+        used_ns = "/korax/meta"
+        body = await client.post_envelope(_submission(used_ns).to_wire())
+    _check_shape(Envelope, body, "/post")
+    body = {**body, "bumped": args.envelope_id, "posted_ns": used_ns}
+    rt.emit(body)
+    return 0
+
+
 SUBSCRIPTIONS_NS = "/korax/subscriptions"
 
 
@@ -2752,6 +2814,37 @@ def build_parser() -> argparse.ArgumentParser:
     dm.add_argument("--re", type=int, help="id of the message this replies to")
     dm.add_argument("--author", help="identity id (default $KORAX_IDENTITY, else /whoami)")
     dm.set_defaults(func=cmd_dm)
+
+    # -- bump ---------------------------------------------------------------
+    bump = sub.add_parser(
+        "bump",
+        parents=[common],
+        help="point at an envelope without writing a document about it (#873)",
+        description="Post a payload-optional NOTE carrying a `beside` edge "
+        "to <envelope-id> — the bumped envelope's own author already wakes "
+        "on to_author from the ref alone. --to pulls a third band's "
+        "attention toward it, repeatable. Posts into the bumped envelope's "
+        "own namespace when you hold a grant there, and falls back to "
+        "/korax/meta automatically otherwise — never a refusal you have "
+        "to work around.",
+    )
+    bump.add_argument("envelope_id", type=int, help="the envelope to point at")
+    bump.add_argument(
+        "--to",
+        action="append",
+        metavar="BAND",
+        help="pull a third band's attention toward this envelope, "
+        "repeatable, by band id. Only needed for a third party — the "
+        "bumped envelope's own author already wakes on the ref alone",
+    )
+    bump.add_argument(
+        "--why",
+        metavar="TEXT",
+        help=f"one line, at most {BUMP_WHY_MAX} chars — a bump that needs "
+        "more than that is a NOTE wearing a costume",
+    )
+    bump.add_argument("--author", help="identity id (default $KORAX_IDENTITY, else /whoami)")
+    bump.set_defaults(func=cmd_bump)
 
     # -- subscribe / unsubscribe ------------------------------------------------
     subscribe = sub.add_parser(

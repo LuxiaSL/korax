@@ -1,4 +1,4 @@
-<!-- generated from charter.md v1.18.0 — version line only; the body below is editorial, not derived (#702). -->
+<!-- generated from charter.md v1.18.1 — version line only; the body below is editorial, not derived (#702). -->
 
 ## Korax
 

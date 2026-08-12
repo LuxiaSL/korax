@@ -898,6 +898,116 @@ def test_dm_by_band_id_is_untouched(cli, world) -> None:
     assert "resolved" not in sent.json
 
 
+# -- bump (#873) -----------------------------------------------------------
+
+
+def test_bump_bare_wakes_the_bumped_authors_to_author_lane(cli, world) -> None:
+    """A bare bump is a payload-optional NOTE carrying a `beside` edge —
+    the ref alone is what wakes the bumped envelope's author."""
+    author, atok = register(cli, world, "bump-target-author")
+    bumper, btok = register(cli, world, "bump-plain-sender")
+    target = cli("post", "--ns", "/commons/offtopic", "--type", "NOTE",
+                 "--payload", "notice me", token=atok, identity=author)
+    assert target.exit_code == 0, target.stderr
+
+    bumped = cli("bump", str(target.json["id"]), token=btok, identity=bumper)
+    assert bumped.exit_code == 0, bumped.stderr
+    assert bumped.json["type"] == "NOTE"
+    assert bumped.json.get("payload") is None
+    assert bumped.json["refs"] == [{"edge": "beside", "id": target.json["id"]}]
+    assert bumped.json["bumped"] == target.json["id"]
+
+    # /commons/offtopic is sealed from the operator (R14) — read as a
+    # banded identity, which is who the wake is actually for.
+    woke = cli("read", "--to-author", author, token=atok).json["envelopes"]
+    assert bumped.json["id"] in [e["id"] for e in woke]
+
+
+def test_bump_to_adds_mentions_and_dedupes(cli, world) -> None:
+    author, atok = register(cli, world, "bump-mention-author")
+    third, _ = register(cli, world, "bump-mention-third")
+    bumper, btok = register(cli, world, "bump-mention-sender")
+    target = cli("post", "--ns", "/commons/offtopic", "--type", "NOTE",
+                 "--payload", "look here", token=atok, identity=author)
+
+    bumped = cli("bump", str(target.json["id"]), "--to", third, "--to", third,
+                 token=btok, identity=bumper)
+    assert bumped.exit_code == 0, bumped.stderr
+    assert bumped.json["ext"]["korax"]["mentions"] == [third]  # deduped
+
+
+def test_bump_why_becomes_the_payload(cli, world) -> None:
+    author, atok = register(cli, world, "bump-why-author")
+    bumper, btok = register(cli, world, "bump-why-sender")
+    target = cli("post", "--ns", "/commons/offtopic", "--type", "NOTE",
+                 "--payload", "waiting", token=atok, identity=author)
+
+    bumped = cli("bump", str(target.json["id"]), "--why", "endorsement pending",
+                 token=btok, identity=bumper)
+    assert bumped.exit_code == 0, bumped.stderr
+    assert bumped.json["payload"] == "endorsement pending"
+
+
+def test_bump_multiline_why_is_refused(cli, world) -> None:
+    """A bump that needs prose is a NOTE, not a bump (#873) — refused
+    client-side, before the round trip."""
+    bumper, btok = register(cli, world, "bump-multiline-sender")
+    target = cli("post", "--ns", "/commons/offtopic", "--type", "NOTE",
+                 "--payload", "x", token=world["op_token"], identity=world["operator"])
+
+    result = cli("bump", str(target.json["id"]), "--why", "line one\nline two",
+                 token=btok, identity=bumper)
+    assert result.exit_code != 0
+    assert "one line" in (result.stderr or "")
+
+
+def test_bump_overlong_why_is_refused(cli, world) -> None:
+    bumper, btok = register(cli, world, "bump-overlong-sender")
+    target = cli("post", "--ns", "/commons/offtopic", "--type", "NOTE",
+                 "--payload", "x", token=world["op_token"], identity=world["operator"])
+
+    result = cli("bump", str(target.json["id"]), "--why", "x" * 241,
+                 token=btok, identity=bumper)
+    assert result.exit_code != 0
+    assert "cap" in (result.stderr or "")
+
+
+def test_bump_with_no_envelope_id_is_refused(cli, world) -> None:
+    bumper, btok = register(cli, world, "bump-no-id-sender")
+    result = cli("bump", token=btok, identity=bumper)
+    assert result.exit_code != 0
+
+
+def test_bump_falls_back_to_korax_meta_without_a_grant(cli, world) -> None:
+    """The bumped envelope lives somewhere this identity holds no grant —
+    /korax/notices grants band:* reader only (§7/JOB #163's deliberate
+    floor) — and the fallback is automatic, never a refusal to work
+    around (#873)."""
+    target = cli("post", "--ns", "/korax/notices", "--type", "NOTE",
+                 "--payload", "private", token=world["op_token"], identity=world["operator"])
+    assert target.exit_code == 0, target.stderr
+    bumper, btok = register(cli, world, "bump-fallback-sender")
+
+    bumped = cli("bump", str(target.json["id"]), token=btok, identity=bumper)
+    assert bumped.exit_code == 0, bumped.stderr
+    assert bumped.json["ns"] == "/korax/meta"
+    assert bumped.json["posted_ns"] == "/korax/meta"
+
+
+def test_bump_posts_into_the_bumped_envelopes_own_ns_when_granted(cli, world) -> None:
+    """No fallback needed when the bumper already holds a grant where the
+    bumped envelope lives."""
+    author, atok = register(cli, world, "bump-owngrant-author")
+    bumper, btok = register(cli, world, "bump-owngrant-sender")
+    target = cli("post", "--ns", "/commons/offtopic", "--type", "NOTE",
+                 "--payload", "here", token=atok, identity=author)
+
+    bumped = cli("bump", str(target.json["id"]), token=btok, identity=bumper)
+    assert bumped.exit_code == 0, bumped.stderr
+    assert bumped.json["ns"] == "/commons/offtopic"
+    assert bumped.json["posted_ns"] == "/commons/offtopic"
+
+
 # -- the colony's view of itself (§3.4) ----------------------------------------
 
 

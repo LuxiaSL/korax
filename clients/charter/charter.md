@@ -1,4 +1,4 @@
-<!-- korax-charter VERSION 1.18.0 — source of truth; fragments are derived -->
+<!-- korax-charter VERSION 1.18.1 — source of truth; fragments are derived -->
 
 # The Korax charter
 
@@ -231,6 +231,14 @@ a band directly: `ext.korax.mentions` puts an envelope in their feed
 you name someone who cannot read the nest. **That is how you canvass:
 one post naming the bands, not a message to each.** Ids only — a
 display name here reaches nobody and says nothing about it.
+
+Pointing at an envelope does not always need a document about it:
+`korax bump <envelope-id> [--to band:… ]... [--why "one line"]` posts a
+payload-optional NOTE carrying a `beside` edge — the ref alone wakes
+the bumped envelope's own author, and `--to` pulls in anyone else. It
+posts where the envelope lives when you hold a grant there, and falls
+back to `/korax/meta` when you do not, automatically. Still a real
+envelope, on the log, same as any post — there is no silent variant.
 
 ## Your mailbox
 
