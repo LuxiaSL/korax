@@ -138,6 +138,11 @@ def _nul_location(value: Any, path: str = "payload") -> str | None:
     Recurses through dicts and lists, and checks dict KEYS as well as
     values — a key is as unreadable as a value and reaches comparisons the
     same way.
+
+    `path` is the ROOT NAME of whatever is being walked, and it is a
+    parameter rather than a constant because this runs over two fields
+    (#1998): the returned path is the whole of what tells an author which
+    one they are looking at, since the refusal carries no other clue.
     """
     if isinstance(value, str):
         return path if NUL in value else None
@@ -209,7 +214,7 @@ def validate_post(
             "exactly that (§2.2)",
         )
 
-    # -- 400 before shape: a payload carrying a NUL character (§2.2, #1901)
+    # -- 400 before shape: `payload` or `ext` carrying a NUL (§2.2, #1901/#1998)
     #
     # Third of the pre-shape payload facts, and it belongs with the other
     # two for the same reason: this is a fact about the bytes, not about the
@@ -243,18 +248,43 @@ def validate_post(
     # Write path only, like its neighbours: #1896 and #1897 stay exactly as
     # posted. Append-only means re-validating history is a category error.
     #
-    # KNOWN AND DELIBERATE GAP: `ext` is not covered here. The same hazard
-    # lives there and closing it is a decision #1901 item 4 names rather
-    # than one this fix makes unannounced.
+    # `ext` IS COVERED TOO, AS OF #1998 — R112 left it out and said so here,
+    # because the scope was a decision to announce rather than to make
+    # unannounced. Announced at #2027 and measured before it was built: on
+    # 7fd7441, `ext.<project>.<field>` accepted the character, STORED it, and
+    # SERVED it back through /read. It is the same free-text field on the
+    # same write path, and `ext` is read by machines more often than the
+    # payload is — `lease_until` is parsed, a SUBSCRIBE's `select` filters,
+    # `released` gates a lease's disposal.
+    #
+    # WHAT THE MEASUREMENT ALSO SHOWED, and it belongs here so nobody
+    # re-derives the scarier version: `ext.korax.mentions` was ALREADY
+    # closed, by JOB #1079's resolve-or-refuse. A band id with a NUL
+    # appended names no band, so the mention refusal catches it first and
+    # says so. #1998 led with mentions as the worst case; it was the one
+    # case already defended. Two guards overlapping is fine — the reason
+    # this one still earns its place is every ext field #1079 does not read.
+    #
+    # ONE MESSAGE FOR BOTH FIELDS, because the path already says which one:
+    # `payload.grants[1].ns` and `ext.korax.mentions[0]` are distinguishable
+    # without a prefix, and a second near-identical sentence is a second
+    # thing to keep in sync.
     nul_at = _nul_location(payload)
+    if nul_at is None:
+        # `raw` and not `sub`: this runs BEFORE shape parsing, like its two
+        # neighbours, because character legality is a fact about the bytes
+        # and not about the act. A missing `ext` yields None, which
+        # `_nul_location` reports as clean — absence is legal here.
+        nul_at = _nul_location(raw.get("ext"), "ext")
     if nul_at is not None:
         raise PostError(
             400,
-            f"payload carries a NUL character at {nul_at}: it renders as "
-            "nothing on every surface, so the envelope would say something "
-            "no reader can see, permanently. If you meant the two-character "
-            "escape, send the escape rather than the character — a JSON "
-            "\\u0000 decodes to the character before it reaches here (§2.2)",
+            f"this envelope carries a NUL character at {nul_at}: it renders "
+            "as nothing on every surface, so the envelope would say "
+            "something no reader can see, permanently. If you meant the "
+            "two-character escape, send the escape rather than the "
+            "character — a JSON \\u0000 decodes to the character before it "
+            "reaches here (§2.2)",
         )
 
     # -- 400: an unknown `evidence` names the legal set (§6.x, JOB #480)
