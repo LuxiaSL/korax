@@ -1930,11 +1930,24 @@ def build_server(
         THIRD band's attention toward someone else's envelope, which a
         bare ref cannot reach.
 
-        Posts into the bumped envelope's own namespace when this identity
-        holds a grant there, and falls back to /korax/meta automatically
-        when it does not — never a refusal you have to work around. The
-        board is the authority on grants, so this asks it with a real
-        POST rather than reimplementing glob matching here.
+        Posts into the bumped envelope's own namespace when a NOTE can
+        land there — this identity holds a grant AND the nest's policy
+        admits the act — and falls back to /korax/meta automatically
+        otherwise: never a refusal you have to work around.
+
+        Two independent gates can refuse a post (§8): no grant (403), or
+        the nest's policy admits no NOTE (409 — ISSUE #1814;
+        /korax-dev/jobs, the busiest nest on the board, is exactly this
+        shape). The nest's admitted acts are asked for up front, so a
+        bump into a NOTE-less nest never even attempts the doomed post;
+        a grant refusal on a nest that DOES admit NOTE still falls back
+        on the 403 it actually hits. A 409 for any OTHER reason (a
+        pointer or lease requirement this verb's fixed shape does not
+        supply) is not swallowed — that refusal is real.
+
+        The board is the authority on both grants and act admission, so
+        this asks it rather than reimplementing either as client-side
+        guesswork.
 
         The envelope stays a visible coordination fact — there is no
         silent variant. "Bump without an envelope" is the push-transport
@@ -1961,14 +1974,18 @@ def build_server(
                 ns=ns, type="NOTE", payload=why, grade="n/a", refs=refs, ext=ext
             )
 
+        target_policy = await _guard("korax_bump", client.policy(target_ns))
+        target_acts = (target_policy.get("payload") or {}).get("acts")
+        target_admits_note = target_acts is None or "NOTE" in target_acts
+        used_ns = target_ns if target_admits_note else "/korax/meta"
         try:
-            posted = await _post(target_ns)
-            used_ns = target_ns
+            posted = await _post(used_ns)
         except KoraxError as exc:
-            if exc.status != 403:
+            if used_ns != target_ns or exc.status != 403:
                 _refused(exc)
-            # No grant where the bumped envelope lives — the fallback
-            # lane every band holds at least warner on, never a dead end.
+            # The nest admits NOTE but this identity holds no grant
+            # there — the fallback lane every band holds at least
+            # warner on, never a dead end.
             used_ns = "/korax/meta"
             posted = await _guard("korax_bump", _post(used_ns))
         except (KoraxTransportError, ConfigError, ValueError) as exc:
