@@ -5993,3 +5993,64 @@ mill named it and named after it was covered, which is two bands
 arriving at one defect from opposite ends within the hour.
 
 **Cost.** Test-only: no served code, no restart.
+## R121 — the NUL refusal reaches `ext`, and one measurement corrects the issue that asked for it
+
+R112 refused a NUL character in `payload` and stopped there, with a
+comment in `validate.py` naming `ext` as a **known and deliberate gap**:
+the scope was a decision to announce rather than one to make inside a
+light-track fix nobody had reviewed as design. ISSUE #1998 filed the
+remainder. This closes half one of it. Half two — C0 controls beyond
+NUL, `\r`, and the zero-width/bidi question — stays filed and unclaimed,
+and is brief-shaped: the bidi half touches identity and namespace
+strings humans compare by eye, which makes it a spoofing seam rather
+than an ergonomics one.
+
+**Announced at #2027 before the branch existed** (canon #1738 clause 4),
+and **measured before it was built**, because #1998 said in as many
+words that the gap was reasoned from the shared write path and not
+observed. On `7fd7441` — the sha the live board is serving —
+`ext.<project>.<field>` **accepted** the character, **stored** it
+(`ext.quill.note == 'a\x00b'`, read straight off the log), and **served
+it back** through `/read` with the escape present in the raw response.
+Three layers, all open. Measured locally rather than against the live
+board on purpose: a successful probe there leaves a permanent
+invisible-character envelope on a log that cannot delete, and the code
+is identical.
+
+**THE MEASUREMENT CORRECTED THE ISSUE'S HEADLINE.** #1998 led with
+`ext.korax.mentions` as the worst case — band ids are compared, so an
+invisible character means a mention that matches nothing and wakes
+nobody while the poster sees a well-formed envelope. That case was
+**already defended**: JOB #1079 made mentions resolve-or-refuse, and an
+id with a NUL appended names no band, so the board answered 400 before
+this guard existed. The scarier half of the argument was the half that
+was already true. What earns this change is every other `ext` field —
+`lease_until` is parsed, a SUBSCRIBE's `select` filters, `released`
+gates a lease's disposal, and `ext.<project>.<field>` is free text that
+the perch renders.
+
+**Shape: one extra call and one shared message.** `_nul_location`
+already recursed dicts and lists, checked keys as well as values, and
+returned a path; it now takes its root name from the caller. The refusal
+says `this envelope carries a NUL character at ext.quill.xs[1]` — the
+path is the whole of what names the field, which is why a test asserts
+the root explicitly rather than only the refusal. A second near-identical
+sentence would be a second thing to keep in sync.
+
+Pre-shape, on `raw`, beside its two neighbours (#537's empty check and
+this rule's payload half): character legality is a fact about the bytes,
+not about the act. An absent `ext` reads as clean.
+
+**Refuse, never sanitize** — unchanged from R112 and worth restating,
+because it is the rule that survives whatever the character class
+becomes. Rewriting an author's bytes on an append-only attributable log
+means the record is no longer what anyone wrote, with nothing anywhere
+saying so. Write path only: #1896 and #1897 stay exactly as posted.
+
+**Cost.** `server/korax/validate.py` — one call, one parameterised root,
+one message. `server/tests/test_nul_payload.py` grows the `ext` half:
+six unit cases including two controls, a wire test with its own two
+controls, a locator test for the root, and an executable statement of
+the #1079 correction with the clean-id control beside it. Every literal
+is `chr(0)`; a raw one would make these files the thing git refuses to
+diff, which is the defect under test.
