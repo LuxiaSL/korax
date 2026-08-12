@@ -29,7 +29,8 @@ pytestmark = pytest.mark.anyio
 
 TOOLS = {
     "korax_post", "korax_read", "korax_wait", "korax_view", "korax_envelope",
-    "korax_onboard", "korax_ack", "korax_dm", "korax_bump", "korax_enlist",
+    "korax_onboard", "korax_ack", "korax_dm", "korax_bump", "korax_release",
+    "korax_enlist",
     "korax_animate", "korax_whoami", "korax_identities", "korax_policy",
     "korax_rotate", "korax_conformance", "korax_subscribe",
     "korax_search", "korax_neighbourhood",
@@ -693,6 +694,173 @@ async def test_bump_posts_into_the_bumped_envelopes_own_ns_when_granted(
     body = result.structured_content
     assert body["ns"] == "/commons/offtopic"
     assert body["posted_ns"] == "/commons/offtopic"
+
+
+# -- release (#1792) ----------------------------------------------------------
+
+
+async def _release_as(world: World, identity: str, token: str, args: dict):
+    """korax_release as a NON-operator band — own-claims-only and the
+    state refusals only mean something for a caller the board does not
+    wave through."""
+    client = world.client_for(identity, token)
+    try:
+        return await build_server(client).call_tool("korax_release", args)
+    finally:
+        await client.aclose()
+
+
+async def _claimed_job(world: World, name: str) -> tuple[int, int, str, str]:
+    """A JOB in the seeded lease-required nest, held by a fresh claimant:
+    the #1792 fixture's floor. Returns (job_id, claim_id, claimant, token)."""
+    op = world.client_for(world.operator, world.op_token)
+    try:
+        job = await op.post(
+            ns="/commons/jobs", type="JOB", grade="n/a",
+            payload="JOB: something to hold and let go of",
+            pointer={"uri": "git:briefs/x.md@abc1234",
+                     "sha256": "0" * 64, "bytes": 1},
+        )
+    finally:
+        await op.aclose()
+    claimant, token = world.register(name)
+    world.grant(claimant, "/commons/**", "claimant")
+    cclient = world.client_for(claimant, token)
+    try:
+        claim = await cclient.post(
+            ns="/commons/jobs", type="CLAIM", grade="n/a",
+            payload="taking it",
+            refs=[{"edge": "claims", "id": job["id"]}],
+            ext={"lease_until": "2030-01-01T00:00:00Z"},
+        )
+    finally:
+        await cclient.aclose()
+    return job["id"], claim["id"], claimant, token
+
+
+async def _taken_jobs(world: World, token: str, identity: str) -> dict[int, str]:
+    """The docket's `taken` section for /commons — the reduction's own
+    output, which is the surface #1792 is about."""
+    client = world.client_for(identity, token)
+    try:
+        page = await client.view("docket", ns="/commons")
+    finally:
+        await client.aclose()
+    work = page.output["work"]
+    return {entry["job"]: entry["holder"] for entry in work["taken"]}
+
+
+async def test_release_ends_the_hold_the_docket_reports(world: World) -> None:
+    """The core of #1792, both directions (#112): held before, free after
+    — asserted against the reduction's output, not inferred."""
+    job_id, claim_id, claimant, token = await _claimed_job(world, "mcp-release-core")
+
+    before = await _taken_jobs(world, token, claimant)
+    assert before.get(job_id) == claimant
+
+    result = await _release_as(world, claimant, token, {
+        "claim_id": claim_id, "why": "sequencing changed",
+    })
+    body = result.structured_content
+    assert body["type"] == "SUPERSEDE"
+    assert body["ext"]["released"] is True
+    assert body["refs"] == [{"edge": "supersedes", "id": claim_id}]
+    assert body["payload"] == "sequencing changed"
+    assert body["released"] == claim_id
+    assert body["posted_ns"] == "/commons/jobs"
+
+    after = await _taken_jobs(world, token, claimant)
+    assert job_id not in after
+
+
+async def test_release_refuses_a_foreign_claim(world: World) -> None:
+    """Own claims only (#1761) — and the refusal changes nothing."""
+    job_id, claim_id, claimant, _token = await _claimed_job(world, "mcp-release-own")
+    stranger, stok = world.register("mcp-release-stranger")
+    world.grant(stranger, "/commons/**", "claimant")
+
+    with pytest.raises(ToolError) as caught:
+        await _release_as(world, stranger, stok, {"claim_id": claim_id})
+    assert "arbitration" in str(caught.value)
+    assert (await _taken_jobs(world, stok, stranger)).get(job_id) == claimant
+
+
+async def test_release_refuses_a_non_claim_id(world: World) -> None:
+    job_id, _claim_id, claimant, token = await _claimed_job(world, "mcp-release-job")
+    with pytest.raises(ToolError) as caught:
+        await _release_as(world, claimant, token, {"claim_id": job_id})
+    assert "not a CLAIM" in str(caught.value)
+
+
+async def test_release_refuses_an_already_released_claim(world: World) -> None:
+    _job_id, claim_id, claimant, token = await _claimed_job(world, "mcp-release-twice")
+    first = await _release_as(world, claimant, token, {"claim_id": claim_id})
+    first_id = first.structured_content["id"]
+
+    with pytest.raises(ToolError) as caught:
+        await _release_as(world, claimant, token, {"claim_id": claim_id})
+    assert "already released" in str(caught.value)
+    assert str(first_id) in str(caught.value)
+
+
+async def test_release_refuses_a_delivered_claim(world: World) -> None:
+    job_id, claim_id, claimant, token = await _claimed_job(world, "mcp-release-done")
+    cclient = world.client_for(claimant, token)
+    try:
+        delivery = await cclient.post(
+            ns="/commons/jobs", type="FINDING", grade="unverified",
+            payload="DELIVERED", refs=[{"edge": "closes", "id": job_id}],
+        )
+    finally:
+        await cclient.aclose()
+
+    with pytest.raises(ToolError) as caught:
+        await _release_as(world, claimant, token, {"claim_id": claim_id})
+    assert "already delivered" in str(caught.value)
+    assert str(delivery["id"]) in str(caught.value)
+
+
+async def test_release_refuses_a_renewed_claims_stale_link(world: World) -> None:
+    """§4.2 reads the current link — the stale one is refused pointing at
+    the link a release would actually truncate, and that link releases."""
+    job_id, claim_id, claimant, token = await _claimed_job(world, "mcp-release-renew")
+    cclient = world.client_for(claimant, token)
+    try:
+        renewal = await cclient.post(
+            ns="/commons/jobs", type="CLAIM", grade="n/a",
+            payload="renewing",
+            refs=[{"edge": "claims", "id": job_id},
+                  {"edge": "supersedes", "id": claim_id}],
+            ext={"lease_until": "2031-01-01T00:00:00Z"},
+        )
+    finally:
+        await cclient.aclose()
+
+    with pytest.raises(ToolError) as caught:
+        await _release_as(world, claimant, token, {"claim_id": claim_id})
+    assert "renewed" in str(caught.value)
+    assert str(renewal["id"]) in str(caught.value)
+
+    await _release_as(world, claimant, token, {"claim_id": renewal["id"]})
+    assert job_id not in await _taken_jobs(world, token, claimant)
+
+
+async def test_release_multiline_why_is_refused(world: World) -> None:
+    _job_id, claim_id, claimant, token = await _claimed_job(world, "mcp-release-prose")
+    with pytest.raises(ToolError) as caught:
+        await _release_as(world, claimant, token, {
+            "claim_id": claim_id, "why": "line one\nline two",
+        })
+    assert "one line" in str(caught.value)
+
+
+async def test_release_overlong_why_is_refused(world: World) -> None:
+    _job_id, claim_id, claimant, token = await _claimed_job(world, "mcp-release-long")
+    with pytest.raises(ToolError) as caught:
+        await _release_as(world, claimant, token, {
+            "claim_id": claim_id, "why": "x" * 241,
+        })
+    assert "cap" in str(caught.value)
 
 
 # -- animation: becoming a band that already exists (JOB #384) ----------------

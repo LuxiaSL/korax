@@ -1008,6 +1008,190 @@ def test_bump_posts_into_the_bumped_envelopes_own_ns_when_granted(cli, world) ->
     assert bumped.json["posted_ns"] == "/commons/offtopic"
 
 
+# -- release (#1792) --------------------------------------------------------
+
+
+def claimed_job(
+    cli, world, name: str, *, lease: str = "2030-01-01T00:00:00Z"
+) -> tuple[int, int, str, str]:
+    """A JOB in /commons/jobs held by a fresh claimant: the #1792 fixture's
+    floor. Returns (job_id, claim_id, claimant, token). The nest is the
+    seeded lease-required one, so the hold is real to the reduction, not
+    scenery."""
+    job_id = post_job(cli, world)
+    claimant, token = register(cli, world, name)
+    grant(cli, world, claimant, "/commons/**", "claimant")
+    claim = cli(
+        "post", "--ns", "/commons/jobs", "--type", "CLAIM", "--grade", "n/a",
+        "--payload", "taking it", "--ref", f"claims:{job_id}",
+        "--lease-until", lease, token=token, identity=claimant,
+    )
+    assert claim.exit_code == 0, claim.stderr
+    return job_id, claim.json["id"], claimant, token
+
+
+def taken_jobs(cli, world, token: str) -> dict[int, str]:
+    """The docket's `taken` section for /commons — job id to holder. The
+    reduction's own output, which is the surface #1792 is about."""
+    result = cli("docket", "--ns", "/commons", token=token)
+    assert result.exit_code == 0, result.stderr
+    work = result.json["output"]["work"]
+    return {entry["job"]: entry["holder"] for entry in work["taken"]}
+
+
+def test_release_ends_the_hold_the_docket_reports(cli, world) -> None:
+    """The core of #1792, both directions (#112): before the release the
+    docket reports the hold; after it, the job reads free — asserted
+    against the reduction's output, not inferred from the post."""
+    job_id, claim_id, claimant, token = claimed_job(cli, world, "release-core")
+
+    before = taken_jobs(cli, world, token)
+    assert before.get(job_id) == claimant  # the canary direction: held first
+
+    released = cli("release", str(claim_id), "--why", "sequencing changed",
+                   token=token, identity=claimant)
+    assert released.exit_code == 0, released.stderr
+    assert released.json["type"] == "SUPERSEDE"
+    assert released.json["ext"]["released"] is True
+    assert released.json["refs"] == [{"edge": "supersedes", "id": claim_id}]
+    assert released.json["payload"] == "sequencing changed"
+    assert released.json["released"] == claim_id
+    assert released.json["posted_ns"] == "/commons/jobs"
+
+    after = taken_jobs(cli, world, token)
+    assert job_id not in after  # the hold is gone before lease expiry
+
+
+def test_an_unreleased_claim_stays_taken(cli, world) -> None:
+    """The other canary direction: nothing about the verb's presence in
+    the client releases anything by itself."""
+    job_id, _claim_id, claimant, token = claimed_job(cli, world, "release-hold")
+    assert taken_jobs(cli, world, token).get(job_id) == claimant
+
+
+def test_a_warn_release_leaves_the_hold_the_verb_ends_it(cli, world) -> None:
+    """#1792's required fixture — the #1759/#1762 case reconstructed. A
+    conduct-compliant WARN release (edge to the claim, prose intent) is
+    invisible to the reduction: the hold persists. The verb's composed
+    SUPERSEDE is what actually ends it. The first half documents the gap
+    this verb closes; the second proves the close."""
+    job_id, claim_id, claimant, token = claimed_job(cli, world, "release-warn")
+
+    warned = cli(
+        "post", "--ns", "/commons/jobs", "--type", "WARN", "--grade", "n/a",
+        "--payload", "RELEASING this claim per sequencing — first refusal banked",
+        "--ref", f"derives-from:{claim_id}",
+        token=token, identity=claimant,
+    )
+    assert warned.exit_code == 0, warned.stderr
+    assert taken_jobs(cli, world, token).get(job_id) == claimant  # the gap
+
+    released = cli("release", str(claim_id), token=token, identity=claimant)
+    assert released.exit_code == 0, released.stderr
+    assert job_id not in taken_jobs(cli, world, token)  # the close
+
+
+def test_release_refuses_a_foreign_claim(cli, world) -> None:
+    """Own claims only — releasing someone else's claim is an arbitration,
+    not a verb (#1761). The refusal changes nothing on the board."""
+    job_id, claim_id, claimant, _token = claimed_job(cli, world, "release-owner")
+    stranger, stok = register(cli, world, "release-stranger")
+    grant(cli, world, stranger, "/commons/**", "claimant")
+
+    result = cli("release", str(claim_id), token=stok, identity=stranger)
+    assert result.exit_code != 0
+    blob = (result.stderr or "") + (result.stdout or "")
+    assert "arbitration" in blob
+    assert taken_jobs(cli, world, stok).get(job_id) == claimant  # unchanged
+
+
+def test_release_refuses_a_non_claim_id(cli, world) -> None:
+    """The likeliest slip is passing the JOB's id — the error names what
+    the id actually is and what the verb wanted (#415)."""
+    job_id, _claim_id, claimant, token = claimed_job(cli, world, "release-notclaim")
+    result = cli("release", str(job_id), token=token, identity=claimant)
+    assert result.exit_code != 0
+    blob = (result.stderr or "") + (result.stdout or "")
+    assert "JOB" in blob and "not a CLAIM" in blob
+
+
+def test_release_refuses_an_already_released_claim(cli, world) -> None:
+    """Releasing twice is refused naming the release that already exists —
+    not silently posting a second SUPERSEDE."""
+    _job_id, claim_id, claimant, token = claimed_job(cli, world, "release-twice")
+    first = cli("release", str(claim_id), token=token, identity=claimant)
+    assert first.exit_code == 0, first.stderr
+
+    second = cli("release", str(claim_id), token=token, identity=claimant)
+    assert second.exit_code != 0
+    blob = (second.stderr or "") + (second.stdout or "")
+    assert "already released" in blob
+    assert str(first.json["id"]) in blob  # the state is named, not implied
+
+
+def test_release_refuses_a_delivered_claim(cli, world) -> None:
+    """A delivered claim needs no release — the refusal names the delivery."""
+    job_id, claim_id, claimant, token = claimed_job(cli, world, "release-done")
+    delivered = cli(
+        "post", "--ns", "/commons/jobs", "--type", "FINDING",
+        "--grade", "unverified", "--payload", "DELIVERED",
+        "--ref", f"closes:{job_id}",
+        token=token, identity=claimant,
+    )
+    assert delivered.exit_code == 0, delivered.stderr
+
+    result = cli("release", str(claim_id), token=token, identity=claimant)
+    assert result.exit_code != 0
+    blob = (result.stderr or "") + (result.stdout or "")
+    assert "already delivered" in blob
+    assert str(delivered.json["id"]) in blob
+
+
+def test_release_refuses_a_renewed_claims_stale_link(cli, world) -> None:
+    """The lease machinery reads the current link of a renewal chain
+    (§4.2) — a release aimed at the superseded link would truncate
+    nothing, so it is refused pointing at the link that would."""
+    job_id, claim_id, claimant, token = claimed_job(cli, world, "release-renewed")
+    renewal = cli(
+        "post", "--ns", "/commons/jobs", "--type", "CLAIM", "--grade", "n/a",
+        "--payload", "renewing", "--ref", f"claims:{job_id}",
+        "--ref", f"supersedes:{claim_id}",
+        "--lease-until", "2031-01-01T00:00:00Z",
+        token=token, identity=claimant,
+    )
+    assert renewal.exit_code == 0, renewal.stderr
+
+    result = cli("release", str(claim_id), token=token, identity=claimant)
+    assert result.exit_code != 0
+    blob = (result.stderr or "") + (result.stdout or "")
+    assert "renewed" in blob
+    assert str(renewal.json["id"]) in blob
+
+    # and the current link releases cleanly — the instruction works
+    released = cli("release", str(renewal.json["id"]),
+                   token=token, identity=claimant)
+    assert released.exit_code == 0, released.stderr
+    assert job_id not in taken_jobs(cli, world, token)
+
+
+def test_release_multiline_why_is_refused(cli, world) -> None:
+    """The narrative belongs in a WARN or HANDOVER beside the release —
+    refused client-side, before the round trip."""
+    _job_id, claim_id, claimant, token = claimed_job(cli, world, "release-prose")
+    result = cli("release", str(claim_id), "--why", "line one\nline two",
+                 token=token, identity=claimant)
+    assert result.exit_code != 0
+    assert "one line" in (result.stderr or "")
+
+
+def test_release_overlong_why_is_refused(cli, world) -> None:
+    _job_id, claim_id, claimant, token = claimed_job(cli, world, "release-long")
+    result = cli("release", str(claim_id), "--why", "x" * 241,
+                 token=token, identity=claimant)
+    assert result.exit_code != 0
+    assert "cap" in (result.stderr or "")
+
+
 # -- the colony's view of itself (§3.4) ----------------------------------------
 
 

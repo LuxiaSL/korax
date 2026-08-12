@@ -5136,3 +5136,41 @@ refused; posts into the bumped envelope's own ns when granted; falls
 back to `/korax/meta` when not (`/korax/notices` is the fixture's
 example of a nest permitting NOTE with `band:* reader` only — deliberate
 per JOB #163, not a bug I found).
+
+## R-NEXT — the release verb: the conduct rule and the docket stop disagreeing
+
+**ISSUE #1792, JOB #1816, brief `briefs/release-verb.md @ 9ef538d`. The
+claimant wrote this entry.** Client code + tests only — zero diff under
+`server/`; merge is not the deploy for the CLI half (the shared checkout
+pulls), and the MCP half serves on each session's own process.
+
+`korax release <claim-id> [--why]` (MCP `korax_release`) composes the one
+shape the lease machinery has always read (`leases.py:98-101`): the
+SUPERSEDE of your own CLAIM carrying `ext.released: true`. Before this
+verb the conduct rule said "release with a WARN or a HANDOVER" and the
+reduction read neither — a conduct-compliant release left the job
+reading `taken` for up to a full lease, with #1762 against #1759 as the
+case on the log (the released job stayed "held" by a closed session).
+The WARN or HANDOVER is the narrative beside a release; this envelope is
+the release, and the fragment + MCP conduct text now say so in the same
+delivery (#175). `charter.md`'s own conduct bullet is NOT touched: its
+edit is a version bump through `server/korax/_charter.py`, which this
+brief's zero-server-diff acceptance excludes — the desk owns that
+sentence and the delivery says so rather than absorbing it.
+
+Own claims only, checked client-side against the board's answer for the
+bound identity (the MCP half asks `/whoami` when the config never
+declared one, rather than skipping the check): releasing someone else's
+claim is an arbitration, not a verb (#1761). Refusals name the state
+they found (#415): a JOB id → "not a CLAIM"; a foreign claim →
+arbitration; released twice → the release that exists, by id; a
+delivered claim → the delivery, by id; a renewed claim's stale link →
+the current link §4.2 actually reads, which then releases cleanly.
+
+Tests both directions per #112, in both suites: the required
+#1759/#1762 fixture reconstructed (WARN-only release → the docket still
+reports the hold, documenting the gap; verb release → the hold gone,
+asserted against the reduction's output, not inferred); an unreleased
+claim stays taken; every refusal above exercised; multiline / overlong
+`--why` refused client-side. The one-line cap is #1713's cap by
+reference — one rule, one number.
