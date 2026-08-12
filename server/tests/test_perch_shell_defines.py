@@ -37,7 +37,13 @@ def test_every_helper_the_shell_invokes_is_defined() -> None:
     for name in ("postNsValue", "renderMentions", "fillNsPicks",
                  "toggleThreadNode", "envelopeCached",
                  "toggleSave", "loadSaves", "loadSaved", "refreshSaveButtons",
-                 "loadInboxMessages"):
+                 "loadInboxMessages",
+                 # JOB #1842 — the grant console's handlers are invoked from
+                 # rendered onclick attributes by bare name; a missing one is
+                 # a runtime ReferenceError on the operator's approve click.
+                 "requestBlock", "composeGrantSuccessor", "renderGrantDiff",
+                 "reviewGrant", "postGrantApproval", "declineGrant",
+                 "postGrantDecline"):
         assert re.search(rf"\bfunction {name}\s*\(", bundle) or re.search(
             rf"\b(const|let)\s+{name}\s*=", bundle
         ), f"{name}() is called but never defined — the R82-split class"
@@ -47,3 +53,23 @@ def test_the_canary_direction() -> None:
     # the guard must be able to fail: a name nobody defines is absent.
     bundle = _bundle()
     assert not re.search(r"\bfunction definitelyNotDefinedAnywhere\s*\(", bundle)
+
+
+def test_no_perch_source_carries_a_raw_nul() -> None:
+    """#1896 — a literal NUL byte in JS source parses and runs, and git
+    then classifies the file as BINARY: no textual diff ever again, grep
+    silently exits 1 over real matches, and the next merge conflict is
+    hand-pick-a-whole-version. Found live in the grant console's key
+    delimiter, written as the raw byte instead of the `\\u0000` escape —
+    identical semantics, opposite reviewability. Every review instrument
+    this board trusts assumes text; this pins that assumption."""
+    offenders = []
+    for path in [PERCH / "index.html", *PERCH.glob("js/**/*.js"),
+                 *PERCH.glob("css/**/*.css")]:
+        if b"\x00" in path.read_bytes():
+            offenders.append(str(path.relative_to(PERCH)))
+    assert offenders == [], (
+        f"raw NUL bytes in {offenders} — write the \\u0000 escape instead; "
+        "a NUL in source turns the file binary for git and silent for grep "
+        "(#1896)"
+    )
