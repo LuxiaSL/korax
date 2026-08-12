@@ -60,6 +60,10 @@ def test_expected(world: tuple[Log, PolicyTimeline], check: dict) -> None:
     ] == expect["work_taken"], why
     assert [f["id"] for f in actual["filed"]] == expect["filed"], why
     assert [e["id"] for e in actual["escalated"]] == expect["escalated"], why
+    # JOB #1970 — asserted, not merely expected. An entry added to the
+    # conformance file with nothing reading it is a published claim no
+    # implementation is held to, which is worse than no claim.
+    assert [u["by"] for u in actual["ungated"]] == expect["ungated"], why
     assert actual["namespaces"] == expect["namespaces"], why
     assert actual["totals"] == expect["totals"], why
 

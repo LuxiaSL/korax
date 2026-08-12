@@ -1,0 +1,355 @@
+"""§10.12 — `ungated`: finished work still waiting on a gate.
+
+JOB #1970, closing ISSUE #1664. The three blind shapes the gavel
+dossiered at #1753 are not three defects — `work` is keyed on the JOB
+and the unit of work is the `closes` EDGE, so restating the membership
+test collapses all three at once:
+
+    light track   no CLAIM  #1835 — the fix to the mill's OWN filed
+                            issue, invisible for over an hour: "no
+                            instrument I run displayed it" (#1968)
+    issue track   no JOB    #1779 — ungated through TEN merges, carried
+                            only by two handovers (#1958 §A.1)
+    design track  no grade  permanently `unattested` (#1747)
+
+The two historical fixtures are required by the brief and are the first
+two tests here. Read `test_the_lanes_are_distinguishable` before
+believing any of it: a fixture where gated and ungated happen to
+coincide certifies nothing (#1898's praise for R106's self-canary), and
+`test_nothing_pending_reports_an_empty_lane` is the one that keeps this
+surface worth reading — a pending list that always has something in it
+is #921's guard that raises on everything.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import pytest
+from fastapi.testclient import TestClient
+
+from korax import PROTO
+from korax.api import create_app
+from korax.board import Board
+from korax.models import Act, Band, Envelope, Grade
+from korax.seed import seed_board
+from korax.store import Store
+
+JOBS_NS = "/proj/jobs"
+ISSUES_NS = "/proj/issues"
+LEASE = {"lease_until": "2030-01-01T00:00:00Z"}
+PTR = {"uri": "https://example.invalid/b.md", "sha256": "0" * 64}
+
+
+def auth(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _post(world: dict, token: str, **body: object) -> dict:
+    r = world["client"].post("/post", headers=auth(token), json={
+        "proto": PROTO, "grade": "n/a", "refs": [], "ext": {}, **body,
+    })
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+@pytest.fixture()
+def world() -> dict:
+    store = Store(":memory:")
+    operator, op_token = store.create_identity("operator")
+    store.set_meta("genesis_identity", operator)
+    board = Board(store)
+    seed_board(board, operator)
+    client = TestClient(create_app(board))
+    out: dict = {"client": client, "operator": operator, "op_token": op_token}
+    for who in ("desk", "worker", "second"):
+        ident, token = store.create_identity(who)
+        out[who], out[who + "_token"] = ident, token
+
+    _post(out, out["op_token"], author=operator, ns="/",
+          type="POLICY", payload={"grants": [
+              {"identity": operator, "ns": "/**", "band": "human"},
+              {"identity": "band:*", "ns": "/**", "band": "reader"},
+              {"identity": out["desk"], "ns": "/proj/**", "band": "desk"},
+              {"identity": out["worker"], "ns": "/proj/**", "band": "claimant"},
+              {"identity": out["second"], "ns": "/proj/**", "band": "claimant"},
+          ]})
+    for ns in (JOBS_NS, ISSUES_NS):
+        _post(out, out["desk_token"], author=out["desk"], ns=ns,
+              type="POLICY", payload={
+                  "acts": ["JOB", "OPEN", "CLAIM", "FINDING", "SUPERSEDE", "ACK"],
+                  "grades": True, "job_posters": "desk"})
+    return out
+
+
+# -- fixture builders -----------------------------------------------------
+
+def _job(world: dict, payload: str = "a job") -> int:
+    return _post(world, world["desk_token"], author=world["desk"], ns=JOBS_NS,
+                 type="JOB", payload=payload, pointer=PTR)["id"]
+
+
+def _issue(world: dict, who: str = "worker", payload: str = "an issue") -> int:
+    return _post(world, world[who + "_token"], author=world[who], ns=ISSUES_NS,
+                 type="OPEN", payload=payload)["id"]
+
+
+def _deliver(world: dict, target: int, who: str = "worker",
+             grade: str = "unverified", ns: str = JOBS_NS,
+             supersedes: int | None = None, payload: str = "delivered") -> int:
+    refs: list[dict] = [{"edge": "closes", "id": target}]
+    if supersedes is not None:
+        refs.append({"edge": "supersedes", "id": supersedes})
+    return _post(world, world[who + "_token"], author=world[who], ns=ns,
+                 type="FINDING", grade=grade, payload=payload, refs=refs)["id"]
+
+
+def _gate(world: dict, target: int, grade: str = "verified",
+          who: str = "desk", ns: str = JOBS_NS) -> int:
+    return _post(world, world[who + "_token"], author=world[who], ns=ns,
+                 type="FINDING", grade=grade, payload=f"GATE — {grade}",
+                 refs=[{"edge": "closes", "id": target}])["id"]
+
+
+def _ungated(world: dict, identity: str | None = None) -> list[dict]:
+    params: dict = {"ns": "/proj"}
+    if identity is not None:
+        params["identity"] = identity
+    r = world["client"].get("/view/docket", headers=auth(world["op_token"]),
+                            params=params)
+    assert r.status_code == 200, r.text
+    return r.json()["output"]["ungated"]
+
+
+def _totals(world: dict, identity: str | None = None) -> dict:
+    params: dict = {"ns": "/proj"}
+    if identity is not None:
+        params["identity"] = identity
+    r = world["client"].get("/view/docket", headers=auth(world["op_token"]),
+                            params=params)
+    return r.json()["output"]["totals"]
+
+
+# -- the two historical fixtures the brief requires -----------------------
+
+def test_the_issue_track_shape_1779_no_job_no_claim(world: dict) -> None:
+    """#1779's shape: a delivery closing an ISSUE. No JOB was ever cut,
+    so `work` cannot see it — it never enters `delivered` because there
+    is no job to key an entry on, and the ISSUE leaves `filed` the
+    moment the delivery lands. **On the real board this sat through ten
+    merges**, visible only in two handovers I wrote myself."""
+    issue = _issue(world, payload="the stale NO_JITTER comment")
+    delivery = _deliver(world, issue, payload="branch @ 156326c")
+
+    entries = _ungated(world)
+    assert [e["closes"] for e in entries] == [issue]
+    assert entries[0]["by"] == delivery
+    assert entries[0]["target"] == "OPEN"
+    assert entries[0]["grade"] == "unverified"
+
+    # and the thing that made it invisible: no job, so nothing in `work`
+    r = world["client"].get("/view/docket", headers=auth(world["op_token"]),
+                            params={"ns": "/proj"})
+    work = r.json()["output"]["work"]
+    assert work["delivered"] == []
+    assert work["open"] == [] and work["taken"] == []
+
+
+def test_the_light_track_shape_1835_a_job_exists_but_no_claim(world: dict) -> None:
+    """#1835's shape: the light track deliberately carries no CLAIM —
+    that is what makes it light (#1433). Here the target is a JOB, so
+    `delivered` DOES see it; the lane must still list it, because
+    `delivered` answers "what happened to job X" and says nothing about
+    whether anyone has gated it."""
+    job = _job(world, "the bump 409 fallback")
+    delivery = _deliver(world, job, payload="branch @ 23603e4")
+
+    entries = _ungated(world)
+    assert [e["closes"] for e in entries] == [job]
+    assert entries[0]["by"] == delivery
+    assert entries[0]["target"] == "JOB"
+
+    # it is in BOTH lanes, deliberately — two questions, two answers,
+    # the `by`/`current` precedent from R106.
+    r = world["client"].get("/view/docket", headers=auth(world["op_token"]),
+                            params={"ns": "/proj"})
+    delivered = r.json()["output"]["work"]["delivered"]
+    assert [d["job"] for d in delivered] == [job]
+
+
+def test_a_gate_takes_it_out_of_the_lane(world: dict) -> None:
+    """The other direction, and the reason the lane is readable at all."""
+    job = _job(world)
+    _deliver(world, job)
+    assert len(_ungated(world)) == 1
+
+    _gate(world, job)
+    assert _ungated(world) == []
+
+
+# -- the design-track terminal case ---------------------------------------
+
+def test_a_desk_n_a_close_is_terminal_not_debt(world: dict) -> None:
+    """Shape three (#1747): a design job's acceptance cannot be
+    `verified` — there is nothing to reproduce — so the gate grades it
+    `n/a`, and without this case the entry would read as debt forever."""
+    job = _job(world, "design: the seam")
+    _deliver(world, job, payload="the design", grade="n/a")
+    assert len(_ungated(world)) == 1, "pending until the desk accepts"
+
+    _gate(world, job, grade="n/a")
+    assert _ungated(world) == [], "the desk's n/a is acceptance (#1387)"
+
+
+def test_a_claimants_n_a_close_is_not_acceptance(world: dict) -> None:
+    """Anyone may post `n/a`; only a desk's carries acceptance. Without
+    the band check the terminal case would let any band clear any
+    delivery by saying nothing at all."""
+    job = _job(world)
+    _deliver(world, job)
+    _gate(world, job, grade="n/a", who="second")  # a claimant, not the desk
+
+    assert [e["closes"] for e in _ungated(world)] == [job]
+
+
+def test_a_sub_desk_verified_on_the_log_does_not_gate(world: dict) -> None:
+    """The band is checked for `verified` too, and the counterexample is
+    in this repo: `conformance/fixture-09.jsonl:9` is a `verified`
+    FINDING recorded with band `claimant`, hand-authored into a Log that
+    never met `validate.py`. Fixtures, imported logs and other
+    implementations all reach a reduction without reaching the write
+    path, so a reduction that trusts the write path's refusal is trusting
+    an invariant it cannot see.
+
+    Constructed at the reduction rather than through `/post`, because
+    `/post` correctly refuses to create it — asserting through the API
+    here would test the validator, not this rule."""
+    from korax.reductions import _gates
+
+    def closer(band: Band, grade: Grade) -> Envelope:
+        return Envelope(
+            proto=PROTO, id=99, ts=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            author="band:someone-else", band=band, ns=JOBS_NS,
+            type=Act.FINDING, grade=grade,
+        )
+
+    assert _gates(closer(Band.DESK, Grade.VERIFIED)) is True
+    assert _gates(closer(Band.DESK, Grade.NA)) is True
+    assert _gates(closer(Band.MAINTAINER, Grade.VERIFIED)) is True
+    assert _gates(closer(Band.HUMAN, Grade.NA)) is True
+    assert _gates(closer(Band.CLAIMANT, Grade.VERIFIED)) is False, (
+        "fixture-09:9's shape — on the log, refused by the write path"
+    )
+    assert _gates(closer(Band.CLAIMANT, Grade.NA)) is False
+    assert _gates(closer(Band.DESK, Grade.UNVERIFIED)) is False, (
+        "a desk saying 'not yet' is the opposite of a gate"
+    )
+
+
+def test_the_deliverer_cannot_gate_their_own_work(world: dict) -> None:
+    """The enactor's decision, stated at `_gates` and tested here.
+
+    A desk-band author delivering their own work and grading it
+    `verified` has not been gated by anyone. R106 shipped
+    `grade_source: "self"` on this same reduction for exactly this
+    distinction; a lane blind to it would contradict the field beside
+    it."""
+    job = _job(world)
+    # the desk delivers its own work, self-graded `verified`
+    _deliver(world, job, who="desk", grade="verified")
+
+    assert [e["closes"] for e in _ungated(world)] == [job], (
+        "a self-verified delivery is unreviewed work with a good grade"
+    )
+
+    _gate(world, job, who="second", grade="n/a")  # claimant n/a — no
+    assert [e["closes"] for e in _ungated(world)] == [job]
+
+
+# -- supersession: one thing waiting, not four ----------------------------
+
+def test_a_re_delivered_chain_is_one_entry_at_its_tip(world: dict) -> None:
+    """#1740 was delivered four times in forty minutes, every
+    supersession a ledger conflict rather than a change of substance
+    (#1812). Four rows would be four times the noise for one thing
+    waiting, and the row that mattered would be the one nobody read."""
+    job = _job(world)
+    a = _deliver(world, job, payload="2a5a9a3")
+    b = _deliver(world, job, supersedes=a, payload="c75ee8b")
+    c = _deliver(world, job, supersedes=b, payload="77ab68a")
+
+    entries = _ungated(world)
+    assert len(entries) == 1
+    assert entries[0]["by"] == a, "attribution does not move (#269)"
+    assert entries[0]["current"] == c, "and the gate is sent to the tip"
+
+
+# -- the canaries ---------------------------------------------------------
+
+def test_nothing_pending_reports_an_empty_lane(world: dict) -> None:
+    """THE ONE THAT KEEPS THE SURFACE WORTH READING (#1664's own
+    acceptance line, and #921).
+
+    A pending list that always has something in it is a guard that
+    raises on everything, and a reader learns within a day to skip it.
+    Every delivery here is gated; the lane must be empty, and the
+    counter with it."""
+    job = _job(world)
+    _deliver(world, job)
+    _gate(world, job)
+
+    issue = _issue(world)
+    _deliver(world, issue, payload="fixed")
+    _gate(world, issue, ns=ISSUES_NS)
+
+    assert _ungated(world) == []
+    assert _totals(world)["ungated"] == 0
+
+
+def test_the_lanes_are_distinguishable(world: dict) -> None:
+    """A fixture where the two cases coincide certifies nothing (#112,
+    and #1898's praise for R106 carrying this about itself). Assert
+    that this file's fixtures actually produce both answers, so the
+    suite cannot go quietly vacuous."""
+    gated_job = _job(world, "gated")
+    _deliver(world, gated_job)
+    _gate(world, gated_job)
+
+    pending_job = _job(world, "pending")
+    pending = _deliver(world, pending_job)
+
+    entries = _ungated(world)
+    assert [e["by"] for e in entries] == [pending], (
+        "exactly one of two deliveries — if this ever lists both or "
+        "neither, every assertion in this file is vacuous"
+    )
+
+
+def test_identity_narrows_and_never_hides(world: dict) -> None:
+    """D2 — the docket's rule, which this lane must obey like the rest:
+    the unfiltered count stays in `totals` beside the narrowed list."""
+    mine = _job(world, "mine")
+    _deliver(world, mine, who="worker")
+    theirs = _job(world, "theirs")
+    _deliver(world, theirs, who="second")
+
+    assert len(_ungated(world)) == 2
+    narrowed = _ungated(world, identity=world["worker"])
+    assert [e["closes"] for e in narrowed] == [mine]
+    assert _totals(world, identity=world["worker"])["ungated"] == 2, (
+        "narrowed to one, still reporting two — never hides"
+    )
+
+
+def test_age_is_reported_and_counts_from_the_first_delivery(world: dict) -> None:
+    """`age_s` answers "how long has the board been waiting", so it runs
+    from the first standing delivery and not from the latest rebase —
+    #1779's ten merges are the point, not the freshness of its sha."""
+    job = _job(world)
+    first = _deliver(world, job)
+    _deliver(world, job, supersedes=first, payload="rebased")
+
+    entry = _ungated(world)[0]
+    assert "age_s" in entry
+    assert entry["age_s"] >= 0
+    assert entry["by"] == first

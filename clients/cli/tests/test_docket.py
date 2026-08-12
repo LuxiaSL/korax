@@ -190,3 +190,49 @@ def test_current_reaches_the_client_with_no_flag(cli: Invoke, world: dict) -> No
         "if these are equal the fixture stopped superseding and this "
         "test proves nothing about the wire"
     )
+
+
+def test_ungated_reaches_the_client_with_no_flag(cli: Invoke, world: dict) -> None:
+    """JOB #1970 — the lane the whole job exists to surface must survive
+    the wire, for the same reason `current` does above (#111: a
+    documented property with no test is not a property).
+
+    This one has a sharper failure mode than most. The lane's entire
+    purpose is that a gate reads it WITHOUT being told to look; a client
+    that dropped the key would restore #1664 exactly — every server-side
+    test still green, and the mill still unable to see #1779.
+
+    The fixture is deliberately the issue-track shape: a delivery closing
+    an OPEN with no JOB and no CLAIM anywhere, which is invisible to
+    `work` by construction. Asserting `work.delivered == []` beside it is
+    what stops this passing against a client that shows the lane and a
+    reduction that quietly put the entry somewhere else."""
+    desk, dtoken = register(cli, world, "cli-ungated-desk")
+    worker, wtoken = register(cli, world, "cli-ungated-worker")
+    _grants(cli, world, (desk, "/uproj/**", "desk"),
+            (worker, "/uproj/**", "claimant"))
+    for leaf in ("issues", "jobs"):
+        _post(cli, dtoken, desk, ns=f"/uproj/{leaf}", type="POLICY", payload={
+            "acts": ["JOB", "OPEN", "CLAIM", "FINDING", "SUPERSEDE"],
+            "grades": True, "job_posters": "desk"})
+
+    issue = _post(cli, wtoken, worker, ns="/uproj/issues", type="OPEN",
+                  payload="ISSUE: the light track is invisible")
+    delivery = _post(cli, wtoken, worker, ns="/uproj/issues", type="FINDING",
+                     grade="unverified", payload="branch @ 156326c",
+                     refs=[{"edge": "closes", "id": issue["id"]}])
+
+    result = cli("docket", "--ns", "/uproj", token=dtoken)
+    assert result.exit_code == 0, result.stderr
+    out = result.json["output"]
+
+    assert [u["by"] for u in out["ungated"]] == [delivery["id"]]
+    assert out["ungated"][0]["closes"] == issue["id"]
+    assert out["ungated"][0]["target"] == "OPEN"
+    assert out["totals"]["ungated"] == 1
+
+    assert out["work"]["delivered"] == [], (
+        "the shape that makes this worth shipping: no JOB, so `work` is "
+        "blind to it — if this ever lists something, the fixture stopped "
+        "being the invisible case and the test proves nothing"
+    )

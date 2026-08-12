@@ -32,12 +32,15 @@ it is the one to read first.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 
 from korax import PROTO
 from korax.api import create_app
 from korax.board import Board
+from korax.models import Act, Band, Envelope, Grade
 from korax.seed import seed_board
 from korax.store import Store
 
@@ -233,6 +236,129 @@ def test_a_superseded_deliverys_self_grade_stops_counting(world: dict) -> None:
     )
     assert entry["by"] == first
     assert entry["current"] == second
+
+
+# -- `merged`: what a GATE says it merged (ISSUE #1900, JOB #1970) --------
+#
+# `current` is the deliverer's chain tip and answers "what should I check
+# out". After a gate those two questions come apart: JOB #1740's entry
+# reports `current: 1826` (`627befd`) while main carries `77ab68a`, and
+# `git merge-base --is-ancestor 627befd main` says no. Every gate on this
+# board already names its sha — in PROSE, where no reduction can read it.
+
+SHA_A = "a" * 40
+SHA_B = "b" * 40
+
+
+def _gate_with_sha(world: dict, job: int, sha: object, who: str = "desk",
+                   grade: str = "verified") -> int:
+    return _post(world, world[who + "_token"], author=world[who], ns=JOBS_NS,
+                 type="FINDING", grade=grade, payload="GATE",
+                 refs=[{"edge": "closes", "id": job}],
+                 ext={"korax": {"merged_sha": sha}})["id"]
+
+
+def test_merged_is_absent_until_a_gate_names_one(world: dict) -> None:
+    """PRESENT ONLY WHEN KNOWN, and #287 does not reach this.
+
+    #287 forbids an absent field where a real value exists and absence
+    could be read as a value — which is why `current` is always there.
+    `merged` has no degenerate value: before a gate there IS no merged
+    sha, and a `null` would be a value meaning "absent", which is the
+    confusion #287 forbids rather than the cure for it."""
+    job = _job(world)
+    _claim(world, job)
+    _deliver(world, job)
+
+    entry = _entry(world, job)
+    assert "merged" not in entry
+    assert "current" in entry, "the always-present one is still always there"
+
+
+def test_a_gate_naming_its_sha_puts_it_on_the_entry(world: dict) -> None:
+    job = _job(world)
+    _claim(world, job)
+    delivery = _deliver(world, job)
+    _gate_with_sha(world, job, SHA_A)
+
+    entry = _entry(world, job)
+    assert entry["merged"] == SHA_A
+    assert entry["by"] == delivery, "#269 — attribution still does not move"
+    assert entry["current"] == delivery, "#287 — nor does the checkout target"
+
+
+def test_the_deliverer_cannot_name_their_own_merged_sha(world: dict) -> None:
+    """The field means "a gate merged this". A claimant naming a merged
+    sha on their own delivery is claiming an act they do not perform —
+    the mill merges, and #1900 is about making the mill's own prose
+    machine-readable, not about letting anyone assert a merge."""
+    job = _job(world)
+    _claim(world, job)
+    _post(world, world["worker_token"], author=world["worker"], ns=JOBS_NS,
+          type="FINDING", grade="unverified", payload="delivered",
+          refs=[{"edge": "closes", "id": job}],
+          ext={"korax": {"merged_sha": SHA_A}})
+
+    assert "merged" not in _entry(world, job)
+
+
+def test_a_re_gate_names_the_later_sha(world: dict) -> None:
+    """A re-merge after a bounce gets a second gate; the entry must
+    follow it rather than freezing on the first."""
+    job = _job(world)
+    _claim(world, job)
+    _deliver(world, job)
+    _gate_with_sha(world, job, SHA_A)
+    _gate_with_sha(world, job, SHA_B, who="second", grade="unverified")
+
+    assert _entry(world, job)["merged"] == SHA_B
+
+
+@pytest.mark.parametrize("bad", [None, 12345, "", "   ", ["a" * 40], {"sha": 1}])
+def test_a_malformed_merged_sha_is_ignored_and_never_raises(
+    world: dict, bad: object
+) -> None:
+    """`ext` is caller-supplied JSON preserved verbatim under §13, so
+    every level of it can be any type. A reduction that raised on one
+    band's typo would take down the docket, which is the one call a
+    session opens with."""
+    job = _job(world)
+    _claim(world, job)
+    _deliver(world, job)
+    _gate_with_sha(world, job, bad)
+
+    entry = _entry(world, job)
+    assert "merged" not in entry
+    assert entry["grade"] == "verified", "the gate still counts for the grade"
+
+
+def test_a_non_dict_korax_ext_is_ignored_at_the_reader(world: dict) -> None:
+    """Unit, not end-to-end, and the reason is worth recording: the
+    write path ALREADY refuses `ext.korax` as a non-dict —
+
+        400  ext.korax: top-level ext keys must be reserved (...) or
+             namespaced as ext.<project>.<field> (§2.4)
+
+    — so this state cannot be reached through `/post` today, and a test
+    that tried would be asserting the validator rather than the reader.
+    The guard stays because a reduction reads whatever is ON the log,
+    which outlives the validation in force when it was written (§13
+    preserves unknown elements verbatim, and this board has changed its
+    ext rules before). Defence in depth, tested where it lives."""
+    from korax.reductions import _merged_sha
+
+    def env(ext: dict) -> Envelope:
+        return Envelope(
+            proto=PROTO, id=1, ts=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            author="band:x", band=Band.DESK, ns=JOBS_NS, type=Act.FINDING,
+            grade=Grade.VERIFIED, ext=ext,
+        )
+
+    assert _merged_sha(env({})) is None
+    assert _merged_sha(env({"korax": "not-a-dict"})) is None
+    assert _merged_sha(env({"korax": ["also", "not"]})) is None
+    assert _merged_sha(env({"korax": {"merged_sha": None}})) is None
+    assert _merged_sha(env({"korax": {"merged_sha": "  " + SHA_A + " "}})) == SHA_A
 
 
 # -- the canary -----------------------------------------------------------

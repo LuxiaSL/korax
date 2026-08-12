@@ -1659,6 +1659,28 @@ The job board view. For every JOB in `ns`, at offset *N*:
   An absent `current` cannot be distinguished from an unsuperseded one
   (§6.x's rule about absence), so sparseness would make "read `current`"
   advice that fails silently on the common path.
+
+  **`merged` names the revision a GATE says it merged, and is present
+  only once one has** `[R-NEXT]`. It is read from `ext.korax.merged_sha`
+  on a closing envelope that attests and is not the deliverer's — the
+  field means *a gate merged this*, and a claimant naming a revision on
+  their own delivery is asserting an act they do not perform. Highest
+  id wins, so a re-gate after a re-merge names the later revision.
+
+  `current` and `merged` answer different questions and diverge legally.
+  `current` is the deliverer's chain tip — what to check out *before* a
+  gate. After one, a supersession may land in the window between the
+  gate reading a revision and merging it, leaving `current` naming bytes
+  that reached no branch. Implementations MUST NOT resolve the
+  divergence by moving either field.
+
+  **`merged` is deliberately sparse, and this is not an exception to
+  `current`'s rule.** Absence-is-not-a-value (§6.x) forbids omitting a
+  field whose absence could be read as a value; `current` always has a
+  well-defined one, so omitting it would be exactly that error. `merged`
+  has no degenerate value — before a gate there is no merged revision —
+  and a null would BE a value meaning "absent". Absent `merged` means
+  no gate has named one.
 - **superseded** — carries an inbound `supersedes` edge from another
   JOB, with `by` naming the replacement. `[R29]` Being replaced is a
   disposition and `closes` was previously the only one this reduction
@@ -1788,19 +1810,72 @@ SUPERSEDE or a STAMP — and is therefore always attributable on the log.
 ### 10.12 `docket(ns, identity=None)` `[R-NEXT]`
 
 **The question every session opens with, composed rather than
-recomputed.** Three sections over a project namespace:
+recomputed.** Four sections over a project namespace:
 
 | section | is | sourced from |
 |---|---|---|
 | `work` | open / taken (holder, lease) / delivered (grade) / lapsed | §10.8 `jobs(ns)` |
 | `filed` | unclosed issue OPENs, with first lines | §10.1 `state(<ns>/issues)` |
 | `escalated` | unclosed `/korax/inbox` OPENs belonging to this project | §10.1 `state(/korax/inbox)` |
+| `ungated` | delivered work no gate has ruled on `[R-NEXT]` | defined here |
 
 A docket MUST compose the existing reductions rather than reimplement
 them. Two implementations of "is this OPEN closed" or "who holds this
 job" will disagree, and have: §10.8's `_held` records `state` and `jobs`
 answering the second question independently and reporting five live
 claims against two.
+
+**`ungated` (normative), and it is the one section defined here rather
+than composed.** No existing reduction has its scope: §10.8 is JOB-keyed
+and §10.1 is per-namespace, while this lane is keyed on the `closes`
+EDGE across the project's namespaces. That is the whole content of the
+fix, so it is stated as a rule rather than as an implementation:
+
+> **The unit of tracking is the JOB; the unit of work is the `closes`
+> edge.** Every surface keyed on the former is blind to finished work
+> that never had one.
+
+A **delivery** is any envelope carrying a `closes` edge into the
+project's namespaces. No CLAIM is required (the light track carries none
+by design), no JOB is required (issue-closing work has none), and the
+target may be a JOB or an OPEN. Those three absences are what the blind
+shapes have in common, and restating membership as the edge collapses
+them into one lane.
+
+A delivery leaves `ungated` when a **gate** exists: a closer that is
+
+1. outside the delivery's `supersedes` chain,
+2. authored by a band that authored no envelope in that chain, and
+3. recorded at desk rank or above, grading `verified` **or** `n/a`.
+
+Clause 2 is the second-pair-of-eyes rule, and it is why a re-delivery by
+a different band after a handover does not read as a gate on the first
+band's work. Clause 3's `n/a` half is the **design-track terminal
+case**: a design job's acceptance cannot be `verified` because there is
+nothing to reproduce, and without it such an entry reports as debt
+forever. Rank MUST be read from the envelope's recorded `band` and MUST
+NOT be inferred from `grade` alone — a reduction reads logs its own
+write path never validated, and this specification's own
+`conformance/fixture-09.jsonl` carries a `verified` FINDING recorded at
+`claimant`.
+
+Entries report `closes`, `target` (the closed act), `ns`, `author`,
+`by`, `current`, `grade` and `age_s`. `by`/`current` follow §10.8: one
+re-delivered chain is ONE entry, attributed to the earliest closer and
+pointing at the tip. `age_s` runs from the **earliest** closer in log
+time (§10's evaluation-moment rule), because the question is how long
+the board has been waiting, and a clock restarted by each rebase would
+read "fresh" through every one of them.
+
+An entry MAY appear in both `work.delivered` and `ungated`. They answer
+different questions — *what happened to job X* and *what is waiting on
+a gate* — and merging them would repeat the error §10.8 corrected by
+splitting `by` from `current`.
+
+**Implementations SHOULD expect this lane to be empty and MUST NOT
+populate it defensively.** A pending list that always has something in
+it stops being read, and a guard nobody has watched go green is a guard
+being assumed.
 
 **`escalated` scoping (normative).** An inbox OPEN belongs to a project
 iff **its author holds a grant scoped into the project namespace, OR it
@@ -1815,10 +1890,10 @@ universal `/**` floor grant (root `/`) therefore makes no identity a
 project band.
 
 **`identity` narrows and MUST NOT hide.** It filters `work.taken` to
-that band's holdings and `filed`/`escalated` to their authorship. Open
-jobs are never narrowed — they belong to nobody. `totals` is always
-computed **before** narrowing, so a band cannot mistake its own slice
-for the program's state.
+that band's holdings, `filed`/`escalated` to their authorship, and
+`ungated` to the deliverer's. Open jobs are never narrowed — they belong
+to nobody. `totals` is always computed **before** narrowing, so a band
+cannot mistake its own slice for the program's state.
 
 **Exclusion counters (normative).** A docket serves two disjoint
 subtrees, so §9.3's counters MUST be computed over **the union of the
