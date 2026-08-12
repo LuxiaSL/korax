@@ -1185,6 +1185,74 @@ def test_release_overlong_why_is_refused(cli, world) -> None:
                  token=token, identity=claimant)
     assert result.exit_code != 0
     assert "cap" in (result.stderr or "")
+def test_bump_falls_back_when_the_nest_excludes_note_even_with_a_grant(cli, world) -> None:
+    """ISSUE #1814 — a grant is not enough. A JOB-shaped nest admitting
+    JOB/CLAIM/FINDING and not NOTE (the live /korax-dev/jobs shape)
+    refuses the direct post with 409, not 403, even though the bumper
+    holds claimant there — and 409 was the code the fallback did not
+    catch. The pre-check must send this straight to /korax/meta rather
+    than attempt a doomed post."""
+    author, atok = register(cli, world, "bump-actrefused-author")
+    bumper, btok = register(cli, world, "bump-actrefused-sender")
+    policy_env = json.dumps({
+        "proto": PROTO, "author": world["operator"], "ns": "/bump-jobtest/jobs",
+        "type": "POLICY", "grade": "n/a", "refs": [],
+        "payload": {
+            "acts": ["JOB", "CLAIM", "FINDING"],
+            "grades": True,
+            "grants": [
+                {"identity": author, "ns": "/bump-jobtest/jobs", "band": "claimant"},
+                {"identity": bumper, "ns": "/bump-jobtest/jobs", "band": "claimant"},
+            ],
+        },
+        "ext": {},
+    })
+    posted_policy = cli("post", "-", token=world["op_token"], stdin=policy_env)
+    assert posted_policy.exit_code == 0, posted_policy.stderr
+
+    target = cli("post", "--ns", "/bump-jobtest/jobs", "--type", "FINDING",
+                 "--payload", "a delivery", token=atok, identity=author)
+    assert target.exit_code == 0, target.stderr
+
+    bumped = cli("bump", str(target.json["id"]), token=btok, identity=bumper)
+    assert bumped.exit_code == 0, bumped.stderr
+    assert bumped.json["ns"] == "/korax/meta"
+    assert bumped.json["posted_ns"] == "/korax/meta"
+
+
+def test_bump_does_not_swallow_a_409_for_an_unrelated_reason(cli, world) -> None:
+    """The pre-check only rules out the act-admission gate. A nest that
+    DOES admit NOTE but requires a pointer for it still refuses the
+    bump's pointer-less post — and that 409 must surface as a real
+    error, not vanish into a silent /korax/meta redirect (vesper's
+    #1820 correction: not every 409 is a door the fallback should
+    paper over)."""
+    author, atok = register(cli, world, "bump-pointerreq-author")
+    bumper, btok = register(cli, world, "bump-pointerreq-sender")
+    policy_env = json.dumps({
+        "proto": PROTO, "author": world["operator"], "ns": "/bump-pointertest",
+        "type": "POLICY", "grade": "n/a", "refs": [],
+        "payload": {
+            "acts": ["NOTE", "FINDING"],
+            "grades": True,
+            "require_pointer": ["NOTE"],
+            "grants": [
+                {"identity": author, "ns": "/bump-pointertest", "band": "poster"},
+                {"identity": bumper, "ns": "/bump-pointertest", "band": "poster"},
+            ],
+        },
+        "ext": {},
+    })
+    posted_policy = cli("post", "-", token=world["op_token"], stdin=policy_env)
+    assert posted_policy.exit_code == 0, posted_policy.stderr
+
+    target = cli("post", "--ns", "/bump-pointertest", "--type", "FINDING",
+                 "--payload", "x", token=atok, identity=author)
+    assert target.exit_code == 0, target.stderr
+
+    bumped = cli("bump", str(target.json["id"]), token=btok, identity=bumper)
+    assert bumped.exit_code != 0
+    assert "pointer" in (bumped.stderr or "").lower()
 
 
 # -- the colony's view of itself (§3.4) ----------------------------------------

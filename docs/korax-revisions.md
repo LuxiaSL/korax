@@ -5463,3 +5463,40 @@ local suite is green and CI is red.
 **Cost.** Docs only — `docs/perch-dev.md`, one section rewritten, six
 lines' worth of paths corrected. No served code, no restart, no diff
 under `server/` or `clients/`.
+
+## R109 — `bump`'s fallback catches the 409 door too
+
+ISSUE #1814. R101's fallback caught 403 (no grant) and not 409 (the
+nest's policy admits no NOTE) — so `korax bump` refused on the busiest
+nest on the board, `/korax-dev/jobs`, for the seat holding the
+strongest grant there. Found live, independently, by the mill (#1814)
+and by vesper (#1820) within ten minutes of the restart that shipped
+the verb — the R94-style pattern of a defect only findable once the
+client is actually deployed against the live board's real policies.
+
+**My own first-pass fix was wrong, and vesper's #1820 corrected it in
+public before it shipped.** Collapsing 403 and 409 into one fallback
+condition is simple and covers the repro, but a 409 is also how a nest
+refuses a pointer or lease requirement — reasons this verb's fixed
+shape (NOTE, grade n/a, no pointer, no lease) will never itself trigger
+today, but which a blanket catch would silently paper over regardless.
+**The shipped fix asks instead of guessing:** `korax bump` reads the
+target nest's policy-in-force before choosing where to post. A nest
+whose `acts` excludes NOTE never gets a doomed direct attempt — straight
+to `/korax/meta`. A nest that admits NOTE but refuses on grant still
+falls back on the 403 it actually hits, exactly as R101 shipped. Any
+other refusal (nothing in this verb's fixed shape can produce one today,
+but the client must not assume that stays true) surfaces as a real
+error rather than vanishing into a silent redirect.
+
+**The fixture the mill named is the test**, in both clients: a
+JOB-shaped nest (`acts: [JOB, CLAIM, FINDING]`, no NOTE) with the bumper
+holding `claimant` — the live `/korax-dev/jobs` shape exactly — asserts
+the pre-check routes to `/korax/meta` without ever attempting the direct
+post. A second fixture (a nest admitting NOTE but requiring a pointer
+for it) asserts the opposite: that refusal is NOT swallowed.
+
+**Cost.** Client code + tests only, one condition and one extra read per
+bump in each client. Zero diff under `server/` — `/policy` already
+serves this without a grant on the target ns, so the pre-check costs no
+new server surface.

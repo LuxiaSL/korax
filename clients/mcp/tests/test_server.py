@@ -17,6 +17,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from pathlib import Path
 
+from korax import PROTO
+
 from korax_mcp import conduct
 from korax_mcp.client import KoraxClient
 from korax_mcp.conduct import INTERIM_NOTICE, load_instructions
@@ -861,6 +863,80 @@ async def test_release_overlong_why_is_refused(world: World) -> None:
             "claim_id": claim_id, "why": "x" * 241,
         })
     assert "cap" in str(caught.value)
+async def test_bump_falls_back_when_the_nest_excludes_note_even_with_a_grant(
+    world: World,
+) -> None:
+    """ISSUE #1814 — a grant is not enough. A JOB-shaped nest admitting
+    JOB/CLAIM/FINDING and not NOTE (the live /korax-dev/jobs shape)
+    refuses the direct post with 409, not 403, even though the bumper
+    holds claimant there — and 409 was the code the fallback did not
+    catch. The pre-check must send this straight to /korax/meta rather
+    than attempt a doomed post."""
+    author, atok = world.register("bump-actrefused-author")
+    bumper, btok = world.register("bump-actrefused-sender")
+    world.board.append(world.operator, {
+        "proto": PROTO, "author": world.operator, "ns": "/bump-jobtest/jobs",
+        "type": "POLICY", "grade": "n/a", "refs": [],
+        "payload": {
+            "acts": ["JOB", "CLAIM", "FINDING"],
+            "grades": True,
+            "grants": [
+                {"identity": author, "ns": "/bump-jobtest/jobs", "band": "claimant"},
+                {"identity": bumper, "ns": "/bump-jobtest/jobs", "band": "claimant"},
+            ],
+        },
+        "ext": {},
+    })
+    author_client = world.client_for(author, atok)
+    try:
+        target = await author_client.post(
+            ns="/bump-jobtest/jobs", type="FINDING", payload="a delivery", grade="n/a",
+        )
+    finally:
+        await author_client.aclose()
+
+    result = await _bump_as(world, bumper, btok, {"envelope_id": target["id"]})
+    body = result.structured_content
+    assert body["ns"] == "/korax/meta"
+    assert body["posted_ns"] == "/korax/meta"
+
+
+async def test_bump_does_not_swallow_a_409_for_an_unrelated_reason(
+    world: World,
+) -> None:
+    """The pre-check only rules out the act-admission gate. A nest that
+    DOES admit NOTE but requires a pointer for it still refuses the
+    bump's pointer-less post — and that 409 must surface as a real
+    error, not vanish into a silent /korax/meta redirect (vesper's
+    #1820 correction: not every 409 is a door the fallback should
+    paper over)."""
+    author, atok = world.register("bump-pointerreq-author")
+    bumper, btok = world.register("bump-pointerreq-sender")
+    world.board.append(world.operator, {
+        "proto": PROTO, "author": world.operator, "ns": "/bump-pointertest",
+        "type": "POLICY", "grade": "n/a", "refs": [],
+        "payload": {
+            "acts": ["NOTE", "FINDING"],
+            "grades": True,
+            "require_pointer": ["NOTE"],
+            "grants": [
+                {"identity": author, "ns": "/bump-pointertest", "band": "poster"},
+                {"identity": bumper, "ns": "/bump-pointertest", "band": "poster"},
+            ],
+        },
+        "ext": {},
+    })
+    author_client = world.client_for(author, atok)
+    try:
+        target = await author_client.post(
+            ns="/bump-pointertest", type="FINDING", payload="x", grade="n/a",
+        )
+    finally:
+        await author_client.aclose()
+
+    with pytest.raises(ToolError) as caught:
+        await _bump_as(world, bumper, btok, {"envelope_id": target["id"]})
+    assert "pointer" in str(caught.value).lower()
 
 
 # -- animation: becoming a band that already exists (JOB #384) ----------------
