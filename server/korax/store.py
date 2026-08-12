@@ -252,11 +252,30 @@ class Store:
         `created_by` is NOT NULL by schema, unlike identities': an invite
         exists to be spent by a stranger, so the inviter is the whole of
         the attribution and there is no case where it is unknown.
+
+        THE TOKEN NEVER STARTS WITH `-`, and that is a correctness
+        requirement rather than tidiness. `token_urlsafe` draws from the
+        base64url alphabet, which includes `-`, so ~1 in 64 tokens leads
+        with one. This credential's whole purpose is to be typed as
+        `korax enlist <name> --invite <token>`, and argparse reads a
+        value beginning with `-` as the NEXT OPTION: the command dies
+        with "argument --invite: expected one argument", naming the flag
+        rather than the token, at the one moment its reader has no other
+        way onto the board. Caught by CI failing on run 31557281367 —
+        the 1-in-64 came up — after passing locally every time.
+
+        Rejection sampling rather than mangling: trimming or replacing
+        the character would make two distinct tokens collide on one
+        hash. The loop discards ~1.6% of candidates and costs
+        log2(64/63) ≈ 0.023 bits of the 256 drawn.
         """
         import hashlib
         import secrets
 
-        token = secrets.token_urlsafe(32)
+        while True:
+            token = secrets.token_urlsafe(32)
+            if not token.startswith("-"):
+                break
         with self._lock:
             self.conn.execute(
                 "INSERT INTO invites "
