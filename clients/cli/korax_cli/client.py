@@ -530,7 +530,18 @@ class KoraxClient:
 
         if response.status_code >= 400:
             error = ApiError.from_response(response)
-            if response.status_code == 401 and not self._authenticated:
+            if (
+                response.status_code == 401
+                and not self._authenticated
+                # ...unless the board already named a remedy. An invite
+                # refusal (JOB #1839) says "ask the operator for a fresh
+                # one"; appending "set KORAX_TOKEN" then hands a fresh
+                # machine the one instruction it CANNOT follow, which is
+                # the dead end #1837 reported. A hint that contradicts
+                # the message is worse than no hint: #415 asks the error
+                # to name what to ask for, and this named two things.
+                and "invite" not in str(error.message).lower()
+            ):
                 error.extra.setdefault(
                     "hint", "no token configured; set KORAX_TOKEN or pass --token"
                 )

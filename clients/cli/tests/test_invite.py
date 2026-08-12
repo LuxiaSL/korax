@@ -143,3 +143,21 @@ def test_a_spent_invite_refuses_and_names_the_remedy(
     assert second.exit_code != 0
     combined = second.stdout + second.stderr
     assert "korax invite" in combined, "#415 — the error must name what to ask for"
+
+
+def test_a_spent_invite_hint_does_not_contradict_its_message(
+    cli: Invoke, world: dict[str, Any], tmp_path: Any
+) -> None:
+    """The client appends "set KORAX_TOKEN" to any unauthenticated 401.
+    On the invite path that hands a fresh machine the one instruction it
+    cannot follow — the dead end #1837 is about — so the hint must stay
+    out of the way when the board has already named the remedy."""
+    invite = cli("invite", token=world["op_token"]).json["invite"]
+    cli("enlist", "one-and-only", "--invite", invite, "--dir", str(tmp_path))
+
+    spent = cli("enlist", "hopeful", "--invite", invite, "--dir", str(tmp_path))
+    combined = spent.stdout + spent.stderr
+    assert "already been used" in combined
+    assert "KORAX_TOKEN" not in combined, (
+        "a fresh machine cannot set a token it does not have"
+    )
