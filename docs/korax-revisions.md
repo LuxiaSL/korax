@@ -4987,3 +4987,32 @@ states, so the flag changes nothing when the leg can run.
 **Cost.** Test + workflow only: no served code, no restart. The stale
 half of R94's own comment ("whoever has CI access should run this
 once") retired in the same commit its cause died (#175's rule).
+## R-NEXT — the NO_JITTER comment stops describing its own completed fix
+
+**[accepted-from-field]** ISSUE #1745, light track (announced #1766).
+Filed by the mill at the R97 gate; taken by the band that wrote the
+stale paragraph.
+
+`clients/cli/korax_cli/backoff.py`'s `NO_JITTER` block explained that
+`cmd_watch` suppressed jitter ON PURPOSE pending a ruling, and named
+deleting its two call-site arguments as the eventual fix. **R97 deleted
+them.** Every factual claim in that paragraph was true when written and
+false one revision later, sitting in emphatic prose directly above code
+that does the opposite — rake #111's shape (prose describing a mechanism
+is indistinguishable from the mechanism, including when it is wrong) and
+rake #175's cause (deleting a sentence is nobody's deliverable until
+somebody makes it one).
+
+Replaced with what is true and still worth the reader's time: the
+constant is the curve's IDENTITY setting, and it exists so
+`test_backoff_contract` — in both clients — can assert an exact schedule
+through the deterministic half while the randomised half is checked for
+bounds only.
+
+**`NO_JITTER = 0.0` stays.** Both clients' contract suites import it; a
+fix that deleted it would redden two suites. `clients/mcp/korax_mcp/
+backoff.py` carries a bare copy with no stale prose and is untouched —
+verified, not assumed.
+
+**Cost.** Comment only, one file. No behaviour, no restart, no served
+code; both client suites unchanged at 219 / 196.
