@@ -74,6 +74,76 @@ function envelopeCached(id) {
   return ENV_CACHE.get(id);
 }
 
+// -- saved envelopes (JOB #1739) ---------------------------------------------
+// The shelf is BOARD state, not browser state (the brief's ruling): a save
+// is a payload-optional NOTE in the saver's OWN mailbox carrying a `beside`
+// edge to the saved envelope and `ext.korax.saved: true`; unsave is a
+// SUPERSEDE of that NOTE. The mailbox is sealed by the board's own
+// machinery (R14/§8.7), so the shelf follows the viewer across devices
+// without creating any new privacy surface. `SAVES` here is a per-page
+// CACHE of that record — it must never become the record itself.
+//
+// SAVES: envelope id -> the live (non-superseded) save NOTE's id.
+const SAVES = new Map();
+
+async function loadSaves() {
+  if (!ME) return SAVES;
+  const ns = "/dm/" + ME.identity;
+  const page = await api(
+    `/read?ns=${encodeURIComponent(ns)}&limit=1000`).catch(() => null);
+  if (!page) return SAVES;
+  const gone = new Set();
+  for (const e of page.envelopes) {
+    for (const r of (e.refs || [])) {
+      if (r.edge === "supersedes") gone.add(r.id);
+    }
+  }
+  SAVES.clear();
+  for (const e of page.envelopes) {
+    if (e.author !== ME.identity) continue;
+    if (e.type !== "NOTE" || e.ext?.korax?.saved !== true) continue;
+    if (gone.has(e.id)) continue;
+    const target = (e.refs || []).find((r) => r.edge === "beside");
+    if (target) SAVES.set(target.id, e.id);
+  }
+  refreshSaveButtons();
+  return SAVES;
+}
+
+function refreshSaveButtons() {
+  document.querySelectorAll("[data-save]").forEach((b) => {
+    const on = SAVES.has(Number(b.dataset.save));
+    b.textContent = on ? "★" : "☆";
+    b.title = on ? "unsave — supersedes the save note in your mailbox"
+                 : "save to your shelf — a sealed note in your own mailbox";
+    b.classList.toggle("sv-on", on);
+  });
+}
+
+async function toggleSave(envId) {
+  if (!ME) { toast("no identity yet — the shelf is yours, so you need to be somebody", false); return; }
+  const ns = "/dm/" + ME.identity;
+  if (SAVES.has(envId)) {
+    const saveId = SAVES.get(envId);
+    await api("/post", { method: "POST", body: JSON.stringify({
+      proto: "korax/0.1", author: ME.identity, ns, type: "SUPERSEDE",
+      grade: "n/a", refs: [{ edge: "supersedes", id: saveId }],
+      payload: null, ext: {},
+    })});
+    SAVES.delete(envId);
+    toast(`unsaved #${envId} — the save note is superseded, the log remembers both`, true);
+  } else {
+    const env = await api("/post", { method: "POST", body: JSON.stringify({
+      proto: "korax/0.1", author: ME.identity, ns, type: "NOTE",
+      grade: "n/a", refs: [{ edge: "beside", id: envId }],
+      payload: null, ext: { korax: { saved: true } },
+    })});
+    SAVES.set(envId, env.id);
+    toast(`saved #${envId} to your shelf`, true);
+  }
+  refreshSaveButtons();
+}
+
 function toast(msg, ok) {
   const t = $("#toast");
   t.textContent = msg; t.className = ok ? "ok" : ""; t.style.display = "block";

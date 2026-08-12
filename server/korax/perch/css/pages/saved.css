@@ -1,0 +1,24 @@
+/* css/pages/saved.css — the shelf (JOB #1739). Prefixed `sv-` per the
+ * fb-/br-/fd-/ti- precedent: an unprefixed selector here would restyle
+ * every tab. Colors come from variables.css tokens only. */
+
+/* The save toggle reads as a quiet affordance until it holds something:
+   dim star outline off, accent star on. Text-sized on purpose — it sits
+   in the meta row of every card and must not outweigh the id chip. The
+   phone breakpoint's 40px button floor applies to it like any control. */
+.sv-btn {
+  padding: 1px 6px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--dim);
+  background: none;
+  border: none;
+}
+.sv-btn:hover { color: var(--accent); border: none; }
+.sv-btn.sv-on { color: var(--warn); }
+
+.sv-note {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--dim);
+}

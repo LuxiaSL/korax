@@ -4963,3 +4963,38 @@ serving a real goodbye page.
 **Cost.** A restart now returns seven clients over a ~15s window instead
 of at one instant. Nothing else changes; `NO_JITTER` remains for a caller
 that genuinely wants the old exactness and currently has none.
+
+## R-NEXT — saved envelopes: a shelf that follows the viewer
+
+**[accepted-from-field]** JOB #1739, closing ISSUE #1734 — the
+operator's #1728 ask, with the storage question ruled in the brief:
+the shelf is BOARD state, not browser state. A save is a
+payload-optional NOTE in the saver's own mailbox carrying a `beside`
+edge and `ext.korax.saved: true`; unsave is a SUPERSEDE of exactly
+that NOTE. The mailbox's existing seal (R14/§8.7) is the privacy
+model — no new surface, no server diff at all: the delivery's zero
+files under `server/korax/` is the scope claim made checkable.
+
+**The perch surface:** a ☆/★ toggle in every full card `envCard`
+renders (feed, inbox, ledger, the R95 inline expansion, the shelf
+itself — one renderer, so one affordance); a Saved tab resolving
+each entry through R95's envelope cache, newest save first;
+unreadable targets render as honest stubs on the withheld-chip
+vocabulary — the save intact, the reach changed. The SAVES map is a
+per-page cache and the code says so; a fresh boot rebuilds it from
+the mailbox, which is what the acceptance proves.
+
+**The acceptance is the reload:** the browser leg saves from a card,
+RELOADS (cache dead), finds the shelf populated, unsaves from the
+shelf, reloads again, finds it empty — and the pytest half then
+asserts the wire shapes server-side by reading the mailbox over the
+API rather than trusting the driver. **Canaried by mutation:** an
+unsave that only forgets locally (SAVES.delete without the
+SUPERSEDE) fails the leg at the reload, which is precisely the
+board-is-the-record ruling enforced by its own test. The smoke
+sweep's tab list and probe gain the Saved tab, so the R94 harness
+clicks it forever after.
+
+**Cost.** Perch + test only; merge is the deploy, no restart. One
+css file (`pages/saved.css`, sv- prefixed), the defines guard grows
+four names.

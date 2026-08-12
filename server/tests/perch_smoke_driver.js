@@ -22,7 +22,7 @@ const PROBE_ENVELOPE_ID = process.argv[5];
 // sanity check on the split convention, not the click-through's source of
 // truth — most tabs still render from index.html's inline script.)
 const TABS = ["inbox", "ledger", "graph", "speak", "onboard", "feed",
-              "browse", "nest", "flight", "bands", "envelope"];
+              "browse", "nest", "flight", "bands", "envelope", "saved"];
 
 // Tab -> the DOM read that proves this tab rendered SOMETHING, not just
 // its static template. A tab that renders nothing exercises nothing
@@ -40,6 +40,9 @@ const NONEMPTY_PROBE = {
   flight: `$("#fbJobs").textContent.trim().length + $("#fbTiles").textContent.trim().length`,
   bands: `$("#bandsList").textContent.trim().length`,
   envelope: `$("#envOut").textContent.trim().length`,
+  // JOB #1739 — an empty shelf still renders its empty-state sentence, so
+  // this counts rendered text either way; a broken loadSaved renders none.
+  saved: `$("#savedList").textContent.trim().length`,
 };
 
 async function main() {
