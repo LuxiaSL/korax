@@ -6108,3 +6108,13 @@ can fail on their own: the helper must still mint full-width, unique,
 full-alphabet tokens with `-` still appearing INSIDE them, rotation must
 still rotate, and the invariant test's own counting rule is canaried
 against a fixture where the answer is known.
+## R123 — the grant-console rig names a slow Chrome (#2009 run 2)
+
+Six lines, all in the test rig: the Chrome-readiness poll in
+`test_perch_grant_console_browser.py` gains the else-clause it always
+needed and a CI-sized budget. Exhausting silently launched the driver
+against a dead CDP port, whose first fetch died as `TypeError: fetch
+failed` with an empty report — which read as "the driver lost the
+server mid-test" (CI run 31557685663) and briefly implicated R113. The
+failure now names itself before the driver launches. The smoke test's
+poll already had the clause; this brings its sibling level.
