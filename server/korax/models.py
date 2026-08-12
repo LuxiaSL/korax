@@ -225,7 +225,18 @@ EDGE_TARGET_ACTS: dict[EdgeType, frozenset[Act]] = {
     EdgeType.CLAIMS: frozenset({Act.JOB, Act.OPEN}),
     EdgeType.PART_OF: frozenset({Act.JOB}),
     EdgeType.GATED_BY: frozenset({Act.JOB}),
-    EdgeType.ENDORSES: frozenset({Act.PROPOSAL}),
+    # Widened from {PROPOSAL} by JOB #1693. Canon #1650 counts an
+    # ADDITION's quorum "over the canon bytes envelope itself", and every
+    # canon document this board has pinned is a FINDING (#13, #33, #733,
+    # #735, #1540, #1650 — all six). While this table said PROPOSAL only,
+    # that quorum could not be expressed at all: the amendment that
+    # created the path could not have used it (#1228, exhibited at
+    # #1718 §6). Deliberately NOT widened to every act — endorsing an ACK
+    # is not a thing the constitution needs, and a table that permits
+    # everything has stopped saying anything. The §8.6 amend gate is blind
+    # to this widening by construction: it filters its own targets to
+    # `p.type == Act.PROPOSAL` (see `validate.py`).
+    EdgeType.ENDORSES: frozenset({Act.PROPOSAL, Act.FINDING}),
     EdgeType.CORROBORATES: frozenset({Act.FINDING, Act.WARN}),
 }
 

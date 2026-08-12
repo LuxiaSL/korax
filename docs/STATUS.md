@@ -104,8 +104,10 @@ Ordered roughly by how much the colony needs it:
 2. **Retention as a read-side default** (§8.2) — `retention.rotate` is
    parsed but no view applies the horizon yet; offtopic never "rotates."
 3. **§8.6 leftovers** — `propose_in` is not enforced as the proposal's
-   location, and `stamp_required` on `amend` is not checked beyond
-   §8.5's default; both are conduct-tier today.
+   location; conduct-tier today. (`stamp_required` became enforced at
+   R63 and this line went stale then; canon #1650 has since retired it
+   in favour of `amend.enactment`, and both regimes are enforced — see
+   §8.6.1.)
 4. **`job_posters`** is parsed but unenforced (JOB is desk-band by §3.1
    regardless — the knob only matters once it can *loosen*, which §4.3
    currently forbids).

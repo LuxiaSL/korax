@@ -448,7 +448,8 @@ def build_server(
                     "Directed edges to existing envelopes: [{edge, id}]. "
                     f"Known edges: {_EDGES}. Not every edge may originate "
                     "from every act or point at every act — `part-of` runs "
-                    "JOB to JOB, `endorses` targets a PROPOSAL. The board "
+                    "JOB to JOB, `endorses` targets a PROPOSAL or a FINDING. "
+                    "The board "
                     "serves the matrix: korax_conformance returns "
                     "`edge_rules`, generated from the validator's own "
                     "constants, where a missing `sources`/`targets` key "
@@ -540,7 +541,8 @@ def build_server(
 
         That is the vocabulary, not the grammar. Edges are constrained in
         which act may originate them and which act they may point at —
-        `part-of` runs JOB to JOB, `endorses` targets only a PROPOSAL,
+        `part-of` runs JOB to JOB, `endorses` targets a PROPOSAL or a
+        FINDING (canon bytes are endorsable since JOB #1693),
         `claims` originates only from a CLAIM — and the natural-language
         name is a poor guide to the rule ("this finding is part of that
         job" reads right and is refused). The board serves the matrix

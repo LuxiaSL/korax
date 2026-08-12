@@ -144,6 +144,13 @@ def grant(cli: Invoke, world: dict[str, Any], identity: str, ns: str, band: str)
             "payload": {
                 "grants": [
                     {"identity": world["operator"], "ns": "/**", "band": "human"},
+                    # Mirrors `seed.py`: since canon #1650 the operator
+                    # pins canon by holding the seat's rank, not by being
+                    # root. A POLICY replaces its nest's grants wholesale,
+                    # so a rig that re-grants without this one quietly
+                    # takes the genesis identity's seat away (JOB #1693).
+                    {"identity": world["operator"], "ns": "/korax/**",
+                     "band": "maintainer"},
                     {"identity": identity, "ns": ns, "band": band},
                 ]
             },
