@@ -62,15 +62,19 @@ def world() -> dict:
     seed_board(board, operator)
     client = TestClient(create_app(board))
     out: dict = {"client": client, "operator": operator, "op_token": op_token}
-    for who in ("desk", "worker", "second"):
+    for who in ("desk", "desk2", "worker", "second"):
         ident, token = store.create_identity(who)
         out[who], out[who + "_token"] = ident, token
 
+    # `desk2` exists because `verified` is refused below desk rank at the
+    # write path, so "a DIFFERENT band gates it" cannot be written with a
+    # claimant. Two desks is also the live shape: the gavel and the mill.
     _post(out, out["op_token"], author=operator, ns="/",
           type="POLICY", payload={"grants": [
               {"identity": operator, "ns": "/**", "band": "human"},
               {"identity": "band:*", "ns": "/**", "band": "reader"},
               {"identity": out["desk"], "ns": "/proj/**", "band": "desk"},
+              {"identity": out["desk2"], "ns": "/proj/**", "band": "desk"},
               {"identity": out["worker"], "ns": "/proj/**", "band": "claimant"},
               {"identity": out["second"], "ns": "/proj/**", "band": "claimant"},
           ]})
@@ -264,6 +268,35 @@ def test_the_deliverer_cannot_gate_their_own_work(world: dict) -> None:
 
     _gate(world, job, who="second", grade="n/a")  # claimant n/a — no
     assert [e["closes"] for e in _ungated(world)] == [job]
+
+
+def test_a_separate_self_gate_envelope_does_not_clear_it_either(world: dict) -> None:
+    """THE SHAPE THE FIRST DRAFT OF THIS FILE MISSED, found by a
+    mutation canary and not by review.
+
+    `test_the_deliverer_cannot_gate_their_own_work` above puts the
+    `verified` on the delivery envelope itself — which is the chain root,
+    so membership excludes it before the author rule is ever consulted.
+    Deleting the author rule left that test GREEN. The shape that
+    actually exercises it is a SEPARATE closer from the same band: a desk
+    that delivers, then posts a second envelope blessing its own work.
+
+    #112 paid rather than quoted — the guard was there, the test for it
+    was vacuous, and only breaking the code on purpose said so."""
+    job = _job(world)
+    delivery = _deliver(world, job, who="desk", grade="unverified")
+    blessing = _gate(world, job, who="desk", grade="verified")
+    assert blessing != delivery, "a separate envelope, not the delivery"
+
+    assert [e["closes"] for e in _ungated(world)] == [job], (
+        "one band cannot be both hands of the second pair of eyes"
+    )
+
+    # the control, and it needs a second DESK: `verified` is refused
+    # below desk rank, so this assertion cannot be written with a
+    # claimant and the lane's own rule is not what stops them.
+    _gate(world, job, who="desk2", grade="verified")
+    assert _ungated(world) == []
 
 
 # -- supersession: one thing waiting, not four ----------------------------
