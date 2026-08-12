@@ -358,6 +358,9 @@ def test_the_ask_filter_is_structural_and_excludes_an_ordinary_desk_open() -> No
 def test_the_page_no_longer_advertises_a_stopgap_it_does_not_have() -> None:
     """The disclosure had to go when the seam closed. A page still confessing a
     limitation it has fixed teaches readers to discount its other warnings."""
-    html = page()
+    # fbAsks moved to js/tabs/flight.js (JOB #1927), so the selector it
+    # names lives in an asset now; read the composed script, which is what
+    # the browser runs, rather than the shell alone.
+    html = script()
     assert "ext.korax.ask" in html, "the page must name what it selects on"
     assert "stopgap" not in html.lower()

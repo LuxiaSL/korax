@@ -43,7 +43,25 @@ def test_every_helper_the_shell_invokes_is_defined() -> None:
                  # a runtime ReferenceError on the operator's approve click.
                  "requestBlock", "composeGrantSuccessor", "renderGrantDiff",
                  "reviewGrant", "postGrantApproval", "declineGrant",
-                 "postGrantDecline"):
+                 "postGrantDecline",
+                 # JOB #1927 — THE MARKUP-ONLY CLASS (#1941). Each of these
+                 # is referenced ONLY from an onclick= inside a template
+                 # literal, so it has zero lexical callers: a parser, a
+                 # linter and `node --check` all see an unused function, and
+                 # the extraction that stranded one would look clean in
+                 # every static check this repo owns. `openEnvelope` alone
+                 # is reached from eleven different render sites and called
+                 # from nowhere in code.
+                 "openEnvelope", "stamp", "ackAll", "closeOpen",
+                 "inboxDisposition", "openProfile", "selectGraphNode",
+                 "fbHopLabel", "drawGraph", "mayStamp", "contextBlock",
+                 "referentStamps", "stampBlock", "mentionRefusal",
+                 # and every loader the split moved, by name: the tab
+                 # dispatcher looks them up at click time, so a module that
+                 # failed to ship is a dead tab and nothing else.
+                 "loadBands", "loadConversation", "loadEnvelope",
+                 "loadFlight", "loadGraph", "loadInbox", "loadLedger",
+                 "loadOnboard", "loadRatifications", "loadSpeak"):
         assert re.search(rf"\bfunction {name}\s*\(", bundle) or re.search(
             rf"\b(const|let)\s+{name}\s*=", bundle
         ), f"{name}() is called but never defined — the R82-split class"

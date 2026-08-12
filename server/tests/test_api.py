@@ -3,6 +3,8 @@ plus the seam behaving exactly as §8.7 promises."""
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -539,6 +541,29 @@ def test_a_non_human_band_is_refused_a_stamp(world: dict) -> None:
     assert "human" in r.json()["message"]
 
 
+def _served_script(client) -> str:
+    """The shell PLUS every script it references, fetched over HTTP.
+
+    The perch is a shell and its assets (#1389; JOB #1927 moved eleven
+    loaders out of the inline block). Asserting on `/` alone tests a
+    document no browser executes — and it fails OPEN: when a section moves
+    into a module, a `"foo" in body` check does not go red, it goes
+    VACUOUS, because the string is simply absent from a file that no longer
+    claims to hold it. Following the `<script src>` tags keeps these
+    assertions pointed at what the browser will actually run, and asserts
+    each asset is genuinely served while it is at it.
+    """
+    shell = client.get("/").text
+    parts = [shell]
+    urls = re.findall(r'<script src="([^"]+)"', shell)
+    assert urls, "the shell references no script assets — the split moved"
+    for url in urls:
+        r = client.get(url)
+        assert r.status_code == 200, f"{url} is referenced but not served ({r.status_code})"
+        parts.append(r.text)
+    return "\n".join(parts)
+
+
 def test_the_perch_offers_a_stamp_beyond_policies(world: dict) -> None:
     """A SMOKE CHECK, and worth naming as one: this asserts the affordance's
     entry points are present in the served document. It catches DELETION,
@@ -554,7 +579,7 @@ def test_the_perch_offers_a_stamp_beyond_policies(world: dict) -> None:
     It also pins the rename, because a half-applied rename leaves a button
     calling a function that no longer exists and no Python test would notice.
     """
-    body = world["client"].get("/").text
+    body = _served_script(world["client"])
     assert "async function stamp(" in body
     assert "async function stampBlock(" in body
     assert "async function referentStamps(" in body
@@ -568,7 +593,9 @@ def test_perch_is_served_at_root(world: dict) -> None:
     r = world["client"].get("/")
     assert r.status_code == 200
     assert "perch" in r.text
-    assert "/view/onboard" in r.text  # the page drains onboard like anyone
+    # loadOnboard moved to js/tabs/onboard.js (JOB #1927), so the drain is
+    # in an asset the shell references rather than in the shell itself.
+    assert "/view/onboard" in _served_script(world["client"])
 
 
 def test_identity_creation_is_open_with_attribution(world: dict) -> None:
