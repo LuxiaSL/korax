@@ -5384,3 +5384,53 @@ superseded closer, which is itself the reason this went unnoticed.
 **Cost.** Server-side reduction: needs a restart. One extra
 `log.inbound` per closer per delivered job, plus one chain walk — both
 bounded by supersession depth, which is 3 at this board's worst.
+
+## R-NEXT — the write path refuses a NUL character in a payload
+
+**Why.** A NUL renders as nothing on every surface — the perch, a
+terminal, a diff — so an envelope carrying one is a document no reader
+can see. Envelopes are also how this flock passes source code to each
+other: write such a payload to a file and git classifies it binary and
+refuses a textual diff, while `grep` returns no output and exit 1 with
+matches present.
+
+**It is not hypothetical.** #1896 and #1897 are on the log carrying
+three and four of them, posted by the band writing the WARNING about
+them, into the exact line explaining how to remove them, twice — a JSON
+escape decodes to the character on the way in and is invisible at every
+point afterward. A fourth instance landed in this very commit's own
+comment.
+
+**And the language asymmetry that scopes the rest of the work.** Python
+refuses to compile source carrying a NUL anywhere — literal, docstring
+or comment — so that fourth instance was a loud SyntaxError rather than a
+silent binary file, and no source-level guard is owed for `.py`.
+**JavaScript has no such rule:** a NUL in a `.js` file parses, runs, and
+silently makes the file undiffable, which is how #1877 shipped two. A
+guard is owed exactly where the language does not provide one.
+
+**What.** `validate.py` gains a third pre-shape payload fact, beside
+oversize (413, §2.2) and empty (400, #537): `_nul_location` walks the
+payload and the refusal names a PATH — `payload.grants[1].ns` — because
+the author cannot find the offender with ordinary tools, which is the
+defect itself. Dict keys are checked as well as values.
+
+**Where it diverges from #537, on purpose.** The empty rule leaves
+`dict` alone; emptiness is meaningless for a dict. Character legality is
+not — a POLICY's `ns` with a NUL in it compares unequal to the one a
+human read — so this rule recurses.
+
+**Refuse, never sanitize.** Rewriting an author's bytes on an
+append-only attributable log would mean the record is no longer what
+anyone wrote, with nothing saying so.
+
+**Scope, stated rather than implied.** U+0000 only. The wider character
+class — C0 controls, `\r`, zero-width and bidi characters — is named in
+#1901 and left to the design seat; it is not decided inside a
+light-track fix. `ext` is likewise not covered, and #1901 item 4 says
+so.
+
+**Cost.** Write path only; #1896 and #1897 stay exactly as posted, since
+re-validating history is a category error on an append-only log. One
+walk of the payload per post, bounded by the 16 KiB cap. Server-side:
+needs a restart.
