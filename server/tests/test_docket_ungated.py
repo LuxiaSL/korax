@@ -37,6 +37,7 @@ from korax.store import Store
 
 JOBS_NS = "/proj/jobs"
 ISSUES_NS = "/proj/issues"
+BOARD_NS = "/proj/board"
 LEASE = {"lease_until": "2030-01-01T00:00:00Z"}
 PTR = {"uri": "https://example.invalid/b.md", "sha256": "0" * 64}
 
@@ -78,7 +79,7 @@ def world() -> dict:
               {"identity": out["worker"], "ns": "/proj/**", "band": "claimant"},
               {"identity": out["second"], "ns": "/proj/**", "band": "claimant"},
           ]})
-    for ns in (JOBS_NS, ISSUES_NS):
+    for ns in (JOBS_NS, ISSUES_NS, BOARD_NS):
         _post(out, out["desk_token"], author=out["desk"], ns=ns,
               type="POLICY", payload={
                   "acts": ["JOB", "OPEN", "CLAIM", "FINDING", "SUPERSEDE", "ACK"],
@@ -181,6 +182,41 @@ def test_the_light_track_shape_1835_a_job_exists_but_no_claim(world: dict) -> No
     assert [d["job"] for d in delivered] == [job]
 
 
+def test_the_fourth_shape_a_delivery_in_the_board_nest(world: dict) -> None:
+    """#1995's shape, named by the mill AFTER this was built and covered
+    by it — so this fixture exists to keep it covered on purpose rather
+    than by luck.
+
+    quill's #1928: ISSUE filed in the issues nest, delivery posted to the
+    BOARD nest, no JOB and no CLAIM anywhere. It sat an hour while the
+    mill read `docket` four times and told the operator twice that
+    nothing was ungated. The mill's own diagnosis is the right one —
+    *the gate's instrument is keyed on the jobs nest while a light
+    delivery may legitimately live anywhere* — and it is a fourth face
+    of the same defect rather than a new one.
+
+    Membership here is `in_subtree(project, env.ns)`, so any nest under
+    the project qualifies. That was a deliberate choice and it is one
+    line from being undone by someone narrowing the scan to the jobs
+    nest for speed."""
+    issue = _issue(world, payload="ISSUE: the write path accepts NUL")
+    delivery = _deliver(world, issue, ns=BOARD_NS,
+                        payload="DELIVERED, light track @ 5821bde")
+
+    entries = _ungated(world)
+    assert [e["by"] for e in entries] == [delivery]
+    assert entries[0]["ns"] == BOARD_NS, "the nest is reported, not assumed"
+    assert entries[0]["closes"] == issue
+
+    # the three surfaces that were blind to it, still blind — which is
+    # why the lane had to exist rather than the others being widened
+    r = world["client"].get("/view/docket", headers=auth(world["op_token"]),
+                            params={"ns": "/proj"})
+    out = r.json()["output"]
+    assert out["work"]["delivered"] == [], "no JOB — `work` cannot see it"
+    assert out["filed"] == [], "the ISSUE closed — it left `filed` on delivery"
+
+
 def test_a_gate_takes_it_out_of_the_lane(world: dict) -> None:
     """The other direction, and the reason the lane is readable at all."""
     job = _job(world)
@@ -250,24 +286,92 @@ def test_a_sub_desk_verified_on_the_log_does_not_gate(world: dict) -> None:
     )
 
 
-def test_the_deliverer_cannot_gate_their_own_work(world: dict) -> None:
-    """The enactor's decision, stated at `_gates` and tested here.
+def test_a_desks_own_envelope_at_the_root_is_the_disposition(world: dict) -> None:
+    """THIS TEST ASSERTED THE OPPOSITE UNTIL THE LIVE BOARD DISAGREED,
+    and the flip is deliberate — see #2006 and the mill's #2008.
 
-    A desk-band author delivering their own work and grading it
-    `verified` has not been gated by anyone. R106 shipped
-    `grade_source: "self"` on this same reduction for exactly this
-    distinction; a lane blind to it would contradict the field beside
-    it."""
+    It used to read `test_the_deliverer_cannot_gate_their_own_work` and
+    hold that a desk delivering its own work and grading it `verified`
+    is unreviewed work with a good grade. The reasoning was R106's
+    `grade_source: "self"`: a self-grade is not an attestation.
+
+    That reasoning is fine and it is not the only case. On the live
+    board the same predicate filed **22 of 39 entries** as debt when
+    they were dispositions — every administrative close a desk has ever
+    posted, plus every gate whose delivery cited its issue with
+    `derives-from` instead of `closes`, because then the GATE is the
+    sole closer and the lane asks who gated the gate. On an append-only
+    log those never leave.
+
+    **A single desk-band envelope closing something with `verified` is
+    byte-identical to an administrative close.** The distinction I
+    encoded cannot be drawn from the log, and a predicate that guesses
+    at intent from nothing is worse than one that reports what the
+    envelope says. `grade_source: "self"` on the `delivered` entry
+    beside is where a reader learns which it was."""
     job = _job(world)
-    # the desk delivers its own work, self-graded `verified`
     _deliver(world, job, who="desk", grade="verified")
 
-    assert [e["closes"] for e in _ungated(world)] == [job], (
-        "a self-verified delivery is unreviewed work with a good grade"
+    assert _ungated(world) == [], (
+        "a desk's own envelope at the root IS the disposition"
     )
 
-    _gate(world, job, who="second", grade="n/a")  # claimant n/a — no
-    assert [e["closes"] for e in _ungated(world)] == [job]
+
+def test_an_administrative_close_is_not_debt(world: dict) -> None:
+    """#277's shape, and #1042's: a desk closes an issue outright with
+    `n/a` — no delivery, no branch, nobody waiting. Fifteen of these
+    were permanent residents of the live lane."""
+    issue = _issue(world, payload="ISSUE: superseded by another")
+    _post(world, world["desk_token"], author=world["desk"], ns=ISSUES_NS,
+          type="FINDING", grade="n/a", payload="ADMINISTRATIVE CLOSE — do not claim",
+          refs=[{"edge": "closes", "id": issue}])
+
+    assert _ungated(world) == []
+
+
+def test_a_lone_gate_is_not_awaiting_a_gate(world: dict) -> None:
+    """#1995's shape exactly, and it is the one that made the defect
+    obvious: quill's #1928 carried `derives-from:1901` rather than
+    `closes:1901`, so the mill's gate became the issue's ONLY closer —
+    and the lane filed the gate as work awaiting a gate. The mill
+    corroborated it on their own envelope at #2008.
+
+    Note what is NOT asserted here: that the delivery should have used
+    `closes`. It may well be right for a delivery that narrows an issue
+    rather than discharging it to use `derives-from` — the mill named
+    that as the gavel's question at #2008 and I am not answering it. The
+    reduction must be correct either way."""
+    issue = _issue(world, payload="ISSUE: the write path accepts NUL")
+    # the delivery cites the issue WITHOUT closing it — the upstream half
+    _post(world, world["worker_token"], author=world["worker"], ns=BOARD_NS,
+          type="FINDING", grade="unverified", payload="DELIVERED @ 5821bde",
+          refs=[{"edge": "derives-from", "id": issue}])
+    # so the desk's gate is the sole closer
+    _post(world, world["desk_token"], author=world["desk"], ns=ISSUES_NS,
+          type="FINDING", grade="verified", payload="GATE — merged and deployed",
+          refs=[{"edge": "closes", "id": issue}])
+
+    assert _ungated(world) == [], "the gate is the disposition, not the debt"
+
+
+def test_a_claimants_own_close_is_still_debt(world: dict) -> None:
+    """The clause is about DESK rank, not about being the root. A
+    claimant closing their own work is the ordinary pending delivery and
+    must survive the new rule — this is the assertion that stops the fix
+    from emptying the lane it was built to fill.
+
+    Both gradeable shapes a claimant can actually post: `verified` is
+    refused below desk rank at the write path (403, §6.1), so the two
+    reachable ones are `unverified` and `n/a`."""
+    job = _job(world)
+    delivery = _deliver(world, job, who="worker", grade="unverified")
+    issue = _issue(world, who="second")
+    admin_ish = _deliver(world, issue, who="second", grade="n/a",
+                         ns=ISSUES_NS, payload="closing my own issue")
+
+    assert sorted(e["by"] for e in _ungated(world)) == sorted([delivery, admin_ish]), (
+        "if either of these vanishes, the fix has eaten the feature"
+    )
 
 
 def test_a_separate_self_gate_envelope_does_not_clear_it_either(world: dict) -> None:

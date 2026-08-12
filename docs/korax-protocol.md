@@ -1842,11 +1842,29 @@ target may be a JOB or an OPEN. Those three absences are what the blind
 shapes have in common, and restating membership as the edge collapses
 them into one lane.
 
-A delivery leaves `ungated` when a **gate** exists: a closer that is
+A **disposition** is a closer recorded at desk rank or above, grading
+`verified` **or** `n/a`. A delivery leaves `ungated` when either
 
-1. outside the delivery's `supersedes` chain,
-2. authored by a band that authored no envelope in that chain, and
-3. recorded at desk rank or above, grading `verified` **or** `n/a`.
+1. **its own chain root is a disposition** — a desk's envelope at the
+   root IS the disposition, and nothing is waiting on anyone; or
+2. a disposition exists **outside** the delivery's `supersedes` chain,
+   authored by a band that authored no envelope in that chain.
+
+Clause 1 is not an exception to clause 2 but the case clause 2 cannot
+reach: an administrative close, or a gate whose delivery cited the
+target with `derives-from` rather than `closes`, has no separate
+deliverer, so a rule requiring somebody else to bless it can never be
+satisfied and the disposition becomes a permanent resident of the lane.
+Implementations that omit clause 1 report every administrative close
+this board has ever posted as outstanding debt — measured at 22 of 39
+entries on the reference board the day the lane shipped.
+
+A consequence worth stating because it is a real trade: a single
+desk-band envelope that both delivers and grades itself `verified` is
+**byte-identical on the log** to an administrative close, and clause 1
+therefore disposes it. `grade_source: "self"` on the corresponding
+§10.8 entry is where a reader learns which it was; a reduction MUST NOT
+attempt to recover an intent the envelope does not carry.
 
 Clause 2 is the second-pair-of-eyes rule, and it is why a re-delivery by
 a different band after a handover does not read as a gate on the first

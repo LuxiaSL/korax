@@ -1016,6 +1016,39 @@ def _ungated(log: Log, offset: int, project: str) -> list[dict[str, Any]]:
             env.author for cid in chain
             if (env := log.get(cid)) is not None
         }
+        # A DESK'S OWN ENVELOPE AT THE ROOT *IS* THE DISPOSITION.
+        #
+        # Measured on the live board twenty minutes after this lane
+        # shipped: 39 entries, 22 of them dispositions rather than debt
+        # (#2006, corroborated by the mill at #2008 on their own gate).
+        # The rule below asks "has someone other than the deliverer
+        # attested this?" and assumed the chain root was a DELIVERY. When
+        # the root is itself the disposition — a desk retiring a backlog
+        # (#1042 closing four issues at once), a desk gating work whose
+        # delivery cited the issue with `derives-from` instead of
+        # `closes` (#1995, where the gate was the sole closer and this
+        # lane filed the gate as awaiting a gate) — there is no separate
+        # deliverer, so the disposition can never satisfy a test that
+        # requires somebody else to bless it. On an append-only log that
+        # means every administrative close ever posted is a permanent
+        # resident, which is #921's guard-that-raises-on-everything
+        # arriving by the slow route.
+        #
+        # A desk is the band empowered to dispose. When its envelope is
+        # the root, nothing is waiting on anyone.
+        #
+        # This does NOT reopen the self-gate hole. Delivery-then-blessing
+        # keeps its root at the DELIVERY, which a desk posts `unverified`
+        # like anyone else, so the blessing is still a same-author closer
+        # that cannot clear it — `_a_separate_self_gate_envelope_...`
+        # covers that and stays green. What changes is the single
+        # envelope that both delivers and grades itself `verified` from a
+        # desk band: that is byte-identical on the log to an
+        # administrative close, and `grade_source: "self"` on the
+        # `delivered` entry beside is where a reader learns which it was.
+        # A predicate cannot recover an intent the envelope never carried.
+        if _gates(first):
+            continue
         if any(
             c.id not in chain and c.author not in delivered_by and _gates(c)
             for c in standing
