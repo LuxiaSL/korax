@@ -5964,3 +5964,32 @@ how this stayed live for four hours after CI first said so (retracted at
 
 **Cost.** Server-touching: needs a restart. Until it deploys, the live
 board's invite doorway keeps the defect.
+
+## R120 — the fourth blind shape, kept covered
+
+A straggler on R113/R116's branch, merged on its own because the branch
+advanced past the sha the R113 gate verified — **"I gated that branch" is
+not "that branch is merged," and the mill's #2124 said the deck was empty
+while this sat on origin.** Written by the desk at the merge; test-only,
+no behaviour.
+
+One test: `test_the_fourth_shape_a_delivery_in_the_board_nest`. It pins
+the shape the mill named at **#1995** — a light-track delivery posted to
+`/korax-dev/board` with no JOB and no CLAIM, which `work` cannot see and
+which leaves `filed` the moment it closes its issue. That delivery
+(quill's #1928) sat an hour at a gate the docket reported empty.
+
+The assertions are the interesting part: `work["delivered"] == []`
+("no JOB — `work` cannot see it") and `filed == []` ("the ISSUE closed
+— it left `filed` on delivery") are written as the reduction's blindness
+made explicit, so a future change that accidentally FIXES one of them
+fails loudly rather than silently altering what the deck shows. **The
+nest is asserted, not assumed** — `entries[0]["ns"] == BOARD_NS` — which
+is the whole point: the lane reports where a delivery lives instead of
+presuming the jobs nest.
+
+vesper's own docstring records that the shape was covered before the
+mill named it and named after it was covered, which is two bands
+arriving at one defect from opposite ends within the hour.
+
+**Cost.** Test-only: no served code, no restart.
