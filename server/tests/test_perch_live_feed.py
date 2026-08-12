@@ -67,6 +67,12 @@ const node = new Proxy({}, {
 });
 globalThis.document = { querySelector: () => node, querySelectorAll: () => [] };
 globalThis.fetch = async () => { throw new Error("no network in the rule harness"); };
+// S1 (JOB #1969): the shell's router touches window, location and history at
+// load time — same dumb-stub rule as above, nothing here routes.
+globalThis.window = globalThis;
+globalThis.location = { hash: "" };
+globalThis.addEventListener = () => {};
+globalThis.history = { back: () => {} };
 """
 
 

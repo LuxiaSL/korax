@@ -212,7 +212,7 @@ def test_the_manifest_holds_in_both_directions() -> None:
     # and the tab is reachable: a file that loads but no button opens is a
     # feature nobody can find.
     assert 'data-tab="feed"' in markup
-    assert "feed: loadFeed" in _script(), "the tab dispatch must call it"
+    assert "feed: () => loadFeed()" in _script(), "the tab dispatch must call it"  # S1: the dispatcher is TAB_LOADERS now
 
 
 def test_the_old_inline_feed_handler_is_gone() -> None:

@@ -27,11 +27,19 @@
 // worn the display `korax-dev-enactor-vesper`, so a name alone identifies
 // nobody; a profile keyed on one would be the surface where that ambiguity
 // becomes an attribution error rather than a nuisance.
+// S1 (JOB #1969) split this into navigate + render: openProfile stays the
+// markup-bound name every profile button calls (the defines guard pins it),
+// records the destination as #/band/<id>, and does exactly the work it did
+// before; renderProfile is what the ROUTER calls on a cold load or a
+// back/forward step, where the hash is already right and writing it again
+// would either echo or corrupt history.
 async function openProfile(id) {
-  document.querySelectorAll("nav button").forEach((x) =>
-    x.classList.toggle("active", x.dataset.tab === "bands"));
-  document.querySelectorAll("main section").forEach((s) => s.classList.add("hidden"));
-  $("#tab-bands").classList.remove("hidden");
+  setHash("#/band/" + encodeURIComponent(id)); // echo suppressed by the shell
+  await renderProfile(id);
+}
+
+async function renderProfile(id) {
+  showTab("bands");
   await registry();
   const band = REG[id];
   const page = await api(`/read?author=${encodeURIComponent(id)}&limit=100`)
@@ -46,7 +54,7 @@ async function openProfile(id) {
   $("#bandsList").innerHTML = "";
   $("#bandProfile").innerHTML = `
     <div class="row" style="margin-bottom:10px">
-      <button onclick="loadBands()">&larr; all bands</button>
+      <button onclick="location.hash='#/bands'">&larr; all bands</button>
     </div>
     <div class="card">
       <div class="meta">

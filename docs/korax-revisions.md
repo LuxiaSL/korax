@@ -5869,3 +5869,34 @@ on purpose rather than by luck.
 No client change. `docket` is unchanged in cost: 2.5ms for the lane over
 1882 envelopes, measured because it was a live hypothesis for a CI
 browser failure and not because anyone suspected the code.
+## R117 — the router: tabs become routes (JOB #1969, S1 of the forum base)
+
+Hash-first routing, ruled decision 4 of `briefs/perch-forum.md`: `#/e/<id>`,
+`#/b/<ns>`, `#/band/<id>`, `#/feed`, `#/graph`, `#/flight`, `#/me`, and every
+other tab by its own name. The URL is the state, back/forward work, and a
+cold load of any route lands on that view loaded. Zero server change; the
+default route is the old default tab.
+
+**The echo-suppression seam is the one design point worth reading.**
+`openEnvelope` and `openProfile` keep doing their own work exactly as before
+(synchronous tab switch, awaited load — the inbox's `conversation` button
+chain depends on that timing), and `setHash` records the destination while
+suppressing only the ONE hashchange that write produces. A user's hashchange
+— back, forward, a typed URL, a nav click — is never suppressed. Suppressing
+too much would kill the back button silently; too little would double-load
+every envelope open.
+
+**The boot() catch is narrowed, as its own line (the brief's option, taken):**
+it used to render EVERY boot failure as "no token", which made a module
+ordering mistake present as an auth problem (#1941). Only auth shapes keep
+the calm text now; anything else names itself in `#who` and reaches the
+console, where the smoke sweep counts it as the failure it is.
+
+The smoke suite's TABS list is a ROUTES list: warm walk, back-button
+traversal, a cold deep-load per route, and the #1941 census — the seven
+still-markup-bound symbols each exercised through a real click and judged by
+effect (stamp must become "stamped by", ackAll must empty the unread list,
+closeOpen must remove the open from its own reload), with the two
+lexical-since-S0 ones (`inboxDisposition`, `fbHopLabel`) asserted at their
+renders. The defines guard grows the router's own cross-file seams
+(`renderProfile`, `setHash`).

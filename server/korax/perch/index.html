@@ -257,16 +257,93 @@ function inboxFor(me) {
   return scoped.ns.slice(0, -"/**".length).replace(/\/+$/, "") + "/inbox";
 }
 
-// -- tabs ---------------------------------------------------------------------
+// -- router (JOB #1969 — S1 of the forum base) --------------------------------
+// Hash-first, ruled decision 4 of briefs/perch-forum.md: the URL is the
+// state, back/forward work, and a cold load of any route lands on that
+// view. Zero server change — upgradeable to real paths later behind one
+// redirect. Three shapes carry params (#/e/<id>, #/b/<ns>, #/band/<id>);
+// every other tab routes by its own name, and #/me is the ruled name for
+// the shelf — the only "you" surface that exists until S4 builds the
+// profile page. The default route is today's default tab.
+
+const TAB_LOADERS = {
+  inbox: () => loadInbox(), onboard: () => loadOnboard(),
+  bands: () => loadBands(), flight: () => loadFlight(),
+  ledger: () => loadLedger(), graph: () => loadGraph(),
+  speak: () => loadSpeak(), browse: () => loadBrowse(),
+  feed: () => loadFeed(), saved: () => loadSaved(),
+};
+
+function parseRoute(hash) {
+  const h = (hash || "").replace(/^#\/?/, "").replace(/\/+$/, "");
+  if (!h) return { tab: "inbox" };
+  const seg = h.split("/");
+  if (seg[0] === "e" && seg[1]) return { tab: "envelope", id: seg[1] };
+  if (seg[0] === "b" && seg[1]) return { tab: "browse", ns: "/" + seg.slice(1).join("/") };
+  if (seg[0] === "band" && seg[1])
+    return { tab: "bands", band: decodeURIComponent(seg.slice(1).join("/")) };
+  if (seg[0] === "me") return { tab: "saved" };
+  if (seg[0] === "envelope" || seg[0] === "nest" || seg[0] in TAB_LOADERS)
+    return { tab: seg[0] };
+  return { tab: "inbox" }; // an unknown route lands home, never on a blank page
+}
+
+// The canonical hash for a bare tab. `saved` writes #/me — the ruled name
+// wins over the internal one; parseRoute accepts both so an old link keeps
+// working.
+function routeFor(tab) { return tab === "saved" ? "#/me" : "#/" + tab; }
+
+function showTab(tab) {
+  document.querySelectorAll("nav button").forEach((x) =>
+    x.classList.toggle("active", x.dataset.tab === tab));
+  document.querySelectorAll("main section").forEach((s) => s.classList.add("hidden"));
+  $("#tab-" + tab).classList.remove("hidden");
+}
+
+// setHash records a destination the caller is ALREADY rendering, so the
+// hashchange it causes must not re-enter the router — openEnvelope and
+// openProfile do their own work exactly as they did before S1, and the
+// suppression is what keeps that a recording rather than a double load.
+// A hashchange the user causes (back/forward, a typed URL, a nav click)
+// is never suppressed: only the one echo this write produces is.
+let SUPPRESSED_ECHO = null;
+function setHash(h) {
+  if (location.hash === h) return;
+  SUPPRESSED_ECHO = h;
+  location.hash = h;
+}
+
+// A select can only take a value its options contain; a deep link may name
+// a nest the index has not met. The injected option is real and stays —
+// fillNsPicks preserves the current selection when it repopulates.
+function setNsPick(sel, ns) {
+  if (![...sel.options].some((o) => o.value === ns))
+    sel.insertAdjacentHTML("beforeend", `<option value="${esc(ns)}">${esc(ns)}</option>`);
+  sel.value = ns;
+}
+
+// Loaders run un-awaited, exactly as the old tab dispatcher ran them: a
+// loader's failure surfaces where it always did (console / api()'s toast),
+// and the router is navigation, not error policy.
+function route() {
+  const r = parseRoute(location.hash);
+  showTab(r.tab);
+  if (r.tab === "envelope" && r.id) { $("#envId").value = r.id; loadEnvelope(); return; }
+  if (r.tab === "browse" && r.ns) { setNsPick($("#browseNs"), r.ns); loadBrowse(); return; }
+  if (r.tab === "bands" && r.band) { renderProfile(r.band); return; }
+  (TAB_LOADERS[r.tab] || (() => {}))();
+}
+
+window.addEventListener("hashchange", () => {
+  if (SUPPRESSED_ECHO === location.hash) { SUPPRESSED_ECHO = null; return; }
+  SUPPRESSED_ECHO = null;
+  route();
+});
 
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
-  document.querySelectorAll("nav button").forEach((x) => x.classList.remove("active"));
-  b.classList.add("active");
-  document.querySelectorAll("main section").forEach((s) => s.classList.add("hidden"));
-  $("#tab-" + b.dataset.tab).classList.remove("hidden");
-  ({ inbox: loadInbox, onboard: loadOnboard, bands: loadBands, flight: loadFlight,
-     ledger: loadLedger, graph: loadGraph, speak: loadSpeak,
-     browse: loadBrowse, feed: loadFeed, saved: loadSaved }[b.dataset.tab] || (() => {}))();
+  const h = routeFor(b.dataset.tab);
+  if (location.hash === h) route(); // re-clicking the active tab reloads it, as before
+  else location.hash = h;
 }));
 
 // The one writer of a STAMP in this file. It was never POLICY-specific —
@@ -353,10 +430,8 @@ $("#nestLoad").addEventListener("click", async () => {
 // -- envelope ----------------------------------------------------------------------
 
 async function openEnvelope(id) {
-  document.querySelectorAll("nav button").forEach((x) =>
-    x.classList.toggle("active", x.dataset.tab === "envelope"));
-  document.querySelectorAll("main section").forEach((s) => s.classList.add("hidden"));
-  $("#tab-envelope").classList.remove("hidden");
+  setHash("#/e/" + id); // record the destination; the echo is suppressed
+  showTab("envelope");
   $("#envId").value = id;
   await loadEnvelope();
 }
@@ -376,11 +451,33 @@ async function boot() {
     INBOX_NS = inboxFor(ME);
     const top = ME.grants.map((g) => `${g.band}:${g.ns}`).slice(0, 3).join(" · ");
     $("#who").innerHTML = `<b>${esc(ME.display)}</b> ${esc(ME.identity)} — ${esc(top)}${ME.grants.length > 3 ? " …" : ""}`;
-    loadInbox(); loadOnboard(); fillNsPicks();
+    // The two loaders below also paint nav badges, so they still run when
+    // the route lands elsewhere — but never twice for one boot: the routed
+    // tab's own loader runs inside route().
+    const landing = parseRoute(location.hash);
+    if (landing.tab !== "inbox") loadInbox();
+    if (landing.tab !== "onboard") loadOnboard();
+    fillNsPicks();
     // JOB #1739 — warm the shelf cache so every card's ☆/★ is truthful;
     // loadSaves() corrects already-painted buttons when it returns.
     loadSaves();
-  } catch (e) { $("#who").textContent = "no token"; }
+    route(); // the cold load lands on the routed view, not on a hardcoded tab
+  } catch (e) {
+    // #1941, narrowed by S1 (JOB #1969, its own delivery line): this catch
+    // used to render EVERY boot failure as "no token", so a ReferenceError
+    // from a mis-ordered module presented as an auth problem and sent the
+    // reader to their credentials. Only the auth shapes keep the calm text:
+    // an absent token, or the board answering 401 (api() has already opened
+    // the token dialog for that one). Anything else names itself and
+    // reaches the console, where the smoke sweep treats it as the failure
+    // it is.
+    if (!token() || (e && e.code === 401)) {
+      $("#who").textContent = "no token";
+    } else {
+      $("#who").textContent = "boot failed: " + ((e && (e.name || e.code)) || "error");
+      console.error("boot failed", e);
+    }
+  }
 }
 boot();
 </script>
