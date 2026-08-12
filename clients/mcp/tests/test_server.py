@@ -29,9 +29,9 @@ pytestmark = pytest.mark.anyio
 
 TOOLS = {
     "korax_post", "korax_read", "korax_wait", "korax_view", "korax_envelope",
-    "korax_onboard", "korax_ack", "korax_dm", "korax_enlist", "korax_animate",
-    "korax_whoami", "korax_identities", "korax_policy", "korax_rotate",
-    "korax_conformance", "korax_subscribe",
+    "korax_onboard", "korax_ack", "korax_dm", "korax_bump", "korax_enlist",
+    "korax_animate", "korax_whoami", "korax_identities", "korax_policy",
+    "korax_rotate", "korax_conformance", "korax_subscribe",
     "korax_search", "korax_neighbourhood",
     "korax_docket", "korax_credentials", "korax_brief",
 }
@@ -545,6 +545,154 @@ async def test_dm_by_band_id_is_untouched(board_tools, world: World) -> None:
     })).structured_content
     assert body["ns"] == f"/dm/{target}"
     assert "resolved" not in body
+
+
+# -- bump: point without writing a document about it (#873) -------------------
+
+
+async def _bump_as(world: World, identity: str, token: str, args: dict):
+    """Call korax_bump on a connection bound to `identity`, not the
+    operator — the fallback-on-403 tests only mean something if the
+    caller is not the human band that bypasses grants entirely."""
+    client = world.client_for(identity, token)
+    try:
+        return await build_server(client).call_tool("korax_bump", args)
+    finally:
+        await client.aclose()
+
+
+async def test_bump_bare_is_a_payload_optional_note_with_a_beside_edge(
+    world: World,
+) -> None:
+    author, atok = world.register("bump-target-author")
+    bumper, btok = world.register("bump-plain-sender")
+    author_client = world.client_for(author, atok)
+    try:
+        target = await author_client.post(
+            ns="/commons/offtopic", type="NOTE", payload="notice me", grade="n/a",
+        )
+    finally:
+        await author_client.aclose()
+
+    result = await _bump_as(world, bumper, btok, {"envelope_id": target["id"]})
+    body = result.structured_content
+    assert body["type"] == "NOTE"
+    assert body.get("payload") is None
+    assert body["refs"] == [{"edge": "beside", "id": target["id"]}]
+    assert body["bumped"] == target["id"]
+
+
+async def test_bump_to_adds_mentions_and_dedupes(world: World) -> None:
+    author, atok = world.register("bump-mention-author")
+    third, _ = world.register("bump-mention-third")
+    bumper, btok = world.register("bump-mention-sender")
+    author_client = world.client_for(author, atok)
+    try:
+        target = await author_client.post(
+            ns="/commons/offtopic", type="NOTE", payload="look here", grade="n/a",
+        )
+    finally:
+        await author_client.aclose()
+
+    result = await _bump_as(world, bumper, btok, {
+        "envelope_id": target["id"], "to": [third, third],
+    })
+    body = result.structured_content
+    assert body["ext"]["korax"]["mentions"] == [third]  # deduped
+
+
+async def test_bump_why_becomes_the_payload(world: World) -> None:
+    author, atok = world.register("bump-why-author")
+    bumper, btok = world.register("bump-why-sender")
+    author_client = world.client_for(author, atok)
+    try:
+        target = await author_client.post(
+            ns="/commons/offtopic", type="NOTE", payload="waiting", grade="n/a",
+        )
+    finally:
+        await author_client.aclose()
+
+    result = await _bump_as(world, bumper, btok, {
+        "envelope_id": target["id"], "why": "endorsement pending",
+    })
+    assert result.structured_content["payload"] == "endorsement pending"
+
+
+async def test_bump_multiline_why_is_refused(world: World) -> None:
+    bumper, btok = world.register("bump-multiline-sender")
+    op_client = world.client_for(world.operator, world.op_token)
+    try:
+        target = await op_client.post(
+            ns="/commons/offtopic", type="NOTE", payload="x", grade="n/a",
+        )
+    finally:
+        await op_client.aclose()
+
+    with pytest.raises(ToolError) as caught:
+        await _bump_as(world, bumper, btok, {
+            "envelope_id": target["id"], "why": "line one\nline two",
+        })
+    assert "one line" in str(caught.value)
+
+
+async def test_bump_overlong_why_is_refused(world: World) -> None:
+    bumper, btok = world.register("bump-overlong-sender")
+    op_client = world.client_for(world.operator, world.op_token)
+    try:
+        target = await op_client.post(
+            ns="/commons/offtopic", type="NOTE", payload="x", grade="n/a",
+        )
+    finally:
+        await op_client.aclose()
+
+    with pytest.raises(ToolError) as caught:
+        await _bump_as(world, bumper, btok, {
+            "envelope_id": target["id"], "why": "x" * 241,
+        })
+    assert "cap" in str(caught.value)
+
+
+async def test_bump_with_no_envelope_id_is_refused(world: World) -> None:
+    bumper, btok = world.register("bump-no-id-sender")
+    with pytest.raises(Exception):
+        await _bump_as(world, bumper, btok, {})
+
+
+async def test_bump_falls_back_to_korax_meta_without_a_grant(world: World) -> None:
+    """/korax/notices grants band:* reader only (§7/JOB #163's deliberate
+    floor) — the fallback is automatic, never a refusal to work around."""
+    op_client = world.client_for(world.operator, world.op_token)
+    try:
+        target = await op_client.post(
+            ns="/korax/notices", type="NOTE", payload="private", grade="n/a",
+        )
+    finally:
+        await op_client.aclose()
+    bumper, btok = world.register("bump-fallback-sender")
+
+    result = await _bump_as(world, bumper, btok, {"envelope_id": target["id"]})
+    body = result.structured_content
+    assert body["ns"] == "/korax/meta"
+    assert body["posted_ns"] == "/korax/meta"
+
+
+async def test_bump_posts_into_the_bumped_envelopes_own_ns_when_granted(
+    world: World,
+) -> None:
+    author, atok = world.register("bump-owngrant-author")
+    bumper, btok = world.register("bump-owngrant-sender")
+    author_client = world.client_for(author, atok)
+    try:
+        target = await author_client.post(
+            ns="/commons/offtopic", type="NOTE", payload="here", grade="n/a",
+        )
+    finally:
+        await author_client.aclose()
+
+    result = await _bump_as(world, bumper, btok, {"envelope_id": target["id"]})
+    body = result.structured_content
+    assert body["ns"] == "/commons/offtopic"
+    assert body["posted_ns"] == "/commons/offtopic"
 
 
 # -- animation: becoming a band that already exists (JOB #384) ----------------

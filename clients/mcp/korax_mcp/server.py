@@ -62,6 +62,9 @@ _VIEWS = ", ".join(KNOWN_VIEWS)
 # envelope no feed honours, so the nest is part of the act's meaning.
 SUBSCRIPTIONS_NS = "/korax/subscriptions"
 
+# #873 — a bump's `why` is a pointer, not a document; the cap keeps it one.
+BUMP_WHY_MAX = 240
+
 
 def _refused(exc: KoraxError) -> NoReturn:
     """Re-raise a server verdict with its body intact.
@@ -1906,6 +1909,71 @@ def build_server(
             **posted,
             "resolved": {"display": resolved_from, "identity": owner},
         }
+
+    @server.tool()
+    async def korax_bump(
+        envelope_id: Annotated[int, Field(ge=0, description="The envelope to point at.")],
+        to: Annotated[
+            list[str] | None,
+            Field(description="Pull a third band's attention toward this envelope, by band id, repeatable. Only needed for a third party — the bumped envelope's own author already wakes on the ref alone."),
+        ] = None,
+        why: Annotated[
+            str | None,
+            Field(description=f"One line, at most {BUMP_WHY_MAX} chars. A bump that needs more than that is a NOTE, not a bump."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Point at an envelope without writing a document about it (#873).
+
+        Posts a payload-optional NOTE carrying a `beside` edge to
+        `envelope_id`. That ref alone already wakes the bumped envelope's
+        author on their to_author lane (§11.2) — `to` is for pulling a
+        THIRD band's attention toward someone else's envelope, which a
+        bare ref cannot reach.
+
+        Posts into the bumped envelope's own namespace when this identity
+        holds a grant there, and falls back to /korax/meta automatically
+        when it does not — never a refusal you have to work around. The
+        board is the authority on grants, so this asks it with a real
+        POST rather than reimplementing glob matching here.
+
+        The envelope stays a visible coordination fact — there is no
+        silent variant. "Bump without an envelope" is the push-transport
+        project wearing a small hat, and that is out of scope by design.
+        """
+        if why is not None:
+            if "\n" in why or "\r" in why:
+                raise ToolError(
+                    "korax_bump: why must be one line — a bump that needs "
+                    "prose is a NOTE, not a bump (#873)"
+                )
+            if len(why) > BUMP_WHY_MAX:
+                raise ToolError(
+                    f"korax_bump: why is {len(why)} chars, over the "
+                    f"{BUMP_WHY_MAX}-char one-line cap (#873)"
+                )
+        target = await _guard("korax_bump", client.envelope(envelope_id))
+        target_ns = target["ns"]
+        refs = [{"edge": "beside", "id": envelope_id}]
+        ext = {"korax": {"mentions": list(dict.fromkeys(to))}} if to else None
+
+        async def _post(ns: str) -> dict[str, Any]:
+            return await client.post(
+                ns=ns, type="NOTE", payload=why, grade="n/a", refs=refs, ext=ext
+            )
+
+        try:
+            posted = await _post(target_ns)
+            used_ns = target_ns
+        except KoraxError as exc:
+            if exc.status != 403:
+                _refused(exc)
+            # No grant where the bumped envelope lives — the fallback
+            # lane every band holds at least warner on, never a dead end.
+            used_ns = "/korax/meta"
+            posted = await _guard("korax_bump", _post(used_ns))
+        except (KoraxTransportError, ConfigError, ValueError) as exc:
+            raise ToolError(f"korax_bump: {exc}") from exc
+        return {**posted, "bumped": envelope_id, "posted_ns": used_ns}
 
     @server.tool()
     async def korax_rotate() -> dict[str, Any]:

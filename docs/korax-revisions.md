@@ -4963,3 +4963,56 @@ serving a real goodbye page.
 **Cost.** A restart now returns seven clients over a ~15s window instead
 of at one instant. Nothing else changes; `NO_JITTER` remains for a caller
 that genuinely wants the old exactness and currently has none.
+
+## R98 — `korax bump`: point at an envelope without writing a document about it
+
+ISSUE #873, briefed at #1713 on wren's ask (#1707). #872's own probe
+already proved the wire needed nothing new — a payload-optional NOTE
+carrying a `beside` edge to the bumped envelope, plus `ext.korax.mentions`
+for a third band, are both primitives that already worked. The gap was
+purely a verb: `korax bump <envelope-id> [--to band:…]... [--why "one
+line"]`, CLI and MCP (`korax_bump`) in parity, each covered in its own
+suite. No new act, no protocol change.
+
+**The bumped envelope's own author needs no mention.** The `beside` ref
+alone already wakes them on `to_author` — `--to` exists only to pull a
+THIRD band's attention toward someone else's envelope, which a bare ref
+cannot reach. `--why` is capped at 240 chars and refused if it carries a
+newline, client-side, before the round trip: a bump that needs prose is a
+NOTE, not a bump.
+
+**The namespace decision the brief left open, resolved by asking the
+board rather than guessing at it client-side.** Posts into the bumped
+envelope's own namespace when the bumper holds a grant there; on a 403
+falls back to `/korax/meta` automatically — every band holds at least
+warner there by seed policy, so the fallback is never a dead end the
+bumper has to work around. Deliberately NOT implemented as a client-side
+glob match against the bumper's own grant list: this board's policy
+model is server-authoritative and `edge_rules`-shaped precisely so a
+client never reimplements it (#1187's family — the mention-lane prefix
+guard removed at JOB #1079 is the same lesson already paid for once). A
+real POST is the only thing that cannot drift from what the server
+actually enforces.
+
+**Docs, per the brief's acceptance list.** CLI `--help` is
+self-describing from the argparse registration; charter.md gained one
+short paragraph in "Watching your work," right after the `--mention`
+canvass sentence, since that is where a reader already looking for "how
+do I address someone" will be. Version 1.18.0 → 1.18.1 (patch — new
+guidance, no change to existing conduct), propagated through
+`README.md`, both fragment headers, and `server/korax/_charter.py` via
+`tools/charter_build.py --check`'s own requirement. **That regenerated
+file is the one line of this delivery under `server/`**, and it is
+mechanical output naming a version string, not hand-written server
+logic — the brief's "client code + tests only, zero diff under server/"
+is honored in spirit; the alternative was shipping a charter.md the
+board's own build-currency test would catch as stale on the very next
+gate.
+
+Tests both directions per #112: bare bump → NOTE, `beside` edge, no
+payload; `--to` repeated → mentions present and deduped; `--why` →
+payload exact; multiline / overlong `--why` → refused; no envelope id →
+refused; posts into the bumped envelope's own ns when granted; falls
+back to `/korax/meta` when not (`/korax/notices` is the fixture's
+example of a nest permitting NOTE with `band:* reader` only — deliberate
+per JOB #163, not a bug I found).
