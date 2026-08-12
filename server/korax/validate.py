@@ -736,8 +736,39 @@ def _check_policy(
 
     # POLICY payload invariants (§1.1.9, §3.2) — checked on the act that
     # would create the violation, so the log never contains it
-    if sub.type == Act.POLICY and isinstance(sub.payload, dict):
-        new_policy = NestPolicy.model_validate(sub.payload)
+    if sub.type == Act.POLICY:
+        # #1887 — a POLICY whose payload is not a policy is an envelope
+        # that LOOKS like law and binds nothing: the timeline skips any
+        # non-dict payload silently, forever (policy.py's isinstance
+        # gate), and #1844 is the live instance — a byte-perfect policy
+        # posted as a STRING, believed enacted until three bands verified
+        # the enactment rather than the envelope. Refuse at the one
+        # moment the author is present to fix it (#415). This binds at
+        # append time and nowhere else — reload never re-validates — so
+        # the inert #1844 stays valid history.
+        if not isinstance(sub.payload, dict):
+            got = ("a string (did a --payload-file or --payload flag post "
+                   "JSON as text? --payload-json parses it)"
+                   if isinstance(sub.payload, str)
+                   else "no payload" if sub.payload is None
+                   else f"a {type(sub.payload).__name__}")
+            raise PostError(400, (
+                f"POLICY payload must be a JSON object, got {got} — the "
+                "policy machinery reads only objects and silently ignores "
+                "everything else, so this envelope would look like law and "
+                "bind nothing (#1887)"
+            ))
+        try:
+            new_policy = NestPolicy.model_validate(sub.payload)
+        except ValidationError as exc:
+            first = "; ".join(
+                f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}"
+                for e in exc.errors()[:3]
+            )
+            raise PostError(400, (
+                f"POLICY payload is not a valid policy — {first} — refused "
+                "rather than accepted-and-ignored (#1887)"
+            )) from exc
         if new_policy.visibility.human_read == "sealed" and (
             sub.ns == "/korax" or sub.ns.startswith("/korax/")
         ):
