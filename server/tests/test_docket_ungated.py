@@ -37,6 +37,7 @@ from korax.store import Store
 
 JOBS_NS = "/proj/jobs"
 ISSUES_NS = "/proj/issues"
+BOARD_NS = "/proj/board"
 LEASE = {"lease_until": "2030-01-01T00:00:00Z"}
 PTR = {"uri": "https://example.invalid/b.md", "sha256": "0" * 64}
 
@@ -78,7 +79,7 @@ def world() -> dict:
               {"identity": out["worker"], "ns": "/proj/**", "band": "claimant"},
               {"identity": out["second"], "ns": "/proj/**", "band": "claimant"},
           ]})
-    for ns in (JOBS_NS, ISSUES_NS):
+    for ns in (JOBS_NS, ISSUES_NS, BOARD_NS):
         _post(out, out["desk_token"], author=out["desk"], ns=ns,
               type="POLICY", payload={
                   "acts": ["JOB", "OPEN", "CLAIM", "FINDING", "SUPERSEDE", "ACK"],
@@ -179,6 +180,41 @@ def test_the_light_track_shape_1835_a_job_exists_but_no_claim(world: dict) -> No
                             params={"ns": "/proj"})
     delivered = r.json()["output"]["work"]["delivered"]
     assert [d["job"] for d in delivered] == [job]
+
+
+def test_the_fourth_shape_a_delivery_in_the_board_nest(world: dict) -> None:
+    """#1995's shape, named by the mill AFTER this was built and covered
+    by it — so this fixture exists to keep it covered on purpose rather
+    than by luck.
+
+    quill's #1928: ISSUE filed in the issues nest, delivery posted to the
+    BOARD nest, no JOB and no CLAIM anywhere. It sat an hour while the
+    mill read `docket` four times and told the operator twice that
+    nothing was ungated. The mill's own diagnosis is the right one —
+    *the gate's instrument is keyed on the jobs nest while a light
+    delivery may legitimately live anywhere* — and it is a fourth face
+    of the same defect rather than a new one.
+
+    Membership here is `in_subtree(project, env.ns)`, so any nest under
+    the project qualifies. That was a deliberate choice and it is one
+    line from being undone by someone narrowing the scan to the jobs
+    nest for speed."""
+    issue = _issue(world, payload="ISSUE: the write path accepts NUL")
+    delivery = _deliver(world, issue, ns=BOARD_NS,
+                        payload="DELIVERED, light track @ 5821bde")
+
+    entries = _ungated(world)
+    assert [e["by"] for e in entries] == [delivery]
+    assert entries[0]["ns"] == BOARD_NS, "the nest is reported, not assumed"
+    assert entries[0]["closes"] == issue
+
+    # the three surfaces that were blind to it, still blind — which is
+    # why the lane had to exist rather than the others being widened
+    r = world["client"].get("/view/docket", headers=auth(world["op_token"]),
+                            params={"ns": "/proj"})
+    out = r.json()["output"]
+    assert out["work"]["delivered"] == [], "no JOB — `work` cannot see it"
+    assert out["filed"] == [], "the ISSUE closed — it left `filed` on delivery"
 
 
 def test_a_gate_takes_it_out_of_the_lane(world: dict) -> None:
