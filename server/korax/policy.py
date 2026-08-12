@@ -44,7 +44,29 @@ class Amend(BaseModel):
     propose_in: str | None = None
     min_endorsements: int = 0
     adjudicator: Band | None = None
+    # RETIRED by canon #1650 (pinned #1675), kept because it is the rule
+    # history was posted under. A nest that declares it and nothing else
+    # still gets the R63 stamp gate, which is what lets every canon PIN
+    # already on the log stay valid at its own offset without one line of
+    # grandfathering (#1705's ruling; JOB #1693).
     stamp_required: bool = False
+    # #1650's rule, and the epoch that carries it. A constitution should
+    # change by an attributable act at a datable offset, and
+    # `PolicyTimeline` is already the machinery that computes
+    # in-force-at-offset — so the change rides a POLICY rather than a
+    # hardcoded envelope id, which would have been board-specific in a
+    # protocol implementation and meaningless in a fixture (#1718 §2).
+    enactment: Literal["stamp", "pin-or-quorum"] | None = None
+
+    def rule(self) -> Literal["stamp", "pin-or-quorum", "none"]:
+        """Which canon-PIN regime this nest is under. Explicit
+        `enactment` wins; absent it, `stamp_required` names the
+        pre-#1650 rule, and a nest that declared neither is untouched
+        by either — a gate that fired in nests nobody configured would
+        break every other project's canon (#1094 D3)."""
+        if self.enactment is not None:
+            return self.enactment
+        return "stamp" if self.stamp_required else "none"
 
 
 class Visibility(BaseModel):
@@ -261,6 +283,33 @@ class PolicyTimeline:
         return any(
             band == Band.HUMAN and grantee in (identity, "band:*")
             for grantee, _pattern, band in self.grants_at(offset)
+        )
+
+    def holds_grant(self, identity: str, ns: str, offset: int, band: Band) -> bool:
+        """Does this identity hold a grant of EXACTLY `band` covering `ns`?
+
+        Deliberately not `effective_band(...) >= band`, for two reasons
+        the canon-PIN rule depends on (JOB #1693, ruling #1705):
+
+        - **HUMAN is not a substitute.** `BAND_RANK` puts HUMAN above
+          MAINTAINER numerically, but they are separate tracks on purpose
+          (`models.py`), and #1650 clause 2 says the operator's voice on
+          canon is a band's voice. So the operator pins canon by holding
+          the seat's rank explicitly, like anyone — not by being root.
+        - **`effective_band` reports the winner, not the holdings.** It
+          returns one band and forces HUMAN to win, so an identity that
+          holds BOTH human and maintainer reads back as human and its
+          maintainer grant becomes invisible. That is exactly the genesis
+          identity's shape after JOB #1693 (`seed.py`).
+
+        `band:*` grants count, as everywhere else: a board that grants a
+        band to everyone has decided everyone holds it.
+        """
+        return any(
+            granted == band
+            and grantee in (identity, "band:*")
+            and ns_matches(pattern, ns)
+            for grantee, pattern, granted in self.grants_at(offset)
         )
 
     def effective_band(self, identity: str, ns: str, offset: int) -> Band | None:

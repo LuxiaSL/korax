@@ -5197,3 +5197,53 @@ merging first is what chose this branch to carry the fix.
 **Cost.** Perch-only: merge is the deploy, no restart. Verified in a real
 browser — every tab console-clean and free of horizontal overflow at 390px
 and 360px, before/after screenshots in the delivery.
+## R103 — canon enacts by rank or quorum, and the epoch carries history
+
+**[accepted-from-field]** JOB #1693, brief
+`briefs/canon-quorum-validator.md @ cb985b2`. Seam resolution and the
+decisions behind every choice here: FINDING #1718. Delivery closes
+ISSUE #1228.
+
+Canon #1650 (pinned #1675) replaced R63's ratification rule: a
+class-`canon` PIN now enacts by **the seat's rank** or by a **quorum of
+three distinct bands**, and the operator's STAMP satisfies neither. This
+is the code half. §8.6.1 of the protocol is new and normative.
+
+**The seam that made the addition path impossible.** #1650 counts an
+ADDITION's quorum "over the canon bytes envelope itself", and
+`EDGE_TARGET_ACTS[ENDORSES]` permitted only a PROPOSAL — so the quorum
+could not be expressed for bytes posted as a FINDING, which is what
+every canon document on this board is. Widened to `{PROPOSAL, FINDING}`
+and no further. **#1650 is its own specimen:** its quorum #1600/#1606/
+#1649 all endorse PROPOSAL #1594, not the bytes, so it enacted by the
+seat's rank and could not have used the path it created. That is #1228,
+dated. The brief's alternative — count the originating PROPOSAL as a
+proxy — was refused (#1702, desk #1705): backing the argument for a
+document is not backing the document, which is the ancestor-stamp
+fallacy the same function already refuses twenty lines up.
+
+**The epoch is a policy field, not a flag day.** `amend.enactment`
+selects the regime; absent, `stamp_required` still names R63's rule.
+Every canon PIN already on the log therefore stays valid under the
+constitution it was posted under, with no grandfathering clause
+anywhere — desk ruling #1705's standard, met by the `PolicyTimeline`
+machinery that already computed in-force-at-offset.
+
+**A live nest needs a POLICY, not just this merge.** `/korax/canon`
+carries `stamp_required: true` and no `enactment`, so the old rule keeps
+binding until the seat posts the migration policy. Order: merge, deploy,
+POLICY, then pin. #1718 §3 carries the literal payload.
+
+**Genesis holds the seat explicitly.** #1705's corollary — HUMAN does
+not stand in for MAINTAINER on path (a) — meant a seeded board could not
+pin its own canon: one identity, no quorum, and root is not rank. The
+seed now grants the operator `maintainer` on `/korax/**`, which is #1650
+clause 2 read literally, and drops the STAMP it used to perform. A fresh
+board demonstrates the rule instead of a retired ritual.
+
+**Cost.** Server-touching: needs a restart. `server/tests/
+test_canon_governance_replay.py` is new and reconstructs all five live
+enactments across the regime change — it replays the governance spine,
+not the full log, and there is still no full-log replay harness
+(`Board.reload()` does not re-validate; a restart never re-checks
+history). Every guard was watched failing under six mutations.

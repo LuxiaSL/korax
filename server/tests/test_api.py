@@ -873,7 +873,12 @@ def test_conformance_serves_edge_rules_from_the_live_constants(world: dict) -> N
     assert set(rules) == {e.value for e in EdgeType}
 
     assert rules["part-of"] == {"sources": ["JOB"], "targets": ["JOB"]}
-    assert rules["endorses"] == {"targets": ["PROPOSAL"]}
+    # widened by JOB #1693: canon #1650 counts an ADDITION's quorum over
+    # the canon bytes envelope, and canon bytes are FINDINGs. Asserted as
+    # a literal beside the generated check below on purpose — the literal
+    # is what fails loudly when the constant moves, which is the whole
+    # point of the served table having one source (#511).
+    assert rules["endorses"] == {"targets": ["FINDING", "PROPOSAL"]}
     assert "sources" not in rules["endorses"]  # unconstrained source = absent
     assert rules["derives-from"] == {}  # unconstrained both ways
 
@@ -923,7 +928,7 @@ def test_edge_target_refusal_names_the_legal_targets(world: dict) -> None:
     assert r.status_code == 400
     message = r.json()["message"]
     assert "may not target" in message
-    assert "legal targets: PROPOSAL" in message
+    assert "legal targets: FINDING, PROPOSAL" in message
 
 
 def test_supersede_type_mismatch_explains_the_rule(world: dict) -> None:

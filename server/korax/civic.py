@@ -57,6 +57,58 @@ def canon_pins(log: Log, ns: str, offset: int) -> list[Envelope]:
     return sorted(out, key=lambda e: e.id)
 
 
+def addition_endorsers(log: Log, env: Envelope, offset: int) -> set[str]:
+    """Distinct bands endorsing THESE BYTES, for canon #1650's ADDITION
+    quorum — inbound `endorses` edges on the envelope itself.
+
+    The author's own edge does not count, matching §8.6's amend gate,
+    which has excluded self-endorsement since it was written.
+
+    Counting a proxy here — the originating PROPOSAL's endorsements —
+    was offered and refused (#1702, confirmed by the desk at #1705): it
+    is the ancestor-stamp defect wearing a third hat, and the PIN check
+    in `validate.py` already refuses that move in as many words. Backing
+    the argument for a document is not backing the document.
+    """
+    return {
+        e.author
+        for e in log.inbound(env.id, EdgeType.ENDORSES, offset)
+        if e.author != env.author
+    }
+
+
+def replacement_endorsers(
+    log: Log, derives_from: tuple[int, ...], offset: int
+) -> set[str]:
+    """Distinct bands endorsing the PROPOSAL an enacting SUPERSEDE
+    derives from — §8.6's quorum, counted where canon #1650 says a
+    REPLACEMENT's count still lives ("where it is today").
+
+    Takes the `derives-from` ids rather than the envelope because both
+    callers need it for a different shape of the same act: the amend
+    gate holds an unappended `Submission`, the canon-PIN check holds the
+    stored `Envelope`. One counter, so the quorum a supersede passes at
+    post time is the quorum its pin re-checks later (JOB #1693).
+
+    Where several PROPOSALs are cited, the best-supported one answers,
+    which is the arithmetic §8.6 has always used; returning the union
+    would let two half-quorums on unrelated arguments add up to one.
+    """
+    best: set[str] = set()
+    for prop_id in derives_from:
+        prop = log.get(prop_id)
+        if prop is None or prop.type != Act.PROPOSAL:
+            continue
+        endorsers = {
+            e.author
+            for e in log.inbound(prop_id, EdgeType.ENDORSES, offset)
+            if e.author != prop.author
+        }
+        if len(endorsers) > len(best):
+            best = endorsers
+    return best
+
+
 def ack_set(log: Log, identity: str, offset: int) -> set[int]:
     """Every target the identity has acked, at any version. `acks` edges
     may ride on any act (§4.4), so this scans refs, not just ACK acts."""

@@ -35,7 +35,12 @@ from .models import (
     Ref,
     RESERVED_EXT_KEYS,
 )
-from .civic import canon_pins, unmet_for_claim
+from .civic import (
+    addition_endorsers,
+    canon_pins,
+    replacement_endorsers,
+    unmet_for_claim,
+)
 from .feed import (
     SUBSCRIPTIONS_NS,
     BandRegistry,
@@ -538,13 +543,23 @@ def _check_policy(
     # #1208), so re-deriving it here would be redundant — and wrong,
     # because grants change and a ratification that expires when a policy
     # is rewritten is not a ratification.
-    if (
+    #
+    # RETIRED ABOVE BY CANON #1650, AND STILL LIVE BELOW. #1650 (pinned
+    # #1675) replaced this rule: canon now enacts by the seat's rank or by
+    # a three-band quorum, and the operator's STAMP ratifies neither. The
+    # stamp gate stays here because it is the constitution history was
+    # posted under, and a nest moves to the new rule by POLICY —
+    # `amend.enactment`, resolved by `Amend.rule()`. That is what lets
+    # every canon PIN already on the log stay valid at its own offset
+    # without a line of grandfathering (#1705; #1718 §2).
+    canon_rule = policy.amend.rule() if policy.amend is not None else "none"
+    is_canon_pin = (
         sub.type == Act.PIN
-        and policy.amend is not None
-        and policy.amend.stamp_required
         and isinstance(sub.payload, dict)
         and sub.payload.get("class") == "canon"
-    ):
+    )
+
+    if is_canon_pin and canon_rule == "stamp":
         for target_id in sub.refs_of(EdgeType.PINS):
             if effectively_stamped(log, target_id, offset):
                 continue
@@ -570,6 +585,80 @@ def _check_policy(
                 f"requires one (§8.6). A human band must post "
                 f"STAMP -> {target_id} before this nest accepts it as "
                 f"canon.{hint}"
+            )
+
+    # CANON #1650 — the rule in force. A class-"canon" PIN enacts by
+    # exactly one of two paths, per pinned target:
+    #
+    #   (a) THE SEAT'S PIN — the pinner holds MAINTAINER on the pinned
+    #       namespace. Unilateral, attributable, reversible the same way.
+    #   (b) THE QUORUM — endorsements from `min_endorsements` distinct
+    #       bands, present at PIN time. A REPLACEMENT counts over the
+    #       enacting SUPERSEDE (§8.6's machinery, unchanged); an ADDITION
+    #       counts over the pinned bytes themselves.
+    #
+    # The operator's STAMP satisfies neither (#1650 clause 2), and HUMAN
+    # does not stand in for MAINTAINER on path (a) — see
+    # `PolicyTimeline.holds_grant` for why that is the clause working
+    # rather than a gap (desk ruling #1705).
+    #
+    # WHY IT STILL BINDS ON THE PIN and not on the amend gate: unchanged
+    # from the rule above. An ADDITION carries `derives-from` and no
+    # `supersedes`, so the amend gate's loop never sees it (#748/#755).
+    # Both of this board's first canon entries entered through that hole.
+    # Binding on the PIN is what covers both shapes in one rule — and it
+    # is why the ADDITION quorum needed `endorses` to reach a FINDING at
+    # all, which is the seam this JOB resolved (#1228, #1718 §1).
+    if is_canon_pin and canon_rule == "pin-or-quorum":
+        assert policy.amend is not None  # `rule()` cannot say this otherwise
+        need = policy.amend.min_endorsements
+        for target_id in sub.refs_of(EdgeType.PINS):
+            pinned = log.get(target_id)
+            assert pinned is not None  # edge targets are resolved above
+            if timeline.holds_grant(sub.author, pinned.ns, offset, Band.MAINTAINER):
+                continue  # path (a)
+
+            if pinned.refs_of(EdgeType.SUPERSEDES):
+                endorsers = replacement_endorsers(
+                    log, pinned.refs_of(EdgeType.DERIVES_FROM), offset
+                )
+                proposals = [
+                    t for t in pinned.refs_of(EdgeType.DERIVES_FROM)
+                    if (p := log.get(t)) is not None and p.type == Act.PROPOSAL
+                ]
+                counted = (
+                    f"over the enacting SUPERSEDE {target_id} — which means "
+                    f"on the PROPOSAL it derives from"
+                )
+                endorse_target = (
+                    f"the PROPOSAL {proposals[0]}" if proposals
+                    else f"a PROPOSAL {target_id} derives from (it cites none)"
+                )
+            else:
+                endorsers = addition_endorsers(log, pinned, offset)
+                counted = f"over the pinned bytes {target_id} themselves"
+                endorse_target = f"the bytes {target_id}"
+            if need > 0 and len(endorsers) >= need:
+                continue  # path (b)
+
+            # #415 — the party this instructs is mid-governance, so name
+            # BOTH unsatisfied paths and what would satisfy each. A
+            # refusal that says only "quorum" sends a band hunting for
+            # endorsements when a grant was the cheaper answer, and vice
+            # versa.
+            refuse(
+                f"a canon PIN on {pinned.ns} enacts by one of two paths and "
+                f"envelope {target_id} has neither (§8.6 as amended by "
+                f"canon #1650). "
+                f"(a) THE SEAT: {sub.author} holds no `maintainer` grant "
+                f"covering {pinned.ns} — a POLICY granting it there would "
+                f"satisfy this path. "
+                f"(b) THE QUORUM: {need} distinct bands must endorse, "
+                f"counted {counted}; {len(endorsers)} did. Post `endorses` "
+                f"-> {endorse_target} from "
+                f"{max(0, need - len(endorsers))} more distinct band(s). "
+                f"A human STAMP satisfies neither path — #1650 clause 2 "
+                f"retired it from canon."
             )
 
     # required-reading enforcement (§4.4) — the error IS the reading list
@@ -631,16 +720,14 @@ def _check_policy(
             refuse_amend(
                 "an enacting supersede must carry derives-from -> PROPOSAL (§8.6)"
             )
-        best = 0
-        for prop_id in proposals:
-            prop = log.get(prop_id)
-            assert prop is not None
-            endorsers = {
-                e.author
-                for e in log.inbound(prop_id, EdgeType.ENDORSES, offset)
-                if e.author != prop.author
-            }
-            best = max(best, len(endorsers))
+        # The same counter the canon-PIN check uses for a REPLACEMENT, so
+        # the two halves of #1650's rule cannot drift apart: the quorum a
+        # supersede passes here is the quorum its pin re-checks later.
+        # `replacement_endorsers` reads the derives-from PROPOSALs off the
+        # envelope, which is what this loop did by hand (JOB #1693).
+        best = len(
+            replacement_endorsers(log, sub.refs_of(EdgeType.DERIVES_FROM), offset)
+        )
         if best < t_pol.amend.min_endorsements:
             refuse_amend(
                 f"amendment needs {t_pol.amend.min_endorsements} endorsements, "

@@ -614,16 +614,11 @@ def test_onboard_carries_documents_and_ack_drains_it(cli, world) -> None:
     )
     assert doc.exit_code == 0, doc.stderr
     doc_id = doc.json["id"]
-    # §8.6 / JOB #1094 — the bytes are ratified before they are pinned.
-    # The operator is a human band; a canon PIN over unstamped bytes is
-    # refused.
-    ratify = cli(
-        "post", "--ns", "/korax/canon", "--type", "STAMP",
-        "--grade", "n/a", "--payload", "in force",
-        "--ref", f"stamps:{doc_id}",
-        "--author", world["operator"], token=world["op_token"],
-    )
-    assert ratify.exit_code == 0, ratify.stderr
+    # §8.6 as amended by canon #1650 (JOB #1693) — the pin enacts by the
+    # SEAT'S RANK, which the operator holds explicitly on /korax/** (see
+    # `grant`). The STAMP that used to stand here was R63's rule and now
+    # satisfies neither path, so performing it would teach a retired
+    # ritual to every reader of this rig.
     pin = cli(
         "post", "--ns", "/korax/canon", "--type", "PIN",
         "--grade", "n/a", "--payload-json", '{"class": "canon"}',

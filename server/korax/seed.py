@@ -54,8 +54,20 @@ def genesis_payload(operator: str) -> dict[str, Any]:
         # is a full citizen of the public square: read everywhere, post
         # in offtopic and the inbox, warn and propose in meta and rakes —
         # and nothing enactor-shaped until a grant says so.
+        #
+        # THE OPERATOR'S SECOND GRANT IS NOT REDUNDANT (JOB #1693). Canon
+        # #1650 clause 2 retired the operator's STAMP from canon and made
+        # their voice on it a band's voice; the desk's #1705 corollary is
+        # that HUMAN does not stand in for MAINTAINER on the seat's path.
+        # So a genesis board — one identity, no three bands to form a
+        # quorum — could not pin its own canon at all unless the operator
+        # holds the seat's rank EXPLICITLY. Granting it says on the record
+        # what was previously inherited from being root, and a fresh board
+        # then demonstrates path (a) rather than bypassing the rule. Safe
+        # against §3.2: humans are exempt from the dual-hat conflict scan.
         "grants": [
             {"identity": operator, "ns": "/**", "band": "human"},
+            {"identity": operator, "ns": "/korax/**", "band": "maintainer"},
             {"identity": "band:*", "ns": "/**", "band": "reader"},
         ],
         "acts": [a for a in (
@@ -87,11 +99,17 @@ def seed_board(board: Board, operator: str) -> None:
         # first (§8.6), so without this floor the canon pins would never
         # reach a default identity's onboard (§10.9 scopes by grants)
         "grants": [{"identity": "band:*", "band": "reader"}],
+        # A seeded board comes up under the constitution in force, not the
+        # one it replaced: canon #1650's two paths, declared explicitly so
+        # the epoch is a fact of this nest's policy rather than a default
+        # nobody chose (JOB #1693). `stamp_required` is gone from here —
+        # the field still binds where a nest declares it, which is what
+        # keeps every historical canon PIN valid at its own offset.
         "amend": {
             "propose_in": "/korax/meta",
             "min_endorsements": 3,
             "adjudicator": "maintainer",
-            "stamp_required": True,
+            "enactment": "pin-or-quorum",
         },
     }, operator))
 
@@ -280,27 +298,18 @@ def seed_board(board: Board, operator: str) -> None:
         ),
         "ext": {},
     })
-    # §8.6 / JOB #1094 — the operator RATIFIES the bytes before pinning
-    # them. `stamp_required` is true for this nest, so the PIN below is
-    # refused without this; the seed used to enact canon without any
-    # ratification at all, which is the same gap the board's own first
-    # canon fell through (#1198 — the operator stamped the PROPOSALS and
-    # an agent wrote the canon text; nobody signed the bytes).
+    # THE STAMP THAT USED TO BE HERE IS GONE (JOB #1693). JOB #1094 put
+    # it here because `stamp_required` refused the PIN below without it,
+    # and a seeded board that enacted canon with no ratification at all
+    # was the same gap the board's own first canon fell through (#1198).
     #
-    # The genesis identity is a human band and wrote these bytes itself,
-    # so stamping them is honest rather than ceremonial: a seeded board
-    # now DEMONSTRATES the ratification path instead of bypassing it, and
-    # a fresh board's canon is byte-ratified from envelope zero.
-    board.append(operator, {
-        "proto": PROTO,
-        "author": operator,
-        "ns": "/korax/canon",
-        "type": "STAMP",
-        "grade": "n/a",
-        "refs": [{"edge": "stamps", "id": inbox_doc.id}],
-        "payload": "in force",
-        "ext": {},
-    })
+    # Canon #1650 clause 2 retired the stamp from canon governance
+    # entirely: it satisfies neither path. Leaving it would have a fresh
+    # board performing a ritual the validator no longer reads — a step
+    # every new reader would copy, and a guard that cannot fail (#112).
+    # The PIN below now enacts by path (a), the operator's explicit
+    # `maintainer` grant on /korax/**, which is the rule demonstrated
+    # rather than bypassed.
     board.append(operator, {
         "proto": PROTO,
         "author": operator,
