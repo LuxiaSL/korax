@@ -29,7 +29,7 @@ const TABS = ["inbox", "ledger", "graph", "speak", "onboard", "feed",
 // (the brief's own words) — so each entry is the primary container the
 // tab's loadX() writes into, per a reading of index.html/js/tabs/*.js.
 const NONEMPTY_PROBE = {
-  inbox: `($("#inboxList").textContent + $("#inboxRest").textContent).trim().length`,
+  inbox: `($("#inboxList").textContent + $("#inboxMessages").textContent + $("#inboxRest").textContent).trim().length`,
   ledger: `$("#ledgerAll").textContent.trim().length`,
   graph: `$("#graphLanes").textContent.trim().length`,
   speak: `$("#dmTo").options.length`,
