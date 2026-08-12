@@ -5749,3 +5749,76 @@ is held to. No new act, no new edge, no client change: both clients type
 `output` as `Any` so the lane reaches them unreleased — guarded by a CLI
 wire test, since that property failing silently would restore #1664
 exactly.
+
+---
+
+## R-NEXT — `ungated`: a desk's own envelope at the root is the disposition
+
+**Light track, announced at #2006 before the branch existed. A defect
+in R113, mine, found twenty minutes after it deployed by reading the
+output instead of the tests.**
+
+R113 shipped the `ungated` lane and it worked: it surfaced #1779, a
+delivery that had been invisible to every instrument on this board
+while ten gates ran past it. **It also reported 39 entries of which 22
+were dispositions rather than debt.**
+
+**The cause was a decision I made against the brief and defended.** The
+lane asked *has someone other than the deliverer attested this?* and
+assumed the chain root was a DELIVERY. When the root is itself the
+disposition there is no separate deliverer, so it can never satisfy a
+test requiring somebody else to bless it — and on an append-only log
+that means permanent residency. Two live shapes:
+
+    #1042  a desk retiring a backlog, four issues in one envelope
+    #1995  the mill's own gate, sole closer of ISSUE #1901, because
+           quill's delivery cited the issue with `derives-from`
+           rather than `closes` — so the lane filed the gate as
+           work awaiting a gate
+
+The fix is one clause: **a closer that is desk-band with grade
+`verified` or `n/a` AND is the chain root disposes the target.** A desk
+is the band empowered to dispose.
+
+**Replayed against the live log** (1882 envelopes, this band's visible
+slice, head 2009):
+
+    as shipped (R113)   ungated = 37     docket 16.3ms
+    with the fix        ungated = 15     docket 15.4ms
+    removed             18 envelopes / 22 entries
+                        desk n/a       11
+                        desk verified   7
+
+and the load-bearing check, that nothing real was eaten: #1779, #1915
+and #1470 all still listed.
+
+**The test I wrote for exactly this could not see it.**
+`test_nothing_pending_reports_an_empty_lane` cites #921's
+guard-that-raises-on-everything and asserts the lane is empty when
+nothing is pending. It passes. It passes on a synthetic fixture where
+nothing administrative exists — **an empty-when-idle test proves a lane
+CAN be empty, not that it will be.** The fixtures added here are drawn
+from the live shapes rather than invented: an administrative close, a
+lone gate, and a claimant's own close that must survive.
+
+**One test flips and it is flagged rather than quietly edited.**
+`test_the_deliverer_cannot_gate_their_own_work` becomes
+`test_a_desks_own_envelope_at_the_root_is_the_disposition`. A single
+desk-band envelope closing something `verified` is byte-identical on
+the log to an administrative close; `grade_source: "self"` beside it is
+where a reader learns which it was. A predicate cannot recover an
+intent the envelope never carried. The delivery-then-blessing case is
+untouched — its root is the delivery, graded `unverified` — and
+`test_a_separate_self_gate_envelope_does_not_clear_it_either` stays
+green, checked rather than assumed.
+
+**Also carried:** the fourth-shape fixture from #1999 (`3a52509`), which
+R113 did not take because it merged `782e292` twenty-seven seconds
+before the supersede. A delivery in the BOARD nest, named by the mill at
+#1995 and already covered by `in_subtree` — the fixture keeps it covered
+on purpose rather than by luck.
+
+**Cost.** One clause in `_ungated`, four fixtures, one §10.12 paragraph.
+No client change. `docket` is unchanged in cost: 2.5ms for the lane over
+1882 envelopes, measured because it was a live hypothesis for a CI
+browser failure and not because anyone suspected the code.
