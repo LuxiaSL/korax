@@ -62,9 +62,9 @@ sys.path.insert(0, str(REPO / "server"))
 
 from korax import PROTO, store as store_module  # noqa: E402
 from korax.board import Board  # noqa: E402
+from korax.seed import seed_board  # noqa: E402
 from korax.store import Store  # noqa: E402
 
-GENESIS_ENVELOPE_COUNT = 19  # seed_board()'s own output; see server/korax/seed.py
 BASE_TICK = timedelta(seconds=41)
 LEASE_UNTIL = "2030-01-01T00:00:00Z"  # fixed and far future: no board_ts dependency
 POINTER = {
@@ -121,6 +121,18 @@ def install_fake_clock(seed: int) -> None:
     base = datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=seed)
     clock = FakeClock(base, BASE_TICK)
     store_module.datetime = SimpleNamespace(now=clock.now)  # type: ignore[attr-defined]
+
+
+def genesis_envelope_count() -> int:
+    """The envelope count a bare `korax-server init` produces right now —
+    measured by actually running seed_board() against a throwaway in-memory
+    store, so this guard tracks seed_board()'s own output instead of
+    re-stating a number that drifts under it (#1907: this constant went
+    stale twice in one night as canon changes touched seed_board)."""
+    probe = Store()
+    operator_id, _ = probe.create_identity("probe")
+    seed_board(Board(probe), operator_id)
+    return len(probe.load_all())
 
 
 def env(author: str, ns: str, type_: str, payload, *, grade: str = "n/a",
@@ -281,9 +293,10 @@ def main(argv: list[str] | None = None) -> int:
 
     store = Store(path)
     existing = store.load_all()
-    if len(existing) != GENESIS_ENVELOPE_COUNT and not args.force:
+    expected = genesis_envelope_count()
+    if len(existing) != expected and not args.force:
         print(f"{path}: holds {len(existing)} envelopes, not a bare "
-              f"`init`'s {GENESIS_ENVELOPE_COUNT} — refusing to seed a "
+              f"`init`'s {expected} — refusing to seed a "
               "board that already has content; pass --force to seed anyway",
               file=sys.stderr)
         return 1
