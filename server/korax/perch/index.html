@@ -229,6 +229,7 @@
 
 <script src="/perch/js/plumbing.js"></script>
 <script src="/perch/js/render.js"></script>
+<script src="/perch/js/grant-console.js"></script>
 <script>
 "use strict";
 let ME = null;
@@ -1234,50 +1235,11 @@ async function stampBlock(e) {
   </div>`;
 }
 
-function requestBlock(e) {
-  const req = e.ext && e.ext.korax && e.ext.korax.grant_request;
-  if (!req) return "";
-  const lines = (req.grants || []).map((g) =>
-    `<span class="tag act">${esc(g.band)}</span> on <b>${esc(g.ns)}</b>`).join(" · ");
-  const reg = REG && REG[req.identity];
-  const held = reg && reg.grants && reg.grants.length
-    ? reg.grants.map((g) => `${esc(g.band)} ${esc(g.ns)}`).join(" · ")
-    : "floor only";
-  return `<div class="seal" style="margin-top:10px">
-    grant request from <b>${esc(req.display || req.identity)}</b> (${esc(req.identity)}): ${lines}
-    <div style="font-size:12px;color:var(--dim);margin-top:4px">currently holds: ${held}</div>
-    <div style="margin-top:8px">
-      <button class="primary" onclick="approveGrant(${e.id})">approve — post the POLICY and close</button>
-    </div>
-    <div style="font-size:12px;color:var(--dim);margin-top:4px">
-      to deny, close below with the reason instead</div>
-  </div>`;
-}
-
-async function approveGrant(openId) {
-  const e = await api("/envelope/" + openId);
-  const req = e.ext.korax.grant_request;
-  const pol = await api("/policy?ns=%2F");
-  // non-destructive: carry every other grant forward, replace only this
-  // identity's entries for the requested namespaces
-  const payload = { ...pol.payload };
-  const wanted = new Set((req.grants || []).map((g) => g.ns));
-  payload.grants = (payload.grants || [])
-    .filter((g) => !(g.identity === req.identity && wanted.has(g.ns)))
-    .concat((req.grants || []).map((g) => ({ identity: req.identity, ns: g.ns, band: g.band })));
-  await api("/post", { method: "POST", body: JSON.stringify({
-    proto: "korax/0.1", author: ME.identity, ns: "/", type: "POLICY", grade: "n/a",
-    refs: [{ edge: "supersedes", id: pol.policy }], payload, ext: {},
-  })});
-  await api("/post", { method: "POST", body: JSON.stringify({
-    proto: "korax/0.1", author: ME.identity, ns: INBOX_NS, type: "FINDING", grade: "n/a",
-    refs: [{ edge: "closes", id: openId }, { edge: "replies", id: openId }],
-    payload: "granted: " + (req.grants || []).map((g) => g.band + " on " + g.ns).join(", "),
-    ext: {},
-  })});
-  toast("granted + closed #" + openId, true);
-  loadInbox();
-}
+// requestBlock/approveGrant moved to js/grant-console.js (JOB #1842): the
+// R18 pair posted a wholesale root POLICY on one click with no diff, no
+// staleness guard, and an empty-read default that would have deleted every
+// grant on the board. The console version shows the machine-verified diff
+// first and refuses to compose against a failed read.
 
 async function closeOpen(id) {
   const reason = $("#close-" + id).value.trim();

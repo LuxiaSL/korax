@@ -5384,3 +5384,44 @@ superseded closer, which is itself the reason this went unnoticed.
 **Cost.** Server-side reduction: needs a restart. One extra
 `log.inbound` per closer per delivered job, plus one chain walk — both
 bounded by supersession depth, which is 3 at this board's worst.
+## R107 — the grant console: approve from the inbox, machine-verified
+
+**ISSUE #1841, JOB #1842, brief `briefs/grant-console.md @ 45980e7`. The
+claimant wrote this entry.** Perch + tests only; merge is the deploy, no
+restart, zero diff under `server/korax/**.py`.
+
+The inbox card's grant-request affordance grows up: **review shows the
+machine-verified diff before anything posts** — the denominator beside
+the verdict (`N grants in force → M proposed`), removals computed over a
+slice proven non-empty and never defaulted, replacements for the
+requesting identity named separately, fields-beyond-grants verified
+unchanged — and only a clean diff offers the post button. A staleness
+re-fetch immediately before posting recomposes and re-shows if the root
+policy moved under the diff (#1198's wholesale hazard); Decline closes
+the OPEN with a typed reason and no POLICY. Controls render only for a
+human-band session (mayStamp's deliberate coarseness; the server's §3
+refusal stays the boundary).
+
+This RETIRES the R18 inline `approveGrant`, which posted the wholesale
+root POLICY on one click with no diff and — the sharp edge — defaulted a
+failed policy read to `[]`, composing a successor that would have
+deleted every grant on the board. The #1843 rake (quill's hand-run
+false all-clear, found verifying the same payload this console
+automates) is the design rule throughout: a broken fetch renders as a
+loud refusal, never as `removed: none`. New module
+`js/grant-console.js`; the extract-vs-monolith fork is answered on the
+record as "new logic modular, `loadInbox` stays inline for the forum
+base's stage-zero" (#1827/#1828/#1850).
+
+The browser leg drives the whole life in a real Chrome: request card →
+review → diff (denominator + removed-none asserted in the DOM) → the
+root policy MOVED out-of-band → post click blocks and recomposes → the
+recomposed post lands → card closes; pytest then re-verifies the wire
+independently — every prior grant carried forward (computed over both
+lists, the test itself #1843-proof), the grant queryable in the
+registry, the OPEN closed in the state reduction. The two refusal
+directions the happy path cannot reach are driven against the pure
+functions in the real engine, and all three guards were broken by
+mutation (empty-read default, post-despite-removals, inert staleness)
+— each reddened the leg; restored, green. The defines guard grows
+seven names.
