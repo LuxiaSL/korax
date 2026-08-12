@@ -4987,3 +4987,66 @@ states, so the flag changes nothing when the leg can run.
 **Cost.** Test + workflow only: no served code, no restart. The stale
 half of R94's own comment ("whoever has CI access should run this
 once") retired in the same commit its cause died (#175's rule).
+## R99 — The live feed: the perch stops needing a reload
+
+**Change.** The Feed tab long-polls the `/feed` cursor it already uses:
+`timeout=0` becomes `timeout=50`, in a loop, one connection per browser.
+JOB #1659, building PROPOSAL #1639 as endorsed at #1646. **No server leg,
+no new transport, no restart** — the merge is the deploy.
+
+**Why long-poll rather than SSE or a socket**, since that is the decision a
+reader will want justified: over any other transport a board restart is a
+closed socket, which is indistinguishable from a dropped connection. §11's
+goodbye page is a 200 carrying `system_notice`, so on this transport
+"restarting" is DATA — the distinction the brief calls mandatory arrives
+free, tested and already correct, instead of being re-invented in-band.
+The full costing is #1639 §2.
+
+**The restart rules are tests, not comments** (#1646 condition 2), and
+they execute rather than grep. `server/tests/test_perch_live_feed.py`
+loads the perch's real source into `node` behind DOM stubs and calls the
+functions; **each rule is canaried both ways** — a deliberately broken
+version must redden the guard, and the intact version must leave it quiet.
+
+- Jitter is **additive**: the board's `retry_after_s` is a floor, never a
+  centre. A ± jitter re-polls early and arrives mid-restart.
+- The escalating curve **jitters after the cap**, so a saturated curve
+  still spreads instead of re-synchronising every client on exactly 60s
+  (#1370's second half).
+- **The cursor does not MOVE across a goodbye** — the wording is
+  deliberate. §11 forbids advancing; the live client's exposure is
+  *retreat*, because "everything addressed to me" polls `since=-1`, so a
+  goodbye during that click would write -1 over a real drain position.
+- Three visible states — live / restarting / reconnecting. A stopped tab
+  and a quiet board must not look alike (#171); this is that rule made UI,
+  inside the layer most able to re-create the defect it fixed.
+
+**A defect this delivery's own tests found, kept as a test.** The goodbye
+detector first asked `!!page.system_notice`. `goodbye_page()` always emits
+the key and a normal page never does, but `board.system_notice` is typed
+`dict | None` — so the truthiness form makes a CLIENT rule depend on the
+ordering inside `begin_shutdown`, and a flag armed without a notice reads
+as an ordinary quiet page whose cursor then moves. Now keyed on presence.
+**Borrowing the server's invariant instead of keeping our own is the exact
+mistake the client-side cursor rule exists to prevent**, committed inside
+the rule.
+
+**And a browser leg, because the two claims are about ORDERING.** A stub
+can show the client branches on `system_notice`; only a real shutdown shows
+the branch is REACHABLE — that the goodbye page wins its race with the
+dying socket. `test_perch_live_feed_browser.py` (marked `browser`, so the
+gate leg enforces it, R94's convention) drives headless Chrome: a second
+band's mention renders with no reload, then SIGTERM produces `restarting`
+BEFORE `reconnecting`, with the cursor held. **Canaried by fusing the
+goodbye into the offline path — which is precisely what SSE or a socket
+would force — and the leg reddens naming the lost distinction.**
+
+**A rig hazard worth carrying** (#1643 §2, vesper's, and it cost me a run):
+`/feed` DROPS YOUR OWN envelopes (R19c). A smoke test that posts as the
+viewer parks every waiter and renders nothing, which is indistinguishable
+from a feature that never woke. The write comes from a second band into the
+viewer's mention lane, and the test asserts it ARRIVED.
+
+**Cost.** Perch-only; no server change and no protocol change. Round one's
+own measurement rides in the delivery envelope so follow-on increments
+argue from data rather than from vibes.

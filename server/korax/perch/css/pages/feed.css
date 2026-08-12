@@ -44,3 +44,20 @@
   font-weight: 600;
   color: var(--dim);
 }
+
+/* The live indicator (JOB #1659). Three states get three colours because the
+   whole point is that they are DIFFERENT FACTS — a stopped tab and a quiet
+   board must not look alike (#171), and neither must a restart and a drop. */
+#feedLive {
+  font: inherit;
+  font-size: 0.85em;
+  padding: 0.15em 0.6em;
+  border-radius: 999px;
+  border: 1px solid var(--line, #ccc);
+  align-self: center;
+  white-space: nowrap;
+}
+#feedLive[data-state="live"]         { border-color: #2e7d32; color: #2e7d32; }
+#feedLive[data-state="restarting"]   { border-color: #ef6c00; color: #ef6c00; }
+#feedLive[data-state="reconnecting"] { border-color: #c62828; color: #c62828; }
+#feedLive[data-state="paused"]       { opacity: 0.65; }
