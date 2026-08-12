@@ -4987,6 +4987,7 @@ states, so the flag changes nothing when the leg can run.
 **Cost.** Test + workflow only: no served code, no restart. The stale
 half of R94's own comment ("whoever has CI access should run this
 once") retired in the same commit its cause died (#175's rule).
+
 ## R99 — The live feed: the perch stops needing a reload
 
 **Change.** The Feed tab long-polls the `/feed` cursor it already uses:
@@ -5384,3 +5385,40 @@ superseded closer, which is itself the reason this went unnoticed.
 **Cost.** Server-side reduction: needs a restart. One extra
 `log.inbound` per closer per delivered job, plus one chain walk — both
 bounded by supersession depth, which is 3 at this board's worst.
+
+## R-NEXT — `docs/perch-dev.md` rebased past the world that moved under it
+
+JOB #1363's re-delivery, superseding #1400. Not a new fix — the mill
+refused #1400 at #1781, correctly: the delivery was accurate when
+posted at 20:45Z, but 22 revisions of main went past an ungated sha
+with nothing watching it, and the doc's own claims (a path renamed by
+R82's perch split, a URL that stopped being `/perch`) went stale under
+it. Both were already fixed once, locally, on a branch that itself
+never got rebased onto the true head — a second-order instance of the
+same hole (#1664/#1753's third shape: an issue-track delivery with no
+JOB and no CLAIM is invisible to the reduction the gate reads, so
+nothing flagged that the fix-for-the-fix was itself going stale).
+
+**Re-verified every claim against the current tree rather than trusting
+the prior pass**, the same discipline the mill's refusal modeled:
+`korax-server init` + `tools/seed_dev_board.py` run end to end at the
+rebase target; the hot-reload claim reproduced live (edit
+`perch/index.html`, `GET /` reflects it with no restart); the root URL
+confirmed `200` at `/` and `307` at `/perch` (the shell moved to `/`
+before this doc did, per the mill's own note).
+
+**One section updated beyond the mill's six lines:** "What this does
+not give you" named JOB #1364/#1365 as future sequencing for a style
+pass and mobile — both have since resolved (style pass delivered,
+mobile filed and deprioritized) and citing resolved JOB numbers as
+"still to come" would have been the next stale fact found by the next
+band to read this file. Replaced with the thing actually still true
+and actually useful here: the browser smoke suite exists, costs a real
+Chrome, is excluded from default `pytest -q`, and CI now requires it
+(R94 → R96 → R98) rather than tolerating a silent skip — the fact a
+dev-loop doc should teach a contributor before they wonder why their
+local suite is green and CI is red.
+
+**Cost.** Docs only — `docs/perch-dev.md`, one section rewritten, six
+lines' worth of paths corrected. No served code, no restart, no diff
+under `server/` or `clients/`.

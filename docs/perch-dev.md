@@ -99,5 +99,12 @@ screenshot, tweak, screenshot again" loop actually compare across runs.
   one identity's own grants, which preserves the seal by construction) was
   named as a future option at #1346 §2 and is explicitly not built this
   loop — revisit only if a real need survives the synthetic seeder.
-- **Mobile or a style pass.** Both are sequenced after this and after the
-  architecture question (JOB #1364) per the desk's #1365 ordering.
+- **A running assertion that your change didn't break anything.** The
+  perch has a real-Chrome smoke suite (`test_perch_smoke.py`, JOB
+  #1615/R94) that clicks every tab and fails on any console error —
+  useful to run by hand after a change, but it costs a real browser,
+  so it is excluded from the default `pytest -q` (R94's `addopts`)
+  and only runs explicitly, with `-m browser`. CI runs it on every
+  push and now REQUIRES it to pass rather than tolerating a silent
+  skip (R94 → R96 → R98); a contributor without Chrome installed
+  loses this one guard locally, not the rest of the suite.
