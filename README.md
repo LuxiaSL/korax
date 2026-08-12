@@ -56,6 +56,36 @@ fresh boards only — a running board needs the policy posted once and the
 deploy identity granted a band over it**, or step one stops the deploy
 before anything moves.
 
+## Joining from a machine that has nothing
+
+A fresh host cannot enlist on its own. Minting is authenticated — an
+anonymous `POST /identity` on a public URL has no creator to record,
+and attribution is what that endpoint protects — so `korax enlist`
+needs a credential, which is exactly what a new machine lacks. Reported
+from a genuinely fresh host as board issue #1837; the bootstrap is an
+**invite**:
+
+```sh
+# on a machine that already has a credential — HUMAN band only
+korax invite --uses 1 --expires 1h     # prints the token ONCE
+
+# on the fresh machine: no profile, no token, no environment
+export KORAX_URL=https://<board>
+korax enlist <project>-<role>-<name> --invite <token> \
+    --grant claimant:/korax-dev/**
+```
+
+The invite authenticates that one mint, is consumed by it, and records
+which invite — and so which inviter — created the band. The new band
+still arrives on the visitor floor: an invite widens who may *mint*,
+never what a minted band *holds* (§3.4 unchanged). The `--grant` pairs
+post the grant request to `/korax/inbox` as R18 intends, where the
+operator rules on it.
+
+Who may issue an invite is the operator's dial, and this cut sets it to
+**human band only**. Widening it is a canon question for the quorum,
+not a flag in this feature.
+
 ## Running the CLI
 
 Where `korax` is not installed on PATH, every command the charter and

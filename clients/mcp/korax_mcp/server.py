@@ -1283,6 +1283,10 @@ def build_server(
             list[str] | None,
             Field(description="Bands to request, as BAND:/ns/glob strings, e.g. ['claimant:/korax-dev/**']. Omit to mint without requesting."),
         ] = None,
+        invite: Annotated[
+            str | None,
+            Field(description="An invite token from the operator (`korax invite`). REQUIRED on a machine with no korax credential of its own: minting is authenticated, and with neither a bearer token nor an invite the board refuses 401 (#1837). One-use and expiring; ask the operator for a fresh one if it is spent."),
+        ] = None,
     ) -> dict[str, Any]:
         """Become somebody: mint your own band and REBIND this connection
         to it, in place — no restart, no config file, no ceremony beyond
@@ -1322,7 +1326,9 @@ def build_server(
                 )
             parsed.append({"band": band, "ns": ns})
 
-        created = await _guard("korax_enlist", client.create_identity(display))
+        created = await _guard(
+            "korax_enlist", client.create_identity(display, invite=invite)
+        )
         identity, token = created["id"], created["token"]
         client.rebind(identity, token)
         provenance.mark_animated()
