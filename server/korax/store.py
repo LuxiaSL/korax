@@ -27,6 +27,13 @@ CREATE TABLE IF NOT EXISTS identities (
     created    TEXT NOT NULL,
     created_by TEXT
 );
+CREATE TABLE IF NOT EXISTS invites (
+    token_hash     TEXT PRIMARY KEY,
+    uses_remaining INTEGER NOT NULL,
+    expires        TEXT NOT NULL,
+    created        TEXT NOT NULL,
+    created_by     TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -69,6 +76,10 @@ class Store:
             self.conn.executescript(_SCHEMA)
             try:  # pre-R18 boards lack the attribution column
                 self.conn.execute("ALTER TABLE identities ADD COLUMN created_by TEXT")
+            except sqlite3.OperationalError:
+                pass  # already present (fresh schema or migrated)
+            try:  # pre-#1839 boards lack the invite provenance column
+                self.conn.execute("ALTER TABLE identities ADD COLUMN invited_via TEXT")
             except sqlite3.OperationalError:
                 pass  # already present (fresh schema or migrated)
             self.conn.commit()
@@ -114,10 +125,19 @@ class Store:
         display: str,
         identity_id: str | None = None,
         created_by: str | None = None,
+        invited_via: str | None = None,
     ) -> tuple[str, str]:
         """Returns (identity_id, token). The token is shown once and only
         its hash is stored. `created_by` records who minted the band —
-        creation is open (R18), so attribution is the accountability."""
+        creation is open (R18), so attribution is the accountability.
+
+        `invited_via` is the hash of the invite spent to mint this band
+        (JOB #1839), NULL for the authenticated path. `created_by` means
+        the same thing on both paths — the band that authorised this one
+        — so every reader of the registry keeps working unchanged; this
+        column only answers the further question of HOW, which is the
+        one an operator auditing a bootstrap actually asks.
+        """
         import hashlib
         import secrets
 
@@ -125,14 +145,16 @@ class Store:
         token = secrets.token_urlsafe(32)
         with self._lock:
             self.conn.execute(
-                "INSERT INTO identities (id, display, token_hash, created, created_by) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO identities "
+                "(id, display, token_hash, created, created_by, invited_via) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     identity_id,
                     display,
                     hashlib.sha256(token.encode()).hexdigest(),
                     datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     created_by,
+                    invited_via,
                 ),
             )
             self.conn.commit()
@@ -214,6 +236,86 @@ class Store:
                 (hashlib.sha256(token.encode()).hexdigest(),),
             ).fetchone()
         return row[0] if row else None
+
+    # -- invites (JOB #1839): the bootstrap credential a machine with no
+    # korax state can present ONCE, in place of a bearer token, to mint
+    # its own band. The mint stays authenticated — an invite is a second
+    # way to be authenticated, never a way to skip it (#1837). --------
+
+    def create_invite(
+        self, uses: int, expires: str, created_by: str
+    ) -> str:
+        """Mint an invite. Returns the token, shown once — only its hash
+        is stored, the same discipline `create_identity` keeps for bands,
+        so a leaked database yields no usable invite.
+
+        `created_by` is NOT NULL by schema, unlike identities': an invite
+        exists to be spent by a stranger, so the inviter is the whole of
+        the attribution and there is no case where it is unknown.
+        """
+        import hashlib
+        import secrets
+
+        token = secrets.token_urlsafe(32)
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO invites "
+                "(token_hash, uses_remaining, expires, created, created_by) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    hashlib.sha256(token.encode()).hexdigest(),
+                    uses,
+                    expires,
+                    datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    created_by,
+                ),
+            )
+            self.conn.commit()
+        return token
+
+    def consume_invite(self, token: str) -> tuple[str | None, str]:
+        """Spend one use. Returns `(created_by, "ok")` on success, or
+        `(None, reason)` where reason is `unknown`, `spent`, or `expired`.
+
+        THE CHECK AND THE DECREMENT ARE ONE STATEMENT, deliberately. A
+        read-then-write would let two machines presenting the same
+        one-use invite both pass the check before either decremented —
+        and the failure is invisible, because both mints succeed and the
+        log shows two bands where the operator authorised one. The
+        `uses_remaining > 0 AND expires > now` in the UPDATE's own WHERE
+        is what makes the race unrepresentable rather than unlikely;
+        `rowcount` is then the authority on whether this caller won.
+
+        The three reasons are separated only AFTER the write loses, and
+        only to answer #415 — the error must name what to ask the
+        operator for. They are diagnosis, never the gate.
+        """
+        import hashlib
+
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with self._lock:
+            cur = self.conn.execute(
+                "UPDATE invites SET uses_remaining = uses_remaining - 1 "
+                "WHERE token_hash = ? AND uses_remaining > 0 AND expires > ?",
+                (digest, now),
+            )
+            if cur.rowcount:
+                row = self.conn.execute(
+                    "SELECT created_by FROM invites WHERE token_hash = ?",
+                    (digest,),
+                ).fetchone()
+                self.conn.commit()
+                return row[0], "ok"
+            # Lost. Now — and only now — say why, for the message.
+            row = self.conn.execute(
+                "SELECT uses_remaining, expires FROM invites WHERE token_hash = ?",
+                (digest,),
+            ).fetchone()
+            self.conn.commit()
+        if row is None:
+            return None, "unknown"
+        return None, "spent" if row[0] <= 0 else "expired"
 
     def set_meta(self, key: str, value: str) -> None:
         with self._lock:
