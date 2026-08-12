@@ -1,149 +1,160 @@
 {
-  "fixture": "fixture-09.jsonl",
-  "proto": "korax/0.1",
-  "conventions": {
-    "view": "`docket` (§10.12) composes §10.8 `jobs` and §10.1 `state`. It is checked here as membership per section plus the declared slice, because the sections' internals are already pinned by expected-04 and expected-07 — what is new is WHICH inbox OPENs belong to a project and WHICH namespaces the counters cover.",
-    "args": "`ns` is the project namespace. `identity` is an optional narrowing; omitted means the program's whole state.",
-    "expect": "`work_open` / `work_taken` are job ids. `filed` and `escalated` are envelope ids in id order. `namespaces` is the declared served slice, in order. `totals` is computed BEFORE any narrowing.",
-    "escalated": "An inbox OPEN belongs to a project iff its author holds a grant scoped INTO the project namespace, OR it carries an edge to an envelope in that namespace. Grant membership is subtree matching on the glob's wildcard-free root, never a string prefix."
+ "fixture": "fixture-09.jsonl",
+ "proto": "korax/0.1",
+ "conventions": {
+  "view": "`docket` (§10.12) composes §10.8 `jobs` and §10.1 `state`. It is checked here as membership per section plus the declared slice, because the sections' internals are already pinned by expected-04 and expected-07 — what is new is WHICH inbox OPENs belong to a project and WHICH namespaces the counters cover.",
+  "args": "`ns` is the project namespace. `identity` is an optional narrowing; omitted means the program's whole state.",
+  "expect": "`work_open` / `work_taken` are job ids. `filed` and `escalated` are envelope ids in id order. `namespaces` is the declared served slice, in order. `ungated` is envelope ids of the FIRST standing closer per target, in target order. `totals` is computed BEFORE any narrowing.",
+  "escalated": "An inbox OPEN belongs to a project iff its author holds a grant scoped INTO the project namespace, OR it carries an edge to an envelope in that namespace. Grant membership is subtree matching on the glob's wildcard-free root, never a string prefix.",
+  "ungated": "A delivery is ANY standing envelope carrying a `closes` edge into the project's namespaces — no CLAIM and no JOB required, which is exactly what the blind shapes lack. It leaves `ungated` when a closer from OUTSIDE its supersession chain, authored by a band that has not delivered it and recorded at desk rank or above, grades it `verified` or `n/a`. #9 is the case worth reading: it grades `verified` but is recorded band `claimant` AND is alice closing her own #8, so it fails on both halves and stays ungated."
+ },
+ "checks": [
+  {
+   "offset": 13,
+   "view": "docket",
+   "args": {
+    "ns": "/proj"
+   },
+   "cite": "10.12",
+   "why": "the whole program in one answer. #10 routes by AUTHOR GRANT while carrying no refs at all — the grant-request shape — and #11 routes by EDGE from a band holding no grant here. A board implementing either half alone fails this check, which is the point of the union.",
+   "expect": {
+    "work_open": [
+     6
+    ],
+    "work_taken": [
+     {
+      "job": 4,
+      "holder": "band:alice",
+      "via": 5
+     }
+    ],
+    "filed": [
+     7
+    ],
+    "escalated": [
+     10,
+     11
+    ],
+    "namespaces": [
+     "/proj",
+     "/korax/inbox"
+    ],
+    "first_line": {
+     "7": "ISSUE: the first line is what a scanner reads"
+    },
+    "totals": {
+     "open": 1,
+     "taken": 1,
+     "filed": 1,
+     "escalated": 2,
+     "ungated": 1
+    },
+    "ungated": [
+     9
+    ]
+   }
   },
-  "checks": [
-    {
-      "offset": 13,
-      "view": "docket",
-      "args": {
-        "ns": "/proj"
-      },
-      "cite": "10.12",
-      "why": "the whole program in one answer. #10 routes by AUTHOR GRANT while carrying no refs at all — the grant-request shape — and #11 routes by EDGE from a band holding no grant here. A board implementing either half alone fails this check, which is the point of the union.",
-      "expect": {
-        "work_open": [
-          6
-        ],
-        "work_taken": [
-          {
-            "job": 4,
-            "holder": "band:alice",
-            "via": 5
-          }
-        ],
-        "filed": [
-          7
-        ],
-        "escalated": [
-          10,
-          11
-        ],
-        "namespaces": [
-          "/proj",
-          "/korax/inbox"
-        ],
-        "first_line": {
-          "7": "ISSUE: the first line is what a scanner reads"
-        },
-        "totals": {
-          "open": 1,
-          "taken": 1,
-          "filed": 1,
-          "escalated": 2
-        }
-      }
+  {
+   "offset": 13,
+   "view": "docket",
+   "args": {
+    "ns": "/proj",
+    "identity": "band:alice"
+   },
+   "cite": "10.12",
+   "why": "`identity` NARROWS AND MUST NOT HIDE. alice's slice drops #11 (bob's) from escalated, and `totals` is unchanged — a band that cannot see what it was narrowed away from will mistake its slice for the program. Open jobs are never narrowed: they belong to nobody.",
+   "expect": {
+    "work_open": [
+     6
+    ],
+    "work_taken": [
+     {
+      "job": 4,
+      "holder": "band:alice",
+      "via": 5
+     }
+    ],
+    "filed": [
+     7
+    ],
+    "escalated": [
+     10
+    ],
+    "namespaces": [
+     "/proj",
+     "/korax/inbox"
+    ],
+    "totals": {
+     "open": 1,
+     "taken": 1,
+     "filed": 1,
+     "escalated": 2,
+     "ungated": 1
     },
-    {
-      "offset": 13,
-      "view": "docket",
-      "args": {
-        "ns": "/proj",
-        "identity": "band:alice"
-      },
-      "cite": "10.12",
-      "why": "`identity` NARROWS AND MUST NOT HIDE. alice's slice drops #11 (bob's) from escalated, and `totals` is unchanged — a band that cannot see what it was narrowed away from will mistake its slice for the program. Open jobs are never narrowed: they belong to nobody.",
-      "expect": {
-        "work_open": [
-          6
-        ],
-        "work_taken": [
-          {
-            "job": 4,
-            "holder": "band:alice",
-            "via": 5
-          }
-        ],
-        "filed": [
-          7
-        ],
-        "escalated": [
-          10
-        ],
-        "namespaces": [
-          "/proj",
-          "/korax/inbox"
-        ],
-        "totals": {
-          "open": 1,
-          "taken": 1,
-          "filed": 1,
-          "escalated": 2
-        }
-      }
+    "ungated": [
+     9
+    ]
+   }
+  },
+  {
+   "offset": 13,
+   "view": "docket",
+   "args": {
+    "ns": "/other"
+   },
+   "cite": "10.12",
+   "why": "a project with no jobs nest and no issues nest renders three EMPTY work/filed sections rather than an error — the live case, not the exotic one, since a board whose operator queue is drained serves this every time. AND an inbox OPEN may belong to TWO projects: #11 asks for a ruling on a /proj issue but is authored by bob, who holds /other/**, so it routes to /proj by its EDGE and to /other by its AUTHOR. The sections are per-project views of one inbox, not a partition of it.",
+   "expect": {
+    "work_open": [],
+    "work_taken": [],
+    "filed": [],
+    "escalated": [
+     11,
+     12
+    ],
+    "namespaces": [
+     "/other",
+     "/korax/inbox"
+    ],
+    "totals": {
+     "open": 0,
+     "taken": 0,
+     "filed": 0,
+     "escalated": 2,
+     "ungated": 0
     },
-    {
-      "offset": 13,
-      "view": "docket",
-      "args": {
-        "ns": "/other"
-      },
-      "cite": "10.12",
-      "why": "a project with no jobs nest and no issues nest renders three EMPTY work/filed sections rather than an error — the live case, not the exotic one, since a board whose operator queue is drained serves this every time. AND an inbox OPEN may belong to TWO projects: #11 asks for a ruling on a /proj issue but is authored by bob, who holds /other/**, so it routes to /proj by its EDGE and to /other by its AUTHOR. The sections are per-project views of one inbox, not a partition of it.",
-      "expect": {
-        "work_open": [],
-        "work_taken": [],
-        "filed": [],
-        "escalated": [
-          11,
-          12
-        ],
-        "namespaces": [
-          "/other",
-          "/korax/inbox"
-        ],
-        "totals": {
-          "open": 0,
-          "taken": 0,
-          "filed": 0,
-          "escalated": 2
-        }
-      }
-    }
-  ],
-  "must_not": [
-    {
-      "rule": "#12 MUST NOT appear in /proj's escalated section. Its author holds /other/** only, and it carries no edge into /proj. A board routing it has widened the union past what §10.12 states.",
-      "cite": "10.12"
-    },
-    {
-      "rule": "#13 MUST NOT appear in /proj's escalated section. carol holds `/proj-tools/**`, whose glob is a STRING PREFIX of `/proj` and NOT a subtree of it. A board matching grants by string prefix passes every other check in this file and fails this one — which is why it is here.",
-      "cite": "10.12"
-    },
-    {
-      "rule": "The `band:*` reader grant at `/**` MUST NOT make any identity a project band. Its wildcard-free root is `/`, and `/proj` is not inside `/`'s subtree in the membership sense — every identity holds this floor, so treating it as membership makes every docket's escalated section the entire inbox.",
-      "cite": "10.12"
-    },
-    {
-      "rule": "#8 MUST NOT appear in `filed` at any offset at or after 9: it is closed by #9. A board answering 'is this OPEN closed' anywhere other than the §10.1 reduction has built the second implementation §10.12 forbids.",
-      "cite": "10.1"
-    },
-    {
-      "rule": "`totals` MUST NOT change when `identity` is supplied. It is computed before narrowing, and a board recomputing it after has turned a narrowing into a hiding.",
-      "cite": "10.12"
-    },
-    {
-      "rule": "The project-membership predicate MUST NOT scope the §9.3 exclusion counters. Counting withheld inbox envelopes through it answers 'how many envelopes withheld from me were authored by bands holding grants in the project I named', which is the oracle §9.3 was amended to close.",
-      "cite": "9.3"
-    },
-    {
-      "rule": "A board MUST NOT treat `escalated` as a partition of the inbox. #11 belongs to BOTH /proj (by edge) and /other (by author); an implementation assigning each OPEN to at most one project drops it from one of them.",
-      "cite": "10.12"
-    }
-  ]
+    "ungated": []
+   }
+  }
+ ],
+ "must_not": [
+  {
+   "rule": "#12 MUST NOT appear in /proj's escalated section. Its author holds /other/** only, and it carries no edge into /proj. A board routing it has widened the union past what §10.12 states.",
+   "cite": "10.12"
+  },
+  {
+   "rule": "#13 MUST NOT appear in /proj's escalated section. carol holds `/proj-tools/**`, whose glob is a STRING PREFIX of `/proj` and NOT a subtree of it. A board matching grants by string prefix passes every other check in this file and fails this one — which is why it is here.",
+   "cite": "10.12"
+  },
+  {
+   "rule": "The `band:*` reader grant at `/**` MUST NOT make any identity a project band. Its wildcard-free root is `/`, and `/proj` is not inside `/`'s subtree in the membership sense — every identity holds this floor, so treating it as membership makes every docket's escalated section the entire inbox.",
+   "cite": "10.12"
+  },
+  {
+   "rule": "#8 MUST NOT appear in `filed` at any offset at or after 9: it is closed by #9. A board answering 'is this OPEN closed' anywhere other than the §10.1 reduction has built the second implementation §10.12 forbids.",
+   "cite": "10.1"
+  },
+  {
+   "rule": "`totals` MUST NOT change when `identity` is supplied. It is computed before narrowing, and a board recomputing it after has turned a narrowing into a hiding.",
+   "cite": "10.12"
+  },
+  {
+   "rule": "The project-membership predicate MUST NOT scope the §9.3 exclusion counters. Counting withheld inbox envelopes through it answers 'how many envelopes withheld from me were authored by bands holding grants in the project I named', which is the oracle §9.3 was amended to close.",
+   "cite": "9.3"
+  },
+  {
+   "rule": "A board MUST NOT treat `escalated` as a partition of the inbox. #11 belongs to BOTH /proj (by edge) and /other (by author); an implementation assigning each OPEN to at most one project drops it from one of them.",
+   "cite": "10.12"
+  }
+ ]
 }

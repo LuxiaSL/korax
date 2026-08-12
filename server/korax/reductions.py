@@ -689,6 +689,25 @@ def browse(
 _GRADE_RANK = {Grade.NA: 0, Grade.UNVERIFIED: 1, Grade.VERIFIED: 2}
 
 
+def _merged_sha(env: Envelope) -> str | None:
+    """`ext.korax.merged_sha` — the sha a gate says it merged (#1900).
+
+    Defensive to the bone: `ext` is caller-supplied JSON that arrived over
+    the wire and is preserved verbatim under §13's unknown-element rule,
+    so every level here can be any type at all. A reduction that raises on
+    a malformed ext would take the whole docket down over one band's typo,
+    and the docket is what a session opens with.
+    """
+    korax_ext = env.ext.get("korax")
+    if not isinstance(korax_ext, dict):
+        return None
+    sha = korax_ext.get("merged_sha")
+    if not isinstance(sha, str):
+        return None
+    sha = sha.strip()
+    return sha or None
+
+
 def _delivery(
     log: Log, job: Envelope, closers: list[Envelope], offset: int,
     grades_nest: bool = True,
@@ -813,6 +832,30 @@ def _delivery(
     }
     if provenance:
         entry["grade_source"] = provenance
+
+    # ISSUE #1900, ruled shape 1 — what a GATE says it merged, structured.
+    # `current` answers "what should I check out" and is the deliverer's
+    # chain tip; after a gate those two questions come apart. JOB #1740 is
+    # the exhibit: `current` is #1826 (`627befd`), main carries `77ab68a`,
+    # and `git merge-base --is-ancestor 627befd main` says no. Every gate
+    # already names its sha in PROSE, which no reduction can read.
+    #
+    # Only a closer that ATTESTS and is not the deliverer can set it: the
+    # field means "a gate merged this", and a deliverer naming a merged
+    # sha on their own delivery is claiming an act they do not perform.
+    # Highest id wins, so a re-gate after a re-merge names the later sha.
+    #
+    # PRESENT ONLY WHEN A GATE NAMED ONE, and #287 does not reach this.
+    # #287 forbids an absent field where a real value exists and absence
+    # could be read as a value — `current` always has one (the tip, equal
+    # to `by` when nothing superseded it). `merged` has no degenerate
+    # value: before a gate there IS no merged sha, and a null would be a
+    # value meaning "absent", which is the confusion #287 forbids rather
+    # than the cure for it. The brief invited the other reading; this is
+    # the reasoning for taking this one.
+    named = [c for c in others if _merged_sha(c) is not None]
+    if named:
+        entry["merged"] = _merged_sha(max(named, key=lambda e: e.id))
     return entry
 
 
@@ -828,6 +871,178 @@ def _delivery(
 INBOX_NS = "/korax/inbox"
 ISSUES_LEAF = "issues"
 DOCKET_LINE_CHARS = 160
+
+
+def _supersede_chain(log: Log, root_id: int, offset: int) -> set[int]:
+    """Every envelope in `root_id`'s supersession chain, root included.
+
+    `current_version` walks this to return the tip; this returns the
+    whole set, because "is this closer part of the delivery or a verdict
+    on it" is a membership question and the tip alone cannot answer it.
+    Breadth-first over inbound SUPERSEDES so a forked chain (two bands
+    superseding the same envelope) is covered rather than half-walked.
+    """
+    seen = {root_id}
+    frontier = [root_id]
+    while frontier:
+        for env in log.inbound(frontier.pop(), EdgeType.SUPERSEDES, offset):
+            if env.id not in seen:
+                seen.add(env.id)
+                frontier.append(env.id)
+    return seen
+
+
+def _gates(closer: Envelope) -> bool:
+    """Does this closer END the wait for a gate?
+
+    The caller has already established that it comes from outside the
+    delivery chain and from a band that has not delivered this work —
+    that half is about WHO, and lives at the call site because it needs
+    the chain. This is the half about WHAT was said.
+
+    One rule, two dispositions (JOB #1970, from #1753): a gate is a
+    DESK-OR-ABOVE closer that either
+
+    * grades `verified` — the ordinary gate; or
+    * grades `n/a` — the design-track terminal case (#1387's shape). A
+      design job's acceptance cannot be `verified` because there is
+      nothing to reproduce, so the gate grades it `n/a`, and without
+      this the entry reads `unattested` forever (#1747, shape three).
+
+    **The band is checked for BOTH, and the first draft of this checked
+    it for neither.** The reasoning then was that `validate.py` refuses
+    `verified` below desk rank, so a `verified` on the log is already a
+    desk verdict and re-checking would duplicate a rule the write path
+    owns (#468/#511's defect). That is true of this write path and it is
+    not true of the log: `conformance/fixture-09.jsonl:9` is a
+    `verified` FINDING from a band recorded as `claimant`, hand-authored
+    into a Log that never passed through the validator. Fixtures,
+    imported logs and other implementations all reach a reduction
+    without reaching `validate.py`.
+
+    Reading `closer.band` is not the duplication the rule warns against.
+    That rule is about re-deriving GRANTS from policy in a second place
+    where the two copies can drift; `band` is a field the server stamped
+    on the envelope and is as much data as `grade` is. The version that
+    trusts an invariant it cannot see is the one with a second copy of
+    the rule — kept in a comment, where nothing can test it.
+
+    **A DIFFERENT AUTHOR IS REQUIRED FOR BOTH** — enforced by the caller,
+    which the brief does not ask for and which this enactor is deciding
+    on the record. A gate is a second pair of eyes; R106 shipped
+    `grade_source: "self"` on this same reduction precisely because a
+    self-grade is not an attestation, and a lane that let a desk-band
+    author clear their own delivery would contradict the field beside it.
+    The failure directions are not symmetric either: a self-gate that
+    leaves an entry in `ungated` costs one line somebody skims, while one
+    that removes it recreates the defect this job exists to close.
+    """
+    if BAND_RANK.get(closer.band, 0) < BAND_RANK[Band.DESK]:
+        return False
+    return closer.grade in (Grade.VERIFIED, Grade.NA)
+
+
+def _ungated(log: Log, offset: int, project: str) -> list[dict[str, Any]]:
+    """§10.12 — finished work still waiting on a gate, keyed on the EDGE.
+
+    ISSUE #1664, and the reason it took three exhibits to see: the three
+    blind shapes dossiered at #1753 are not three defects. `work` is
+    keyed on the JOB, and the unit of work is the `closes` edge — so
+    whether a JOB exists, whether a CLAIM exists, and whether the target
+    is a JOB or an OPEN are all incidental to the only question a gate
+    asks, which is *what is waiting on me*. Restate the membership test
+    as "carries a closes edge" and all three collapse at once:
+
+        light track   no CLAIM  #1835, invisible for an hour on the fix
+                                to the mill's OWN filed issue — "no
+                                instrument I run displayed it" (#1968)
+        issue track   no JOB    #1779, ungated through TEN merges,
+                                carried only by two handovers
+        design track  no grade  permanently `unattested` (#1747)
+
+    Each of those deliveries did everything right: announced, correct
+    `closes` edge, correct nest. The reduction still could not see them,
+    which is what makes this a hole rather than a fault (#1433).
+
+    Deliberately NOT folded into `work`: `work` IS the `jobs` reduction,
+    the docstring below says so, and this lane is defined by not being
+    JOB-keyed. A second thing inside `work` that `jobs` does not produce
+    is how "one reduction, one question" rots into #468's two.
+
+    Superseded closers drop out and the survivor's chain tip is reported,
+    reusing R106's rule rather than restating it: one delivery
+    re-delivered four times is one thing waiting, not four (#1740).
+    """
+    eval_ts = _eval_ts_or_none(log, offset)
+
+    by_target: dict[int, list[Envelope]] = {}
+    for env in log.upto(offset):
+        if env.type is not Act.FINDING or not in_subtree(project, env.ns):
+            continue
+        for target_id in env.refs_of(EdgeType.CLOSES):
+            if target_id <= offset and log.get(target_id) is not None:
+                by_target.setdefault(target_id, []).append(env)
+
+    out: list[dict[str, Any]] = []
+    for target_id, closers in sorted(by_target.items()):
+        # `first` is the EARLIEST closer over ALL of them, superseded or
+        # not — R106's rule, and the same trap: `min(standing)` slides
+        # attribution to the tip the moment the first delivery is
+        # superseded, which is #269's defect wearing this lane's clothes.
+        # Caught here by `test_a_re_delivered_chain_is_one_entry_at_its_tip`
+        # rather than by review, which is the argument for that fixture.
+        first = min(closers, key=lambda e: e.id)
+        # `or closers` is R106's degenerate guard, kept for the same
+        # reason: a closer superseded by an envelope that does not itself
+        # close the target would empty the set, and a reduction that
+        # raises is worse than one reporting a stale entry.
+        standing = [
+            c for c in closers
+            if not log.inbound(c.id, EdgeType.SUPERSEDES, offset)
+        ] or closers
+
+        # THE DELIVERY CHAIN, not one envelope. A re-delivery may come
+        # from another band — #1804 is a handover re-delivery across a
+        # seat change — so "a different author" has to mean different
+        # from everyone who has delivered this, or the second band's own
+        # re-delivery would read as an independent gate on the first's.
+        chain = _supersede_chain(log, first.id, offset)
+        delivered_by = {
+            env.author for cid in chain
+            if (env := log.get(cid)) is not None
+        }
+        if any(
+            c.id not in chain and c.author not in delivered_by and _gates(c)
+            for c in standing
+        ):
+            continue
+
+        target = log.get(target_id)
+        tip = max(
+            (c for c in standing if c.id in chain), key=lambda e: e.id,
+            default=first,
+        )
+        entry: dict[str, Any] = {
+            "closes": target_id,
+            "target": target.type.value if target is not None else None,
+            "ns": first.ns,
+            "author": first.author,
+            "by": first.id,
+            "current": current_version(log, first.id, offset),
+            "grade": tip.grade.value,
+        }
+        # Age in LOG TIME, from the FIRST delivery — not from the chain
+        # tip. #1779 was re-delivered under a moving main and the honest
+        # number is how long the board has been waiting, not how long
+        # since the latest rebase; a clock that restarts on every rebase
+        # would have read "fresh" through all ten of its merges. Absent
+        # rather than zero when the log has no ts at this offset: a zero
+        # would read as "just arrived", which is the one thing it never
+        # means (#287's family).
+        if eval_ts is not None:
+            entry["age_s"] = max(0, int((eval_ts - first.ts).total_seconds()))
+        out.append(entry)
+    return out
 
 
 def mail(log: Log, offset: int, who: str, since: int = -1) -> dict[str, Any]:
@@ -988,10 +1203,17 @@ def docket(
 ) -> dict[str, Any]:
     """§10.12 — the question every session opens with, in one query.
 
-    Three sections, each already canonical: `work` (the `jobs`
+    Four sections. Three are canonical elsewhere: `work` (the `jobs`
     reduction), `filed` (unclosed OPENs in the project's issues nest),
     `escalated` (unclosed OPENs in `/korax/inbox` belonging to this
     project).
+
+    The fourth, `ungated`, is defined HERE and nowhere else, which is
+    the one departure from "the composition, not a fourth answer" below
+    and is deliberate: it is keyed on the `closes` edge across the
+    project's nests, so no single existing reduction has its scope
+    (`jobs` is JOB-keyed, `state` is per-namespace). JOB #1970 from
+    ISSUE #1664 — see `_ungated` for why the three blind shapes are one.
 
     D1 — `escalated` is scoped by **author-holds-a-grant-in-project OR
     carries-an-edge-into-project**, one disjunction rather than a choice
@@ -1034,6 +1256,7 @@ def docket(
 
     filed = _open_entries(log, filed_ids)
     escalated = _open_entries(log, escalated_ids)
+    ungated = _ungated(log, offset, project)
     taken = list(work["taken"])
 
     totals = {
@@ -1041,12 +1264,14 @@ def docket(
         "taken": len(taken),
         "filed": len(filed),
         "escalated": len(escalated),
+        "ungated": len(ungated),
     }
 
     if identity is not None:
         taken = [t for t in taken if t["holder"] == identity]
         filed = [f for f in filed if f["author"] == identity]
         escalated = [e for e in escalated if e["author"] == identity]
+        ungated = [u for u in ungated if u["author"] == identity]
 
     return {
         "project": project,
@@ -1059,6 +1284,11 @@ def docket(
         "work": {**work, "taken": taken},
         "filed": filed,
         "escalated": escalated,
+        # JOB #1970 — finished work still waiting on a gate, keyed on the
+        # `closes` edge rather than on a JOB. Beside `filed` and
+        # `escalated` and NOT inside `work`, because `work` IS `jobs` and
+        # this lane is defined by not being JOB-keyed. See `_ungated`.
+        "ungated": ungated,
         # Unfiltered, always — D2's "narrows and never hides" is only true
         # if the number you were narrowed away from is still on the page.
         "totals": totals,

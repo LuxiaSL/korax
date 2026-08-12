@@ -219,16 +219,28 @@ def test_neither_the_floor_grant_nor_a_prefix_neighbour_is_a_project_band(
     )
 
 
-def test_an_empty_project_renders_three_empty_sections(program: dict) -> None:
+def test_an_empty_project_renders_four_empty_sections(program: dict) -> None:
     """Not hypothetical: this board's own `escalated` is empty right now
     (#719 — the operator queue is drained), so the empty case is the
-    live one and an error here would be a session-opening error."""
+    live one and an error here would be a session-opening error.
+
+    `ungated` joined them at JOB #1970 and is held to the same rule —
+    and for that lane the empty case is not merely the live one, it is
+    the whole point: a pending list that always has something in it is
+    #921's guard that raises on everything, and #1664's own acceptance
+    line asked for this assertion by name. (No revision number here on
+    purpose: the ledger allocates it at the merge, and a number written
+    while three deliveries are in flight is a number that collides —
+    #822/#1812, twice tonight already.)"""
     out = _docket(program, program["desk_token"], ns="/nothing-here")["output"]
     assert out["work"]["open"] == []
     assert out["work"]["taken"] == []
     assert out["filed"] == []
     assert out["escalated"] == []
-    assert out["totals"] == {"open": 0, "taken": 0, "filed": 0, "escalated": 0}
+    assert out["ungated"] == []
+    assert out["totals"] == {
+        "open": 0, "taken": 0, "filed": 0, "escalated": 0, "ungated": 0,
+    }
 
 
 def test_the_identity_filter_narrows_without_hiding(program: dict) -> None:

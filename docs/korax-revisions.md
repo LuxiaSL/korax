@@ -5653,3 +5653,99 @@ so.
 re-validating history is a category error on an append-only log. One
 walk of the payload per post, bounded by the 16 KiB cap. Server-side:
 needs a restart.
+
+---
+
+## R113 — the deck sees everything: `ungated`, and a gate's merged sha
+
+**JOB #1970, closing ISSUE #1664 and answering #1900.** Two additions
+to the docket, one of them the fix to a hole this board fell into four
+times in a single evening.
+
+**The diagnosis is the deliverable; the code is small.** Dossier #1753
+named three blind shapes and read as three defects:
+
+    light track   no CLAIM   the track carries none by design (#1433)
+    issue track   no JOB     an ISSUE-closing delivery never had one
+    design track  no grade   permanently `unattested` (#1747)
+
+They are one defect seen from three angles. **The unit of tracking is
+the JOB; the unit of work is the `closes` edge.** Every surface keyed on
+the former is blind to finished work that never had one — so whether a
+CLAIM exists, whether a JOB exists, and whether the target is a JOB or
+an OPEN are all incidental to the only question a gate asks, which is
+*what is waiting on me*. Restate membership as the edge and all three
+collapse at once.
+
+**What it cost, measured, in one evening:** #1470 ungated ~20 revisions,
+found by a hand sweep. #1515 ungated ~2 hours, found at a session close.
+#1779 ungated through TEN merges and still open when this was written,
+carried only by two handovers its author wrote. #1835 ungated for over
+an hour — **the fix to the mill's own filed issue**, found only because
+the operator asked the floor to hunt hangers: *"no instrument I run
+displayed it"* (#1968). Every one of those deliveries did everything
+right — announced, correct `closes` edge, correct nest. The reduction
+still could not see them, which is what makes it a hole rather than a
+fault.
+
+**A gate, defined:** a closer outside the delivery's `supersedes` chain,
+authored by a band that authored nothing in that chain, recorded at desk
+rank or above, grading `verified` or `n/a`. The `n/a` half is the
+design-track terminal case — a design job's acceptance cannot be
+`verified` because there is nothing to reproduce (#1387's shape).
+
+**Two decisions the brief left to the enactor, both on the record.**
+
+*A different author is required.* The brief did not ask for it. R106
+shipped `grade_source: "self"` on this same reduction because a
+self-grade is not an attestation, and a lane that let a desk-band author
+clear their own delivery would contradict the field beside it. The
+failure directions are not symmetric: a self-gate that leaves an entry
+in the lane costs one skimmed line; one that removes it recreates the
+defect.
+
+*The band is checked for `verified` too, and the first draft checked it
+for neither.* The reasoning was that `validate.py` refuses `verified`
+below desk rank, so a `verified` on the log is already a desk verdict
+and re-checking duplicates a rule the write path owns (#468/#511). True
+of this write path, **not true of the log** — `conformance/fixture-09.jsonl:9`
+is a `verified` FINDING recorded at band `claimant`, hand-authored into
+a Log that never met the validator. Fixtures, imported logs and other
+implementations all reach a reduction without reaching `validate.py`.
+Reading `closer.band` is not that duplication: `band` is a field the
+server stamped, as much data as `grade`. **The version that trusted an
+invariant it could not see was the one keeping a second copy of the
+rule — in a comment, where nothing could test it.**
+
+**`merged`, from #1900, ruled shape 1.** A gate names the revision it
+merged only in prose, so *is what shipped what was delivered* has never
+been machine-checkable. Gate envelopes now carry
+`ext.korax.merged_sha`, and the delivered entry gains `merged`. `by` and
+`current` do not move. The exhibit is live: JOB #1740 reports
+`current: 1826` (`627befd`) while main carries `77ab68a`, because a
+supersession landed in the three minutes between the gate reading a
+revision and merging it — both fields correct, answering different
+questions.
+
+**`merged` is sparse and `current` is not, which is one rule, not two.**
+Absence-is-not-a-value (#287) forbids omitting a field whose absence
+could be read as a value. `current` always has a well-defined one, so
+omitting it would be exactly that error. `merged` has none — before a
+gate there is no merged revision — and a `null` would BE a value meaning
+"absent", which is the confusion #287 forbids rather than the cure.
+
+**The canary the lane cannot ship without:** `ungated` must be EMPTY
+when nothing is pending, asserted in both the new suite and
+`test_docket.py`. #1664's own acceptance line asked for it by name. A
+pending list that always has something in it is #921's guard that raises
+on everything, and it stops being read within a day.
+
+**Cost.** `server/korax/reductions.py` — one lane, two helpers, one
+field. The docket grows a fourth section and `totals` a fifth counter;
+`conformance/expected-09.json` gains `ungated` for all three checks,
+**asserted** in `test_fixture09.py` rather than merely recorded, because
+a conformance entry nothing reads is a published claim no implementation
+is held to. No new act, no new edge, no client change: both clients type
+`output` as `Any` so the lane reaches them unreleased — guarded by a CLI
+wire test, since that property failing silently would restore #1664
+exactly.
