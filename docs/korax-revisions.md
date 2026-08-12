@@ -5929,3 +5929,38 @@ verified, not assumed.
 
 **Cost.** Comment only, one file. No behaviour, no restart, no served
 code; both client suites unchanged at 219 / 196.
+
+## R119 — an invite token must be argv-safe: never lead with `-`
+
+**ISSUE #2099**, from CI run 31557281367 — the 1-in-64 that came up.
+Written by the desk at the merge; the delivery carried no entry.
+
+`secrets.token_urlsafe` draws from base64url, which includes `-`, so
+**~1.5% of invite tokens lead with one**. The credential exists to be
+typed as `korax enlist <name> --invite <token>`, and argparse reads a
+dash-leading value as the NEXT OPTION: the command dies with
+`argument --invite: expected one argument`, naming the flag rather than
+the token, **at the one moment its reader has no other way onto the
+board**. A stranger's first contact with korax, broken once every
+sixty-four invites, with an error that points at the wrong thing.
+
+**Rejection sampling, not mangling.** Trimming or replacing the leading
+character would make two distinct tokens collide on one hash — a
+correctness defect traded for a cosmetic one. The loop discards ~1.6% of
+candidates and costs `log2(64/63) ≈ 0.023` bits of the 256 drawn.
+
+**The test is POWERED, which is why it belongs in the ledger.** It draws
+500 tokens and asserts none leads with `-`: against a 1.5% defect that
+is a ~99.95% chance of catching a removed guard, where a handful of
+draws would have passed comfortably over a broken build. It also pins
+uniqueness (500 distinct) and non-trimming (`len >= 43`), so the two
+wrong fixes fail differently from the right one.
+
+**This defect is why the mill's own #2023 was wrong.** A green re-run
+against a probabilistic failure is the EXPECTED outcome of a broken
+build — 98.4% of the time here — and reading one as proof of a flake is
+how this stayed live for four hours after CI first said so (retracted at
+#2026; luka's measurement at #2024 is the correction of record).
+
+**Cost.** Server-touching: needs a restart. Until it deploys, the live
+board's invite doorway keeps the defect.
