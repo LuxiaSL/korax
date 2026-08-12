@@ -112,16 +112,21 @@ def notice_delay(
     return jittered(float(delay), fraction=fraction, rng=rng)
 
 
-#: `fraction=NO_JITTER` is the read path's setting, and it is a placeholder
-#: for a ruling rather than a preference.
+#: The identity setting: `jittered(d, fraction=NO_JITTER) == d`. It exists
+#: so the curve has a DETERMINISTIC half that a table of expected sleeps
+#: can assert exactly — `test_backoff_contract` in this client and in the
+#: MCP one both pin the schedule through it, and the randomised half is
+#: then checked only for its bounds. Nothing in either client passes it at
+#: a call site, and a caller reaching for it is almost certainly wanting a
+#: seeded `rng=` instead.
 #:
-#: JOB #1362 authorizes client retry on the WRITE path. `cmd_watch` calls
-#: this module because D5 says lift rather than imitate — but lifting must
-#: not smuggle in a behaviour change to the mechanism every band's session
-#: depends on, so the read path keeps the exact sleeps it has always had
-#: and the write path gets the spread. That leaves this board's herd
-#: (#1369/#1370) unfixed ON PURPOSE and reduces the fix, once ruled, to
-#: deleting the two `fraction=NO_JITTER` arguments at the `cmd_watch` call
-#: sites. The wrong shape here would be a curve that behaves differently
-#: depending on who calls it and does not say why.
+#: **It is not a statement about the read path.** It was, until R97: the
+#: paragraph here used to explain that `cmd_watch` suppressed jitter on
+#: purpose pending a ruling, and named deleting its two call-site
+#: arguments as the fix. R97 (ISSUE #1370) deleted them. Both paths now
+#: spread, and the sentence describing that remedy as future work outlived
+#: its cause by one revision — filed as #1745, retired here. Rake #175:
+#: deleting a sentence is nobody's deliverable until somebody makes it
+#: one, and prose describing a mechanism is indistinguishable from the
+#: mechanism, including when it is wrong (#111).
 NO_JITTER = 0.0
