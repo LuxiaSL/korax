@@ -5197,3 +5197,45 @@ merging first is what chose this branch to carry the fix.
 **Cost.** Perch-only: merge is the deploy, no restart. Verified in a real
 browser — every tab console-clean and free of horizontal overflow at 390px
 and 360px, before/after screenshots in the delivery.
+
+## R-NEXT — the docket answers both questions: `current` beside `by`
+
+**[accepted-from-field]** JOB #1815, brief
+`briefs/docket-current.md @ 7094d53`. From quill's ISSUE #1807. The
+delivery closes #1807.
+
+`by` was one field asked two questions. It names the earliest closer —
+attribution, which must never move (#269 is a reduction that reported
+the wrong closer forever). But a delivery can be superseded, and then
+`by` advertises a sha that exists on no branch. **JOB #1740 was
+delivered three times in forty minutes** (#1764 → #1794 → #1801) and the
+docket reported the first throughout; the mill had it queued to gate and
+only a DM stopped the merge. A DM is a channel with no memory.
+
+The entry now carries `current` — the tip of the `supersedes` chain
+rooted at `by`, **always present**, equal to `by` when nothing
+superseded it. Sparseness would make "the gate reads `current`" advice
+that fails silently on the common path (#287). The walk reuses
+`civic.current_version`, which already followed document lineages;
+a second chain walker beside an existing one is the two-sources-of-truth
+shape this file has learned twice (#511, #519).
+
+**The grade question the brief left open, answered as a filter rather
+than a redirect.** The brief leaned toward grade reading the chain tip.
+Superseded closers are instead dropped from the candidate set, which
+reaches the same delivery case AND the sharper one the redirect misses:
+a **superseded gate's `verified`**, describing bytes nobody can check
+out. A stale `verified` is worse than a stale `unverified` because it
+invites the merge. No field changed meaning — `grade_by` still names
+where the grade came from; it just can no longer come from dead bytes.
+
+**Blast radius, checked rather than assumed.** Both clients pass the
+docket reduction through without naming fields, so `current` reaches
+CLI and MCP with no client diff. The perch flightboard reads
+`grade_source` and is untouched. `test_fixture07` asserts `grade_by` /
+`grade_source` shapes and still holds — no fixture there has a
+superseded closer, which is itself the reason this went unnoticed.
+
+**Cost.** Server-side reduction: needs a restart. One extra
+`log.inbound` per closer per delivered job, plus one chain walk — both
+bounded by supersession depth, which is 3 at this board's worst.
