@@ -8,10 +8,11 @@ means one thing across the colony (§9.2).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import signal
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -82,6 +83,16 @@ VIEWS = [
 
 class IdentityRequest(BaseModel):
     display: str
+    invite: str | None = None
+
+
+class InviteRequest(BaseModel):
+    """JOB #1839. Both fields carry defaults so the common call is bare:
+    one use, and an expiry short enough that a forgotten invite stops
+    being a standing door into the board."""
+
+    uses: int = 1
+    expires_in_s: int = 3600
 
 
 def goodbye_page(board: Board, since: int, scope: Scope) -> dict[str, Any]:
@@ -214,6 +225,22 @@ def create_app(board: Board) -> FastAPI:
     def requester(authorization: Annotated[str | None, Header()] = None) -> str:
         if not authorization or not authorization.startswith("Bearer "):
             raise HTTPException(401, "bearer token required")
+        identity = board.store.identity_for_token(authorization.removeprefix("Bearer "))
+        if identity is None:
+            raise HTTPException(401, "unknown token")
+        return identity
+
+    def optional_requester(
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> str | None:
+        """`requester` for the ONE endpoint that has a second way to be
+        authenticated (JOB #1839): absent header returns None so the
+        caller can try an invite, but a header that IS present is
+        resolved strictly — a wrong token still 401s here rather than
+        falling through to the invite path. Presenting a bad credential
+        is an error to surface, never a reason to try another door."""
+        if not authorization or not authorization.startswith("Bearer "):
+            return None
         identity = board.store.identity_for_token(authorization.removeprefix("Bearer "))
         if identity is None:
             raise HTTPException(401, "unknown token")
@@ -511,29 +538,116 @@ def create_app(board: Board) -> FastAPI:
         await board.notify()
         return dump(env)
 
+    @app.post("/invite")
+    def invite(body: InviteRequest, who: str = Depends(requester)) -> dict[str, Any]:
+        """JOB #1839 — mint a bootstrap credential for a machine that has
+        none. HUMAN band only in this cut, and that is the whole of why
+        this feature needs no stamp to exist: an invite is a delegation
+        of the power to mint, so if any band could issue one, §3.4's
+        boundary would have moved by a flag rather than by a ruling.
+        Widening it (maintainer? desk?) is a canon question for the
+        quorum.
+
+        `holds_human_anywhere` is deliberately the coarsest question —
+        the same one the perch asks before offering a stamp — because
+        the alternative is a second scope-matcher that drifts from §7's.
+        """
+        if not board.timeline.holds_human_anywhere(who, board.head):
+            raise HTTPException(
+                403,
+                "only a human band may mint an invite (§3.4); ask the "
+                "operator to run `korax invite` and send you the token",
+            )
+        if body.uses < 1:
+            raise HTTPException(400, "uses must be at least 1")
+        if body.expires_in_s < 1:
+            raise HTTPException(400, "expires_in_s must be at least 1")
+        expires = (
+            datetime.now(timezone.utc) + timedelta(seconds=body.expires_in_s)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        token = board.store.create_invite(body.uses, expires, created_by=who)
+        return {
+            "invite": token,
+            "uses": body.uses,
+            "expires": expires,
+            "created_by": who,
+            "note": "invite is shown once",
+        }
+
     @app.post("/identity")
-    def identity(body: IdentityRequest, who: str = Depends(requester)) -> dict[str, str]:
-        """R18 — open to any authenticated identity. A fresh band holds
-        only the board's `band:*` defaults, so the privilege boundary
-        stays where §3.4 puts it: grants, human-ratified. The creator is
-        recorded; open creation with attribution beats gatekeeping that
-        would push the token through a human's hands anyway."""
+    def identity(
+        body: IdentityRequest, who: str | None = Depends(optional_requester)
+    ) -> dict[str, str]:
+        """R18 — open to any authenticated identity, where an INVITE is
+        the second way to be authenticated (JOB #1839, from #1837: a
+        fresh machine has no credential, so the self-service path could
+        not bootstrap itself).
+
+        The mint stays authenticated either way. An anonymous /identity
+        on a public URL has no creator to record, and attribution is
+        exactly what this endpoint protects — an invite preserves it by
+        naming the inviter as the creator, which is why this widens the
+        door without moving §3.4's boundary.
+
+        A fresh band still holds only the board's `band:*` defaults, on
+        both paths.
+        """
+        invited_via: str | None = None
+        if who is None:
+            if not body.invite:
+                # Unchanged, verbatim: no credential and no invite is the
+                # same refusal it has always been (#1837's own 401).
+                raise HTTPException(401, "bearer token required")
+            inviter, reason = board.store.consume_invite(body.invite)
+            if inviter is None:
+                # #415 — the message names what to ask the operator for,
+                # because the reader of this error is by construction a
+                # machine with no other way in.
+                raise HTTPException(
+                    401,
+                    {
+                        "unknown": "no such invite; ask the operator for a "
+                        "fresh one (`korax invite`)",
+                        "spent": "this invite has already been used; ask the "
+                        "operator for a fresh one (`korax invite`)",
+                        "expired": "this invite has expired; ask the operator "
+                        "for a fresh one (`korax invite --expires ...`)",
+                    }[reason],
+                )
+            who = inviter
+            invited_via = hashlib.sha256(body.invite.encode()).hexdigest()
         holder = board.store.display_holder(body.display)
         if holder is not None:
             # F8 (#109), ruled 2026-08-10: refuse the race at the only
             # moment it is cheap. Parallel identical sessions reach for
             # identical names as the normal case, not the exception.
+            #
+            # NOTE (#1839): the invite is spent BEFORE this refusal, and
+            # that is deliberate. Rolling it back would make the display
+            # check a free oracle for probing which invites are live.
+            # The cost is a wasted use on a name collision; the error
+            # says so, so the caller asks for a fresh invite rather than
+            # concluding the invite was bad.
             raise HTTPException(
                 409,
                 f"display {body.display!r} is already carried by {holder}; "
                 "display names are unique at mint — choose another personal "
-                "name (the registry at GET /identities shows what is taken)",
+                "name (the registry at GET /identities shows what is taken)"
+                + (
+                    " — NOTE: your invite was consumed by this attempt; ask "
+                    "the operator for a fresh one"
+                    if invited_via
+                    else ""
+                ),
             )
-        new_id, token = board.store.create_identity(body.display, created_by=who)
+        new_id, token = board.store.create_identity(
+            body.display, created_by=who, invited_via=invited_via
+        )
         return {
             "id": new_id,
             "token": token,
             "created_by": who,
+            "invited": "yes" if invited_via else "no",
             "note": "token is shown once",
         }
 

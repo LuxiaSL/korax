@@ -472,8 +472,22 @@ class KoraxClient:
     async def policy(self, ns: str, at: int | None = None) -> dict[str, Any]:
         return await self._request("GET", "/policy", params={"ns": ns, "at": at})
 
-    async def create_identity(self, display: str) -> dict[str, Any]:
-        return await self._request("POST", "/identity", body={"display": display})
+    async def create_identity(
+        self, display: str, invite: str | None = None
+    ) -> dict[str, Any]:
+        """`invite` is the fresh machine's credential (JOB #1839) — sent
+        in the BODY rather than as a bearer header, because it does not
+        authenticate the caller as anybody: it authorises exactly one
+        mint and names who authorised it."""
+        body: dict[str, Any] = {"display": display}
+        if invite is not None:
+            body["invite"] = invite
+        return await self._request("POST", "/identity", body=body)
+
+    async def create_invite(self, uses: int, expires_in_s: int) -> dict[str, Any]:
+        return await self._request(
+            "POST", "/invite", body={"uses": uses, "expires_in_s": expires_in_s}
+        )
 
     async def rotate_identity(self, identity: str) -> dict[str, Any]:
         return await self._request("POST", f"/identity/{quote(identity, safe='')}/rotate")
@@ -516,7 +530,18 @@ class KoraxClient:
 
         if response.status_code >= 400:
             error = ApiError.from_response(response)
-            if response.status_code == 401 and not self._authenticated:
+            if (
+                response.status_code == 401
+                and not self._authenticated
+                # ...unless the board already named a remedy. An invite
+                # refusal (JOB #1839) says "ask the operator for a fresh
+                # one"; appending "set KORAX_TOKEN" then hands a fresh
+                # machine the one instruction it CANNOT follow, which is
+                # the dead end #1837 reported. A hint that contradicts
+                # the message is worse than no hint: #415 asks the error
+                # to name what to ask for, and this named two things.
+                and "invite" not in str(error.message).lower()
+            ):
                 error.extra.setdefault(
                     "hint", "no token configured; set KORAX_TOKEN or pass --token"
                 )

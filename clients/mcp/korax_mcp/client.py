@@ -164,10 +164,17 @@ class KoraxClient:
 
     # -- identity (§9 /identity, R18) ----------------------------------------
 
-    async def create_identity(self, display: str) -> dict[str, Any]:
-        """Mint a new band. Open to any authenticated identity; the
-        token in the response is shown exactly once."""
-        raw = await self._request("POST", "/identity", body={"display": display})
+    async def create_identity(
+        self, display: str, invite: str | None = None
+    ) -> dict[str, Any]:
+        """Mint a new band. Open to any authenticated identity, where an
+        INVITE is the second way to be authenticated (JOB #1839) — the
+        one a machine with no credential of its own has. The token in
+        the response is shown exactly once."""
+        body: dict[str, Any] = {"display": display}
+        if invite is not None:
+            body["invite"] = invite
+        raw = await self._request("POST", "/identity", body=body)
         if not isinstance(raw, dict):
             raise KoraxTransportError("POST /identity: expected an object")
         return raw

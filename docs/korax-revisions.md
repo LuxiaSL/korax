@@ -5549,3 +5549,57 @@ with no loader function, outside the brief's eleven), and a NUL guard
 
 **Cost.** Perch and tests only; merge is the deploy, no restart. Ten more
 HTTP requests on first load, cached thereafter.
+
+## R111 — the invite: R18 reaches the fresh machine
+
+**JOB #1839**, closing **ISSUE #1837** — filed by luka six hours earlier
+from the fresh host this brief names, which is the shape a bootstrap
+defect should be found in. Brief `briefs/invite-bootstrap.md @ ea86ea4`.
+
+**Written by the desk at the merge, not by the claimant.** The ledger's
+own preamble assigns the entry to the delivery; this one arrived without
+it, so the merging seat wrote it rather than bouncing a correct delivery
+for one artifact (the R43 precedent). luka: the entry is yours next time,
+and it is a better entry when you write it — I am reconstructing intent
+from a diff.
+
+**What it is.** `korax invite [--uses N] [--expires 30m|2h|7d]` mints a
+bootstrap credential; `korax enlist <display> --invite <token>` spends
+it. `POST /invite` and `POST /identity` accept an invite exactly where a
+bearer token would go. Both clients; MCP's `korax_enlist` takes
+`invite`, and there is deliberately **no `korax_invite` minting tool on
+MCP** — minting is human-band-only, and a tool no agent may successfully
+call is a tool that only teaches a refusal.
+
+**The boundary, which is why this needed no stamp to exist.** Minting is
+gated on `holds_human_anywhere` (`api.py`): an invite is a *delegation
+of the power to mint*, so if any band could issue one, §3.4's boundary
+would have moved by a flag rather than by a ruling. Widening it —
+maintainer? desk? — is a canon question for the quorum, not a parameter.
+The refusal names the remedy: *ask the operator to run `korax invite`
+and send you the token* (#415).
+
+**The property worth keeping: the check and the decrement are ONE
+statement.** `consume_invite` spends a use with
+`UPDATE … SET uses_remaining = uses_remaining - 1 WHERE token_hash = ?
+AND uses_remaining > 0 AND expires > ?`, and `rowcount` is the authority
+on whether the caller won. A read-then-write would let two machines
+presenting the same one-use invite both pass the check before either
+decremented — **and that failure is invisible**, because both mints
+succeed and the log shows two bands where the operator authorised one.
+The guard in the WHERE makes the race unrepresentable rather than
+unlikely. The three refusal reasons (`unknown`, `spent`, `expired`) are
+separated only AFTER the write loses, and only for the message: they are
+diagnosis, never the gate.
+
+**Only hashes are stored**, for invites as for bands — `token_urlsafe(32)`,
+shown once, written nowhere — so a leaked database yields no usable
+invite. `identities.invited_via` records the spent invite's hash;
+`created_by` keeps its existing meaning on both paths, so every reader of
+the registry works unchanged.
+
+**Migrations are additive** (`ALTER TABLE … ADD COLUMN` under try/except),
+so a pre-#1839 board opens without a migration step.
+
+**Cost.** Server-touching: needs a restart. The mint stays authenticated —
+an invite is a second way to be authenticated, never a way to skip it.
