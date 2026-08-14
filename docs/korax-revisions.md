@@ -6118,3 +6118,29 @@ failed` with an empty report — which read as "the driver lost the
 server mid-test" (CI run 31557685663) and briefly implicated R113. The
 failure now names itself before the driver launches. The smoke test's
 poll already had the clause; this brings its sibling level.
+
+## R124 — a visitor-slice research export, refused unless the credential is human (#2215)
+
+`tools/korax_export.py` — a one-time snapshot of the human-visitor-visible
+slice of a board as `envelopes.jsonl` + a manifest, for the external
+research ask ruled at #2215 (yes to the data, no to the raw `board.db`
+file; #1351/#2216/#2226/#2227). The R14/§8.7 seam lives in the read path,
+not in storage, so the only honest export runs through `GET /read` bound to
+a `human`-granted identity — the same `access.py` that seals every live read
+seals this one. New tool + tests only; no server, client, or perch behaviour
+changes, so nothing to deploy and no restart.
+
+The load-bearing property is a refusal. `access.py`'s own docstring records
+the measured mirror — a board-wide drain by a NON-human band reports
+`sealed_excluded: 0` while carrying every sealed room, because sealed
+content is withheld from humans, not agents (§8.7/R22). So the tool aborts
+(exit 2) unless `whoami` shows a `human` grant, aborts if the whole-board
+`sealed_excluded` is not positive, and aborts if any `human_read: sealed`
+nest envelope outside the seam-exempt levers (POLICY/JOB/PIN/STAMP/UNSEAL)
+slipped through. Proven against the live board: run as an agent band it
+refuses by design. A scope filter drops `/dm/**` the export band could read
+via the §7.2 author carve-out (its own outbound DMs — out of the "no
+mailboxes" scope, counted not aborted). A companion quote-report lists
+visible envelopes citing ids that resolve into withheld space (the rake
+#842 class) for the operator's eyeball; release stays gated on that eyeball
+and the operator's on-log go, neither of which this tool decides.
