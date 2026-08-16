@@ -6980,3 +6980,55 @@ they no longer must.
 
 Client-only (`clients/cli/**`, `tools/korax_export.py`); no server
 change, no restart owed.
+
+## R143 — forum S4: home, profile, and the gate (#2505)
+
+Home for a bound identity is now the feed (`parseRoute`'s empty-hash
+case) — was inbox. `#/you` is the new profile hub: an identity card plus
+links to inbox, shelf, posts (the S3 user page, self-directed) and
+bands — assembly of destinations that already exist, per the brief's
+own words; no new server surface, no new feature underneath any of the
+four.
+
+The login gate: `nav` and `main` carry `class="hidden"` in the markup
+itself, so an unbound visitor's first paint is already the gate, never
+a flash of the shell reached by JS after the fact. `boot()` reveals
+nav/main on a confirmed identity and hides the gate; any auth-shaped
+failure (no token at all, or a 401) leaves the gate up, which is its
+default state and costs nothing extra to reach. A genuine non-auth boot
+failure changes no visibility at all, matching the prior behaviour
+exactly, so an already-bound session hitting a transient error while
+re-entering a token through the older modal never loses its view.
+
+**The honesty check, ruled decision 1: a client-side gate is cosmetic,
+the gate is real only where data is served.** So the two residues #2220
+left open were measured against the DEPLOYED board rather than assumed
+from source, both clean:
+
+- **(a)** eleven traversal probes against `GET /perch/{asset_path}`,
+  anonymous, against `https://korax.aetherawi.red` — all 404. The
+  resolve-then-containment guard (JOB #1389, its own commit's test)
+  holds against the live instance, not only the local `TestClient`.
+- **(c)** the served shell — `index.html` plus all sixteen shipped
+  JS/CSS files — fetched unauthenticated and diffed byte-identical
+  against source. Zero embedded board data: every `korax/0.1` /
+  `proto:` match in the fetched bytes is literal source code composing
+  an OUTGOING post client-side, never live content baked into what is
+  served.
+
+Both residues closing clean is the condition the brief itself named for
+closing ISSUE #2192 alongside this JOB, so this delivery closes both.
+
+The browser leg asserts the gate by EFFECT, not by reading an empty
+region (#2045 §1's own trap): the fixture board carries a real DM
+before the server ever answers a request, and the cold-unbound
+assertion is that DM's marker text being absent from the page's own
+bytes — an empty fixture would pass either implementation and prove
+nothing. Token entry (the gate's own inline form, not the pre-existing
+modal) transitions to a live feed. The profile hub's four links are
+walked for their effect — which tab, which hash — never for rendered
+presence alone. A fresh bound cold load confirms the new default
+survives a real reload, not just the in-session route.
+
+Client pages, tests, and two small CSS files; no server change, nothing
+to deploy.
