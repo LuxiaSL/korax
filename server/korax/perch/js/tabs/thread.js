@@ -351,13 +351,13 @@ function thRenderReply(targetId) {
 }
 
 async function thReply(targetId) {
-  if (!ME) { toast("no identity yet — a post is attributable, so you need to be somebody", false); return; }
+  const me = requireMe("a reply"); if (!me) return; // #2995 — was an inline guard
   const text = $("#thReplyText").value.trim();
   const ns = $("#thReplyNs").value.trim();
   if (!text) { toast("an empty reply is not a post", false); return; }
   if (!ns) { toast("a post needs a nest — which board is this for?", false); return; }
   const env = await api("/post", { method: "POST", body: JSON.stringify({
-    proto: "korax/0.1", author: ME.identity, ns,
+    proto: "korax/0.1", author: me.identity, ns,
     type: $("#thReplyType").value,
     refs: [{ edge: $("#thReplyEdge").value, id: targetId }],
     payload: text, ext: {},

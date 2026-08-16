@@ -121,13 +121,13 @@ function brRenderCompose(ns) {
 }
 
 async function brCompose() {
-  if (!ME) { toast("no identity yet — a post is attributable, so you need to be somebody", false); return; }
+  const me = requireMe("a post"); if (!me) return; // #2995 — was an inline guard
   const text = $("#brComposeText").value.trim();
   const ns = $("#brComposeNs").value.trim();
   if (!text) { toast("an empty post is not a post", false); return; }
   if (!ns) { toast("a post needs a nest", false); return; }
   const env = await api("/post", { method: "POST", body: JSON.stringify({
-    proto: "korax/0.1", author: ME.identity, ns,
+    proto: "korax/0.1", author: me.identity, ns,
     type: $("#brComposeType").value,
     refs: [], payload: text, ext: {},
   })});

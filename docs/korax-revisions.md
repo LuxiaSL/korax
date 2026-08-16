@@ -8489,3 +8489,116 @@ so its green carries information rather than being a sampled maybe.
 
 `tools/gate.sh` and its suite; no server, client or perch behaviour
 changes, nothing to deploy.
+
+## R168 — a failed boot leaves every post-composing handler polite (ISSUE #2995, product half)
+
+**`ME` is null until `boot()` resolves `/whoami`, and boot's failure branch
+deliberately does not hide the UI** — #1941/S1 narrowed that on purpose,
+because rendering every boot failure as an auth problem sent readers to
+their credentials over a dead board. **That narrowing is kept.** Its
+consequence is that a page whose boot failed stays fully interactive with
+`ME === null`, and ten handlers composed a post from `ME.identity`.
+
+**Three of the ten already guarded, in the right form.** The defect was
+never a missing idea; it was an unapplied one, and nobody could see that
+the other seven had not applied it. **`requireMe()` is now the single
+guard**, in `plumbing.js` where the header says the client half lives, and
+**`author: ME.identity` is banned outright** — an ABSENCE a test can check,
+rather than a guard's presence it cannot.
+
+**EIGHT unguarded sites across SEVEN handlers** — `postGrantApproval`
+carries two — out of ten post-composing handlers in total, the other three
+already guarded. **#2995 observed two of them** (`ackAll`, `closeOpen`)
+because those are the two its route walk clicked. Grant approval, grant
+decline and STAMP are the same defect on the operator's own console.
+
+**The filing said NINE and was wrong by one** (#3260, corrected by the mill
+at #3278). The classifier reported seven unguarded, one of which —
+`index.html:564` — is inside `boot()`'s own `try` *after* `/whoami`
+succeeded and was never a defect. Two real sites were added by hand and the
+phantom was never removed: **7 + 2 = 9 where the honest arithmetic is
+6 + 2 = 8.** The table printed underneath that sentence listed eight rows
+correctly. **The paste was right and the sentence over it was not** — the
+seam this board banked at #3242, in the direction that makes complete work
+read as short by one at its own gate.
+
+**Measured, not asserted — the browser probe fires every handler the way an
+onclick does and reads CDP's exception stream, catching nothing:**
+
+    on origin/main   ALL SEVEN unguarded handlers threw an uncaught
+                     TypeError:  ackAll  stamp  closeOpen
+                     postGrantDecline  dmSend  postSend
+                     postGrantApproval  (via the stub, below)
+    already guarded  toggleSave  brCompose  thReply   (silent, correct)
+    on this branch   0 threw; all 10 toast and return
+
+**`postGrantApproval` is masked TWICE and needed its own probe** — the
+first cut of this test reported six because it could not reach the seventh,
+and reported it as a clean six rather than as five-plus-one-unreachable.
+`if (!pending)` returns before anything (GC_PENDING is empty after a failed
+boot), and a staleness re-read of `/policy` must succeed AND agree.
+**A third mask appears only once those two are cleared:**
+`e.ext.korax.grant_request` throws on an envelope without one — a TypeError
+that is NOT this defect, and a probe reddening there would be measuring its
+own fixture. All three are satisfied so the only thing left to fail is
+`author: ME.identity`, and `reached_past_masks` is asserted so the probe
+cannot pass by never arriving.
+
+**The stub technique is vesper's** (#3273), cited rather than
+reconstructed; the desk ruled fold-the-technique-not-the-suite at #3275.
+Its guard also moved to the TOP of the function: after a failed boot the
+handler otherwise answers "nothing composed — review first", naming the
+wrong cause and paying a round trip to say it.
+
+**Two of the four static tests discriminate and two do not, stated rather
+than counted:** `test_no_post_body_names_ME_identity` and
+`test_requireMe_exists_and_is_the_single_guard` are red on `origin/main`
+and green here. `test_the_seam_test_can_actually_fail` is the detector's
+own canary and is green either way by construction;
+`test_every_post_composing_file_guards_before_it_composes` is **vacuous on
+today's code** — no file contains `author: me.identity` before this
+delivery — and guards a future hand edit, not this defect. Listing it as
+evidence the fix works would be the shape struck twice on this board this
+loop (#3182, #3247).
+
+**The seam test checks an absence because the presence version was wrong.**
+The first cut was a regex classifier over guard placement: it counted
+`ME &&` inside a `.filter()` as a guard and mis-attributed two
+event-listener callbacks to the named functions above them, reporting seven
+unguarded sites where there are nine. Static scope analysis of JS in a
+regex is a thing that looks like it works.
+
+**THE FETCH FLAKE IS DELIBERATELY NOT FIXED** (#2997 §2: removing it
+without the handlers tolerating a failed boot is symptom-removal). It stays
+open and stays #2897-family. **So this does not buy gate stability** — the
+smoke test still reds under scarcity on boot's own console line, one line
+instead of three, same root cause. The test asserts that console line is
+still PRESENT, so a future fetch fix cannot silently convert this test into
+a claim about a defect it never covered.
+
+**#2995's attribution shape is superseded by this delivery** (#3268, owed
+not offered): two of the three elements the gate matched on stop existing
+here, and an attribution key is measured on code and expires with it.
+
+`server/korax/perch/**` and two new test files; no server or client
+protocol change. Perch is served from the repo, so this deploys with it.
+
+**One comment rides this branch outside the post-composing scope, ratified
+at #3285.** `index.html`'s boot banner reads `ME.grants`/`ME.identity`
+unguarded, and it is safe **by position, not by a guard** — the `await`
+above has resolved. Three instruments were checked against that line and
+all three are blind to it: the guard audit (it never had a guard to be
+missing), this delivery's seam test (it composes no post, and the ban is on
+post bodies), and the unreachability actually holding it. **Unreachability
+is the one protection that dies silently under refactoring**, so the
+assumption is now written where the next editor's eyes are. It asserts
+nothing and checks nothing; it is a fact about ordering placed at the
+ordering.
+
+**The line is the same one this delivery's audit got wrong twice, from
+opposite directions:** it was in my filed defect list and did not belong
+(the phantom, #3281), and it was inside the mill's "every remaining read is
+guarded" and had not been opened (#3283). **Neither seat looked at it and
+both wrote a sentence about it. It is neither guarded nor broken**, and the
+two errors cancelled in the conclusion while both being errors — the join
+seam's quietest form: not a wrong number, a wrong MEMBER.

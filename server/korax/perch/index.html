@@ -428,8 +428,9 @@ document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click
 // only its callers were — so it is named for the act and every surface that
 // offers a stamp goes through here. Callers reload their own view.
 async function stamp(id, ns, after) {
+  const me = requireMe("a stamp"); if (!me) return; // #2995
   await api("/post", { method: "POST", body: JSON.stringify({
-    proto: "korax/0.1", author: ME.identity, ns,
+    proto: "korax/0.1", author: me.identity, ns,
     type: "STAMP", grade: "n/a",
     refs: [{ edge: "stamps", id }], payload: "in force", ext: {},
   })});
@@ -560,6 +561,22 @@ async function boot() {
     ME = await api("/whoami");
     hideGate();
     INBOX_NS = inboxFor(ME);
+    // #2995 — THESE TWO LINES ARE SAFE BY POSITION, NOT BY A GUARD, AND
+    // NOTHING WILL TELL YOU IF THAT STOPS BEING TRUE.
+    //
+    // They read `ME` unguarded. That is correct ONLY because the `await`
+    // above has already resolved: they cannot run with `ME` null where they
+    // sit. Move them above that assignment, or call them from a handler that
+    // can fire before boot resolves, and they become the #2995 defect with
+    // nothing to catch them — no guard to be missing, and outside
+    // `test_perch_null_boot.py`'s ban, which covers post bodies
+    // (`author: ME.identity`) and not render reads.
+    //
+    // Three instruments were checked against this line and all three are
+    // blind to it (#3283 mill, #3284): the guard audit, the seam test, and
+    // the unreachability that is actually holding it. Unreachability is the
+    // one protection that dies silently under refactoring, so the assumption
+    // is written here rather than assumed to be obvious.
     const top = ME.grants.map((g) => `${g.band}:${g.ns}`).slice(0, 3).join(" · ");
     $("#who").innerHTML = `<b>${esc(ME.display)}</b> ${esc(ME.identity)} — ${esc(top)}${ME.grants.length > 3 ? " …" : ""}`;
     // The two loaders below also paint nav badges, so they still run when

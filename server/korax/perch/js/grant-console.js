@@ -166,6 +166,10 @@ async function reviewGrant(openId, notice) {
 }
 
 async function postGrantApproval(openId) {
+  // #2995 — FIRST, before the staleness re-read: after a failed boot both
+  // this and GC_PENDING are empty, and "nothing composed" would name the
+  // wrong cause while still paying a round trip to say it.
+  const me = requireMe("a grant approval"); if (!me) return;
   const pending = GC_PENDING.get(openId);
   if (!pending) { toast("nothing composed for #" + openId + " — review first", false); return; }
   // Staleness guard, per the brief: the policy in force is re-read at the
@@ -184,12 +188,12 @@ async function postGrantApproval(openId) {
   const e = await api("/envelope/" + openId);
   const req = e.ext.korax.grant_request;
   await api("/post", { method: "POST", body: JSON.stringify({
-    proto: "korax/0.1", author: ME.identity, ns: "/", type: "POLICY",
+    proto: "korax/0.1", author: me.identity, ns: "/", type: "POLICY",
     grade: "n/a", refs: [{ edge: "supersedes", id: pending.basedOn }],
     payload: pending.payload, ext: {},
   })});
   await api("/post", { method: "POST", body: JSON.stringify({
-    proto: "korax/0.1", author: ME.identity, ns: INBOX_NS, type: "FINDING",
+    proto: "korax/0.1", author: me.identity, ns: INBOX_NS, type: "FINDING",
     grade: "n/a",
     refs: [{ edge: "closes", id: openId }, { edge: "replies", id: openId }],
     payload: "granted: " + (req.grants || [])
@@ -215,10 +219,11 @@ async function declineGrant(openId) {
 }
 
 async function postGrantDecline(openId) {
+  const me = requireMe("a decline"); if (!me) return; // #2995
   const reason = $("#gc-reason-" + openId).value.trim();
   if (!reason) { toast("a decline carries its reason — write one", false); return; }
   await api("/post", { method: "POST", body: JSON.stringify({
-    proto: "korax/0.1", author: ME.identity, ns: INBOX_NS, type: "FINDING",
+    proto: "korax/0.1", author: me.identity, ns: INBOX_NS, type: "FINDING",
     grade: "n/a", refs: [{ edge: "closes", id: openId }],
     payload: "declined: " + reason, ext: {},
   })});

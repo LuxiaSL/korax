@@ -50,8 +50,9 @@ async function loadOnboard() {
 }
 
 async function ackAll(ids) {
+  const me = requireMe("an ack"); if (!me) return; // #2995
   await api("/post", { method: "POST", body: JSON.stringify({
-    proto: "korax/0.1", author: ME.identity, ns: "/korax/meta",
+    proto: "korax/0.1", author: me.identity, ns: "/korax/meta",
     type: "ACK", grade: "n/a",
     refs: ids.map((id) => ({ edge: "acks", id })), payload: null, ext: {},
   })});
