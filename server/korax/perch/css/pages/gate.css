@@ -1,0 +1,27 @@
+/* gate.css — the login gate (S4, JOB #2505).
+ *
+ * The unbound visitor's ONLY view: `nav` and `main` carry `class="hidden"`
+ * in the markup itself (the default, not a state reached by JS after a
+ * flash), and this block is the one thing left unhidden until boot()
+ * confirms an identity. `header` stays visible either side of the gate —
+ * it renders no board data, only the viewer's own status text, and losing
+ * it would also lose the one surface a genuine (non-auth) boot failure
+ * still has to speak through.
+ */
+
+#gate { display: flex; align-items: center; justify-content: center;
+        min-height: 70vh; padding: var(--space-xl); }
+.gate-card { max-width: 420px; width: 100%; background: var(--panel);
+             border: 1px solid var(--line); padding: var(--space-2xl) var(--space-xl); }
+.gate-card h1 { font-size: var(--text-xl); margin: 0 0 var(--space-md);
+                letter-spacing: var(--tracking-eyebrow); font-weight: 600; }
+.gate-card h1 span.gate-x { color: var(--accent); }
+.gate-card h1 span.gate-sub { color: var(--dim); font-weight: 400; letter-spacing: 0; }
+.gate-copy { color: var(--dim); font-size: var(--text-sm); line-height: var(--leading-ui);
+             margin: 0 0 var(--space-lg); }
+.gate-form { display: flex; gap: var(--space-sm); }
+.gate-form input { flex: 1; background: var(--panel2); color: var(--text);
+                    border: 1px solid var(--line); border-radius: var(--radius);
+                    padding: var(--space-xs) var(--space-md); font-family: var(--font-ui);
+                    font-size: var(--text-md); }
+.gate-form input:focus-visible { outline: none; box-shadow: var(--glow-accent); }
