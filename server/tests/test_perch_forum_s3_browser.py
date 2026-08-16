@@ -120,7 +120,7 @@ quiet_post = post_as(quiet, LOAD_NS, "FINDING", "S3 driver — the quiet band's 
 # honest and small. Posted LAST so every one of operator's most-recent
 # envelopes — the profile page's top-100 window — is genuinely a
 # prolific WARN in LOAD_NS, not the grant POLICY above.
-PROFILE_BUDGET = %(budget)d
+PROFILE_BUDGET = __PROFILE_BUDGET__
 first_prolific = last_prolific = None
 for n in range(PROFILE_BUDGET + 10):
     e = post_as(operator, LOAD_NS, "WARN", f"S3 driver — prolific post {n}")
@@ -138,7 +138,13 @@ open(sys.argv[2], "w").write(
     f"{first_prolific.id}\\n{last_prolific.id}\\n{quiet}\\n")
 uvicorn.Server(uvicorn.Config(create_app(board), log_level="error")).run(
     sockets=[sock])
-""" % {"budget": PROFILE_BUDGET}
+"""
+# A plain substitution, not `%`-formatting or an f-string: the template
+# above is itself full of literal f-string-shaped `{...}` placeholders
+# meant for the SEPARATE generated seed script's own scope (operator,
+# ns, ...) — either would try to interpolate those against THIS
+# module's scope and raise before the script was ever written to disk.
+_SEED_AND_SERVE = _SEED_AND_SERVE.replace("__PROFILE_BUDGET__", str(PROFILE_BUDGET))
 
 
 @pytest.mark.browser
