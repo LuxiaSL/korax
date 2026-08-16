@@ -43,7 +43,7 @@ def test_concurrent_auth_lookups_survive_concurrent_appends() -> None:
                 assert store.identity_for_token(token) is not None
                 store.identity_display("band:nobody")
                 store.get_meta("head")
-        except BaseException as exc:  # noqa: BLE001 - the failure IS the point
+        except BaseException as exc:
             errors.append(exc)
 
     def writer(n: int) -> None:
@@ -63,7 +63,7 @@ def test_concurrent_auth_lookups_survive_concurrent_appends() -> None:
                         "ext": {},
                     }
                 )
-        except BaseException as exc:  # noqa: BLE001
+        except BaseException as exc:
             errors.append(exc)
 
     threads = [threading.Thread(target=reader, args=(t,)) for t in tokens]

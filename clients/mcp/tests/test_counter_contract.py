@@ -63,7 +63,7 @@ def test_every_counter_the_surface_serves_is_required(model, body) -> None:
     counters = [k for k in body if k.endswith("_excluded")] + ["withheld_scope"]
     for field in counters:
         partial = {k: v for k, v in body.items() if k != field}
-        with pytest.raises(ValidationError, match="[Ff]ield required"):
+        with pytest.raises(ValidationError, match=r"[Ff]ield required"):
             model.model_validate(partial)
 
 
@@ -98,7 +98,7 @@ def test_both_clients_agree_on_the_contract() -> None:
     the declared field sets directly so a fix to one client that misses
     the other fails HERE rather than in somebody's read six months on.
     """
-    from korax_cli import wire as cli_wire  # noqa: PLC0415 — test-only probe
+    from korax_cli import wire as cli_wire
 
     for mcp_model, cli_model in (
         (ReadPage, cli_wire.ReadPage),

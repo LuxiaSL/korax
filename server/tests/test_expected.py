@@ -63,7 +63,7 @@ def assert_subset(expected, actual, path=""):
         assert len(expected) == len(actual), (
             f"{path}: expected {len(expected)} items, got {len(actual)}: {actual!r}"
         )
-        for i, (e, a) in enumerate(zip(expected, actual)):
+        for i, (e, a) in enumerate(zip(expected, actual, strict=True)):
             assert_subset(e, a, f"{path}[{i}]")
     else:
         assert expected == actual, f"{path}: expected {expected!r}, got {actual!r}"

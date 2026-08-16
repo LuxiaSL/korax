@@ -16,7 +16,8 @@ import asyncio
 import json
 from collections.abc import Callable
 from types import TracebackType
-from typing import Any, Mapping
+from typing import Any
+from collections.abc import Mapping
 from urllib.parse import quote
 
 import httpx
@@ -84,7 +85,7 @@ def _idem_of(envelope: Mapping[str, Any]) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _classify(exc: "ApiError") -> str:
+def _classify(exc: ApiError) -> str:
     """Whether `exc` proves the envelope was not appended.
 
     The distinction #1205 is about. A 503 raised by the board's own
@@ -106,7 +107,7 @@ def _classify(exc: "ApiError") -> str:
     return _REFUSED
 
 
-def _retry_after(exc: "ApiError") -> object:
+def _retry_after(exc: ApiError) -> object:
     """`retry_after_s` from a goodbye/refusal body, in any of its shapes."""
     for key in ("retry_after_s", "retry_after"):
         if key in exc.extra:
@@ -117,7 +118,7 @@ def _retry_after(exc: "ApiError") -> object:
     return None
 
 
-def _ambiguous(idem: str, candidates: list[dict[str, Any]]) -> "ApiError":
+def _ambiguous(idem: str, candidates: list[dict[str, Any]]) -> ApiError:
     """The refusal that is the feature (#1362 D2).
 
     Unreachable by construction — one key cannot honestly match two
@@ -138,8 +139,8 @@ def _ambiguous(idem: str, candidates: list[dict[str, Any]]) -> "ApiError":
 
 
 def _undetermined(
-    write_exc: "ApiError", probe_exc: "ApiError", idem: str
-) -> "ApiError":
+    write_exc: ApiError, probe_exc: ApiError, idem: str
+) -> ApiError:
     """The write is unknown AND the board will not say — stop.
 
     The honest terminal state of a restart that outlasts the retry
@@ -161,8 +162,8 @@ def _undetermined(
 
 
 def _exhausted(
-    exc: "ApiError", idem: str, last_probe: list[dict[str, Any]], attempts: int
-) -> "ApiError":
+    exc: ApiError, idem: str, last_probe: list[dict[str, Any]], attempts: int
+) -> ApiError:
     """Give-up carries the key and the last probe (#1362 D5).
 
     Whoever picks this up next needs exactly two things to finish the
@@ -186,18 +187,32 @@ class ApiError(Exception):
     """A request that did not produce a usable JSON document.
 
     `code` is the protocol error code (§9.1) when the server supplied one,
-    the HTTP status otherwise, and `0` when the request never reached a
-    server at all.
+    the HTTP status otherwise, and the string `LOCAL_FAILURE` ("local")
+    when the request never reached a server at all.
+
+    **`int | str`, and the union is the honest type rather than a
+    widening.** R61 (#1090) replaced the old `0` sentinel — which
+    collided with a real success code — with the string `"local"`, and
+    did not widen this annotation or the sentence above it, which said
+    `0` until the type lane read it. Nothing checked for two loops.
+    `_classify` had guarded the case correctly all along
+    (`isinstance(code, int)` before any arithmetic), but against a
+    declared `int` that guard read as unreachable code and its
+    `== LOCAL_FAILURE` test read as a comparison that could never fire.
+    An annotation that turns a live defensive branch into apparent dead
+    code is the exact class this lane was cut to find.
     """
 
-    def __init__(self, code: int, message: str, extra: Mapping[str, Any] | None = None):
+    def __init__(
+        self, code: int | str, message: str, extra: Mapping[str, Any] | None = None
+    ):
         super().__init__(message)
-        self.code = code
+        self.code: int | str = code
         self.message = message
         self.extra: dict[str, Any] = dict(extra or {})
 
     @classmethod
-    def from_response(cls, response: httpx.Response) -> "ApiError":
+    def from_response(cls, response: httpx.Response) -> ApiError:
         try:
             body: Any = response.json()
         except ValueError:
@@ -256,7 +271,7 @@ class KoraxClient:
             timeout=timeout,
         )
 
-    async def __aenter__(self) -> "KoraxClient":
+    async def __aenter__(self) -> KoraxClient:
         return self
 
     async def __aexit__(
@@ -287,8 +302,8 @@ class KoraxClient:
         attempts: int = DEFAULT_ATTEMPTS,
         base: float = backoff.DEFAULT_BASE,
         cap: float = backoff.DEFAULT_MAX,
-        on_event: "Callable[[dict[str, Any]], None] | None" = None,
-        sleep: "Callable[[float], Any] | None" = None,
+        on_event: Callable[[dict[str, Any]], None] | None = None,
+        sleep: Callable[[float], Any] | None = None,
     ) -> dict[str, Any]:
         """Post, and survive a restart without appending twice (#1205).
 
@@ -328,7 +343,7 @@ class KoraxClient:
                     raise
 
                 if attempt >= attempts:
-                    raise _exhausted(exc, idem, last_probe, attempts)
+                    raise _exhausted(exc, idem, last_probe, attempts) from exc
 
                 if disposition == _CLEAN:
                     # 503 from the board itself: `api.py` refuses BEFORE
@@ -391,7 +406,7 @@ class KoraxClient:
                     return landed[0]
 
                 if len(landed) > 1:
-                    raise _ambiguous(idem, landed)
+                    raise _ambiguous(idem, landed) from exc
 
                 note({
                     "retry": "did-not-land",

@@ -443,4 +443,4 @@ def test_python_itself_refuses_source_carrying_the_character() -> None:
 
     import korax.validate as module
 
-    assert module.NUL == chr(0)
+    assert chr(0) == module.NUL

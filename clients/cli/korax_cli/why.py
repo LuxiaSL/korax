@@ -33,7 +33,8 @@ route was bounded or blind.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any
+from collections.abc import Mapping, Sequence
 
 # Edges that assert something happened TO the subject, as against edges
 # that merely talk about it. The split is the mill's, ruled at #2205 and
@@ -144,7 +145,7 @@ def hop_one(neighbourhood: Mapping[str, Any]) -> list[dict[str, Any]]:
     for hop in neighbourhood.get("hops") or ():
         if isinstance(hop, Mapping) and hop.get("depth") == 1:
             nodes = hop.get("nodes") or ()
-            return [n for n in nodes if isinstance(n, Mapping)]
+            return [n for n in nodes if isinstance(n, dict)]
     return []
 
 
@@ -276,6 +277,10 @@ def route_attested_on_target(
     for target in targets:
         for node in target_hops.get(target, ()):
             nid = node.get("id")
+            if not isinstance(nid, int):
+                # No id means nothing to dedup on: adding None here would
+                # make the NEXT id-less node match it and be dropped.
+                continue
             if nid == subject_id or nid in seen:
                 continue
             if node.get("grade") not in ATTESTING_GRADES:
@@ -477,8 +482,6 @@ def merge_counters(bodies: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     sources: list[dict[str, Any]] = []
     blind = False
     for body in bodies:
-        if not isinstance(body, Mapping):
-            continue
         entry = {
             "source": body.get("_why_source", "unknown"),
             "withheld_scope": body.get("withheld_scope"),

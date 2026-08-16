@@ -62,8 +62,8 @@ def world():
     ]})
 
     # open-floor traffic
-    a = _post(board, store, operator, ns="/korax-dev/board", type="NOTE",
-              payload="open floor one")
+    _post(board, store, operator, ns="/korax-dev/board", type="NOTE",
+          payload="open floor one")
     # an open envelope that CITES a sealed one it cannot see (rake #842 class)
     # — we post the sealed one first to know its id, then cite it from the floor
     sealed = _post(board, store, operator, ns="/commons/offtopic", type="NOTE",
@@ -134,7 +134,7 @@ def test_pin_is_the_head_and_pages_bound_to_it(world):
 def test_seam_exempt_matches_source():
     """The tool inlines the constant as strings; it must not drift from the
     server's enum (the R82 completeness class — a stale copy ships wrong)."""
-    assert export.SEAM_EXEMPT_ACTS == {a.value for a in SEAM_EXEMPT_ACTS}
+    assert {a.value for a in SEAM_EXEMPT_ACTS} == export.SEAM_EXEMPT_ACTS
 
 
 def test_quote_report_flags_citation_into_withheld_space():

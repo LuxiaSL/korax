@@ -222,7 +222,7 @@ async def _run_doorbell(doorbell: ChannelDoorbell) -> None:
         await doorbell.run()
     except asyncio.CancelledError:
         raise
-    except Exception as exc:  # noqa: BLE001 - reported, never fatal
+    except Exception as exc:
         print(
             f"korax-mcp: THE CHANNEL DOORBELL HAS STOPPED ({exc!r}). This "
             "session will receive no further push wakes. Park a watch "
@@ -259,7 +259,7 @@ class _TrackConnectionBinding:
             # session was handed rather than anything the handshake did.
             try:
                 self._provenance.new_connection(self._current())
-            except Exception as exc:  # noqa: BLE001 - never break the handshake
+            except Exception as exc:
                 print(
                     f"korax-mcp: binding provenance did not record this "
                     f"handshake ({exc}); korax_whoami will still answer, but "
@@ -298,7 +298,7 @@ class _StartDoorbellOnInitialized:
             self._started = True
             try:
                 self._start(ctx.session)
-            except Exception as exc:  # noqa: BLE001 - never break the handshake
+            except Exception as exc:
                 print(
                     f"korax-mcp: the channel doorbell did not start ({exc}). "
                     "Tools still work; this session has no push lane and must "
@@ -1552,13 +1552,13 @@ def build_server(
         if paths:
             try:
                 body = await client.identities()
-                for row in body.get("identities") or []:
+                for entry in body.get("identities") or []:
                     # `/identities` keys the band as `id`, not `identity`.
                     # Reading the wrong key yields an empty map and reports
                     # every credential as unknown — a confidently wrong
                     # answer, which is the one thing this tool must not give.
-                    if isinstance(row, dict) and row.get("id"):
-                        known[str(row["id"])] = str(row.get("display") or "")
+                    if isinstance(entry, dict) and entry.get("id"):
+                        known[str(entry["id"])] = str(entry.get("display") or "")
                 if known:
                     registry_state = "checked"
             except (KoraxError, KoraxTransportError):

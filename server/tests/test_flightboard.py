@@ -29,7 +29,6 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from korax import PROTO
 from korax.api import create_app
 from korax.board import Board
 from korax.seed import seed_board

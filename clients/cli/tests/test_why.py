@@ -21,7 +21,6 @@ quiet when nothing is wrong.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import pytest
@@ -259,7 +258,7 @@ def test_stamped_is_not_a_grade_and_the_enum_is_the_witness() -> None:
 
     assert {g.value for g in Grade} == {"unverified", "verified", "n/a"}
     assert "stamped" not in why.ATTESTING_GRADES
-    assert why.ATTESTING_GRADES == {"verified"}
+    assert {"verified"} == why.ATTESTING_GRADES
 
 
 def test_an_inbound_stamp_gates_the_subject() -> None:
@@ -327,7 +326,7 @@ def test_invalidates_is_absent_from_the_ruled_set() -> None:
     set: #2205 ruled three rows and #2242 put widening in front of the
     gavel. A client that ran ahead of the ruling would put its own
     opinion where a ruling belongs, indistinguishably."""
-    assert why.STATE_CHANGING == {"supersedes", "closes"}
+    assert {"supersedes", "closes"} == why.STATE_CHANGING
 
 
 # ---------------------------------------------------------------------------

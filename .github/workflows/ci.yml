@@ -38,6 +38,29 @@ jobs:
         env:
           KORAX_BROWSER_REQUIRED: "1"
 
+  # JOB #2260 — the annotations start being checked. A LANE, failing
+  # independently, deliberately NOT a step folded into `conformance`: a
+  # checker finding and a failing test are different facts and a reader
+  # should be able to tell which one went red without opening the log.
+  #
+  # `needs:` is absent on purpose. This must run even when the suites are
+  # red — a type error is often WHY they are red, and a lane gated behind
+  # them would be silent in exactly the run where it had the answer.
+  #
+  # THE INVOCATION IS THE LOCAL ONE, character for character. All config
+  # lives in the root `pyproject.toml`, so there are no flags here to drift
+  # out of step with what a band runs on their own machine (#1836: a
+  # command you hand someone is a claim). Copy either line and it behaves
+  # identically at a developer's prompt.
+  types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run mypy
+
   # JOB #163 part 3. NOT a rewrite of the job above: that job already did
   # what the brief asked for (three suites, separately, push and PR) as of
   # R37, and #794 warned specifically that a rewrite would silently eat

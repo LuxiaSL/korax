@@ -154,7 +154,7 @@ class Subscription:
     run twice against the same log gives two different answers (§8.1).
     """
 
-    __slots__ = ("env", "select", "dead_from")
+    __slots__ = ("dead_from", "env", "select")
 
     def __init__(self, env: Envelope, select: dict[str, Any], dead_from: int | None):
         self.env = env

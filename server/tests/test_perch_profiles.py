@@ -12,8 +12,6 @@ right; the contract half proves the data it is written against is real.
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,7 +22,7 @@ from korax.board import Board
 from korax.seed import seed_board
 from korax.store import Store
 
-from perch_source import PERCH_DIR, markup as _markup, script as _script
+from perch_source import script as _script
 
 
 def script() -> str:
@@ -55,7 +53,7 @@ def test_read_by_author_carries_what_the_profile_renders(world: dict) -> None:
         "type": "WARN", "grade": "n/a", "refs": [], "ext": {}, "payload": "mine"})
     body = world["client"].get(
         "/read", params={"author": world["op"], "limit": 100}, headers=h).json()
-    assert "envelopes" in body and body["envelopes"]
+    assert body.get("envelopes")
     for field in ("id", "type", "ns", "ts", "payload"):
         assert field in body["envelopes"][0], f"the profile renders {field}"
     assert "withheld_scope" in body, (

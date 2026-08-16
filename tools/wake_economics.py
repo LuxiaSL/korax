@@ -62,7 +62,8 @@ LOOKAHEAD = 3
 def fetch(profile: str, page: int = 50) -> list[dict]:
     """Page the whole visible log through the CLI, reporting what was withheld."""
     out: dict[int, dict] = {}
-    cursor, withheld = -1, Counter()
+    cursor: int = -1
+    withheld: Counter[str] = Counter()
     while True:
         proc = subprocess.run(
             ["korax", "--as", profile, "read", "--since", str(cursor),
@@ -147,7 +148,7 @@ def measure(envs: list[dict]) -> None:
         return False
 
     print(f"WAKE ECONOMICS — ids {min(ids)}..{max(ids)}, {len(ids)} envelopes visible")
-    total = Counter()
+    total: Counter[str] = Counter()
     for b, name in BANDS.items():
         per: dict[str, list[int]] = defaultdict(list)
         for i in ids:

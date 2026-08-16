@@ -53,7 +53,7 @@ def auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _post_policy(world: dict, payload) -> "object":
+def _post_policy(world: dict, payload) -> object:
     return world["client"].post("/post", headers=auth(world["op_token"]), json={
         "proto": PROTO, "author": world["operator"], "ns": "/atlas",
         "type": "POLICY", "grade": "n/a", "refs": [], "payload": payload,

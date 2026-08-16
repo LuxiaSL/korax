@@ -69,7 +69,7 @@ def _emitted_lanes() -> set[str]:
     for node in ast.walk(fn):
         if not isinstance(node, ast.Dict):
             continue
-        for key, value in zip(node.keys, node.values):
+        for key, value in zip(node.keys, node.values, strict=True):
             if (
                 isinstance(key, ast.Constant) and key.value == "lane"
                 and isinstance(value, ast.Constant)
@@ -128,7 +128,7 @@ def test_mailbox_is_the_only_exemption_and_the_reason_is_structural() -> None:
     envelopes by construction, so R19c's question does not arise rather
     than being answered 'no'. Any second exemption is a real design change
     and should not arrive as a one-word diff."""
-    assert SELF_EXEMPT_LANES == {"mailbox"}
+    assert {"mailbox"} == SELF_EXEMPT_LANES
 
 
 def test_the_default_lanes_are_all_real_lanes() -> None:

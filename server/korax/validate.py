@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, NoReturn
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -353,7 +353,7 @@ def validate_post(
             resolved = Grade.NA
         sub = sub.model_copy(update={"grade": resolved})
 
-    _check_band(sub, band, policy, targets)
+    band = _check_band(sub, band, policy, targets)
 
     # -- 403: what an envelope may NAME, as opposed to who may post it
     # (§11.2 D1). Both checks below refuse a reachability failure at the
@@ -476,7 +476,14 @@ def _check_band(
     band: Band | None,
     policy: NestPolicy,
     targets: dict[int, Envelope],
-) -> None:
+) -> Band:
+    """Refuses, or RETURNS THE NARROWED BAND.
+
+    The return is not decoration: this function is the only thing that
+    establishes `band is not None`, and returning `None` left every
+    caller below holding a `Band | None` that the code knew was a `Band`.
+    Stating it in the signature is what lets the checker agree.
+    """
     if band is None or band == Band.READER:
         raise PostError(403, f"{sub.author} may not post to {sub.ns} (§3)")
     rank = BAND_RANK[band]
@@ -528,6 +535,8 @@ def _check_band(
     ]:
         raise PostError(403, "endorsing requires warner band (§5.4)")
 
+    return band
+
 
 def _check_policy(
     log: Log,
@@ -538,7 +547,12 @@ def _check_policy(
     offset: int,
     timeline: PolicyTimeline,
 ) -> None:
-    def refuse(message: str) -> None:
+    def refuse(message: str) -> NoReturn:
+        # `NoReturn`, not `None`: this never returns, and saying so is what
+        # lets a reader — and the checker — see that the code after a guard
+        # that calls it is unreachable. Annotated `None`, every `refuse()`
+        # looked like it might fall through, which made correctly-guarded
+        # accesses below read as unguarded Optional access.
         raise PostError(409, f"{message} [policy {policy_id}]", policy_id=policy_id)
 
     # the governance plane (POLICY/STAMP/UNSEAL) is exempt from `acts` —
@@ -551,9 +565,15 @@ def _check_policy(
         refuse(f"act {sub.type} not permitted in {sub.ns} (§8)")
 
     if policy.grades is False and sub.grade != Grade.NA:
-        refuse(f"nest does not grade; grade must be n/a (§6.1)")
+        refuse("nest does not grade; grade must be n/a (§6.1)")
 
-    if policy.pointer_required(sub.type, sub.grade.value) and sub.pointer is None:
+    # `sub.grade` is non-None here: `validate` resolves an omitted grade
+    # (§6.1) via `model_copy` before calling this, and the checker cannot
+    # follow a field narrowed through a copy. Coded narrowly rather than
+    # bare so anything else landing on this line still reports.
+    if policy.pointer_required(
+        sub.type, sub.grade.value  # type: ignore[union-attr]
+    ) and sub.pointer is None:
         refuse(f"{sub.type} requires a sha-pinned pointer in {sub.ns} (§2.2)")
 
     if sub.type == Act.CLAIM and policy.require_lease and "lease_until" not in sub.ext:
@@ -820,7 +840,10 @@ def _check_policy(
         if t_pol.amend is None or t_pol.amend.min_endorsements <= 0:
             continue
 
-        def refuse_amend(message: str) -> None:
+        # `t_policy_id` bound at definition rather than captured: this
+        # helper is called only within this iteration, and the binding
+        # states that instead of leaving it to be proved (B023).
+        def refuse_amend(message: str, t_policy_id: int = t_policy_id) -> NoReturn:
             raise PostError(
                 409, f"{message} [policy {t_policy_id}]", policy_id=t_policy_id
             )
@@ -1015,7 +1038,7 @@ def _grant_conflicts(
 
 
 def _check_dual_hat(
-    new_policy: "NestPolicy", timeline: PolicyTimeline, offset: int, granting_ns: str
+    new_policy: NestPolicy, timeline: PolicyTimeline, offset: int, granting_ns: str
 ) -> None:
     """§3.2 — reject a POLICY whose grants would *create* a rule 1 or 2
     violation. Judged as a delta on the simulated post-swap state: a

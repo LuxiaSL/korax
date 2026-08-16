@@ -128,7 +128,7 @@ def _ledger_lines() -> list[str]:
 class Heading:
     """One parsed revision heading, with the line number that produced it."""
 
-    __slots__ = ("line_no", "label", "number", "suffix")
+    __slots__ = ("label", "line_no", "number", "suffix")
 
     def __init__(self, line_no: int, label: str, number: int | None, suffix: str) -> None:
         self.line_no = line_no

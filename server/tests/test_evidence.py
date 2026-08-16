@@ -41,14 +41,9 @@ WHAT IS ASSERTED, AND WHY EACH IS THE SHAPE IT IS
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
 
 from korax import PROTO
-from korax.api import create_app
-from korax.board import Board
 from korax.models import Evidence
-from korax.seed import seed_board
-from korax.store import Store
 
 from test_api import _grant, _post, _register, auth, world  # noqa: F401
 

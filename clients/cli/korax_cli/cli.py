@@ -29,7 +29,8 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Mapping, Sequence, TextIO, TypeVar
+from typing import Any, TextIO, TypeVar
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 
 import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -879,7 +880,7 @@ async def cmd_ack(
         ns=args.ns,
         type="ACK",
         grade="n/a",
-        refs=tuple({"edge": "acks", "id": i} for i in args.ids),  # type: ignore[arg-type]
+        refs=tuple({"edge": "acks", "id": i} for i in args.ids),
         payload=args.note,
     )
     body = await client.post_envelope(submission.to_wire())
@@ -940,7 +941,7 @@ async def cmd_grant(
         ns=args.policy_ns,
         type="POLICY",
         grade="n/a",
-        refs=({"edge": "supersedes", "id": current["policy"]},),  # type: ignore[arg-type]
+        refs=({"edge": "supersedes", "id": current["policy"]},),
         payload=payload,
     )
     body = await client.post_envelope(submission.to_wire())
@@ -985,7 +986,7 @@ async def cmd_provision(
             ns=args.policy_ns,
             type="POLICY",
             grade="n/a",
-            refs=({"edge": "supersedes", "id": current["policy"]},),  # type: ignore[arg-type]
+            refs=({"edge": "supersedes", "id": current["policy"]},),
             payload=payload,
         )
         policy_env = await client.post_envelope(submission.to_wire())
@@ -1287,14 +1288,14 @@ async def cmd_auth_list(
         try:
             body = await client.identities()
             rows = body.get("identities") or []
-            for row in rows:
+            for entry in rows:
                 # `/identities` keys the band as `id`, NOT `identity`. Reading
                 # the wrong key here does not fail — it yields an empty map
                 # and reports every credential on the host as `unknown`,
                 # which is a confidently wrong answer about whether your own
                 # band exists. Caught by running it (#1011's lesson, again).
-                if isinstance(row, dict) and row.get("id"):
-                    known[str(row["id"])] = str(row.get("display") or "")
+                if isinstance(entry, dict) and entry.get("id"):
+                    known[str(entry["id"])] = str(entry.get("display") or "")
             if not known:
                 raise CliError(
                     "/identities returned no bands; refusing to report every "
@@ -1331,7 +1332,7 @@ async def cmd_auth_list(
         row["token"] = bool(data.get("token"))
         if identity and registry_state == "checked":
             row["registry"] = "known" if identity in known else "unknown"
-            if identity in known and known[identity]:
+            if known.get(identity):
                 row["display"] = known[identity]
         else:
             row["registry"] = registry_state if identity else "no identity recorded"
@@ -1520,7 +1521,7 @@ async def cmd_dm(
         ns=f"/dm/{owner}",
         type="NOTE",
         grade="n/a",
-        refs=refs,  # type: ignore[arg-type]
+        refs=refs,
         payload=message,
     )
     body = await client.post_envelope(submission.to_wire())
@@ -1770,7 +1771,7 @@ async def cmd_unsubscribe(
         ns=SUBSCRIPTIONS_NS,
         type="SUPERSEDE",
         grade="n/a",
-        refs=({"edge": "supersedes", "id": args.id},),  # type: ignore[arg-type]
+        refs=({"edge": "supersedes", "id": args.id},),
         payload=args.note or "unsubscribe",
     )
     body = await client.post_envelope(submission.to_wire())
@@ -2218,8 +2219,8 @@ def _with_mentions(ext: Any, mentions: list[str]) -> dict[str, Any]:
         raise CliError("ext.korax.mentions must be a list of identity ids (§11.2)")
 
     merged = list(existing)
-    for who in mentions:
-        who = who.strip()
+    for raw in mentions:
+        who = raw.strip()
         # R43's local prefix guard is GONE, deliberately (JOB #1079).
         #
         # It was the smaller half of a check the server now does properly:

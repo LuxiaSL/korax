@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import re
 
-import pytest
 
 from perch_source import PERCH_DIR
 

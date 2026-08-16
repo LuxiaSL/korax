@@ -6427,3 +6427,68 @@ all four real invocations (worktree under `uv run --project .`, shared
 checkout, CI's `--directory` leg, the mill's detached gate), which are
 same-tree by construction. Tests and one README paragraph only; no
 server, client or perch behaviour changes, nothing to deploy.
+
+## R131 — the type lane: `ruff` + `mypy`, and the annotations start being checked (#2260)
+
+Cut from the outside read's O3 (#2254): every module carries thorough hints
+and `from __future__ import annotations`, and nothing anywhere ran a checker
+— zero hits for mypy/ruff/pyright/flake8/pylint across all four
+`pyproject.toml`s, and zero board coverage in ~2250 envelopes. The suites are
+excellent and they did not check what the annotations claim.
+
+One CI lane, `types`, failing independently of `conformance` — a checker
+finding and a failing test are different facts. It carries no `needs:`
+deliberately: a type error is often *why* the suites are red, and a lane
+gated behind them would be silent in the run where it had the answer. All
+config lives in the root `pyproject.toml`, so `uv run ruff check .` and
+`uv run mypy` are the same command locally and in CI, with no flags to drift.
+
+**`select` is declared rather than inherited, and that is the load-bearing
+choice.** ruff 0.16.3's default enables 413 rules across 38 families where
+the historical default was ~60, so a lane that inherits the default silently
+changes what it checks on upgrade — this lane's own defect class, wearing the
+lane's clothes. The set is chosen for defects, not style: the families left
+out were measured, not disliked (102 findings, zero defects — 29
+unused-unpacked-variable, 9 `dict()`-vs-`{}`, 54 line-too-long, 88
+import-order, and so on).
+
+Narrows: 7 ruff codes across 3 scopes, each with its count and reason in the
+config, plus 2 coded mypy ignores and 2 module overrides. No blanket
+disables, no `ignore_errors`, no excluded package.
+
+**What it found, in a tree with no prior checker: 318 ruff findings and 38
+mypy errors, resolved to zero.** The two worth naming:
+
+- **`ApiError.code` was annotated `int` while R61 passed it the string
+  `"local"`.** R61 (#1090) replaced the old `0` sentinel — which collided
+  with a real success code — and never widened the annotation or the
+  docstring, which still said `0`. Consequence: `_classify`'s
+  `code == LOCAL_FAILURE` test read as a comparison that could never fire,
+  and its `isinstance(code, int)` guard read as dead code. The guard was
+  correct all along; the annotation made a live defensive branch look
+  unreachable. One honest annotation cleared 8 of the 38 errors.
+- **`_check_band` refuses when the band is `None` but returned `None`**, so
+  every caller below held a `Band | None` the code knew was a `Band`. It now
+  returns the narrowed band. Likewise `refuse()` is `NoReturn`, not `None` —
+  it never returns, and saying so is what lets correctly-guarded Optional
+  access stop reading as unguarded.
+
+Also fixed: an annotation referencing `Any` that was never imported (silent,
+because deferred annotations are strings that never evaluate); a test
+assertion of the form `assert x != y or True`, which cannot fail; `zip()`
+without `strict=`; `pytest.raises(Exception)`; two loop variables reused
+under two meanings in one function. `ASYNC240` — blocking `Path` I/O in 11
+async functions including two MCP tool handlers — is narrowed and **filed as
+its own issue** rather than fixed, because the fix is structural.
+
+**The lane landed red-capable on the record before its green was believed**
+(#112, both directions, with controls): a deliberate `env["id"]` on an
+`Envelope` — the mill's own session-3 TypeError — took mypy to exit 1 with
+one error; revert returned exit 0; a deliberate `zip()` without `strict=`
+took ruff to exit 1; revert returned exit 0. Reverts by `cp` from a backup,
+never `git checkout`, since a canary runs in exactly the state that destroys.
+
+And it caught its own author: while narrowing `_check_band`'s return, the
+`return band` landed mid-function and orphaned three authorization checks
+(PIN posters, blind-nest openers, grade assertion). `warn_unreachable` named
+it before any test ran — the suites had not yet been re-run at that point.
