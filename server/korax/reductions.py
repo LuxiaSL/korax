@@ -99,6 +99,47 @@ def effectively_stamped(log: Log, env_id: int, offset: int) -> bool:
     return False
 
 
+# ── one predicate for "does this inbound edge still count" (JOB #2207,
+# ── the T1 supersession audit fix; #2092/#2095/#2098) ──────────────────
+
+
+def _standing(log: Log, envs: list[Envelope], offset: int) -> list[Envelope]:
+    """Of `envs`, those not themselves superseded.
+
+    `effectively_stamped` above already applies this rule to STAMP
+    ("a superseded stamp no longer grants"). `_delivery` (R106) and
+    `_ungated` (R113) re-derived it independently for `closes`-carrying
+    envelopes; `state.opens` and `_held` never adopted it at all, which is
+    #2092: a mis-cited `closes` deletes an ISSUE or a JOB's lease from
+    every reduction that asks, and superseding the mis-cite does not
+    restore it — the withdrawal is on the log, attributable, and inert.
+
+    No degenerate fallback here — that is deliberate and site-specific.
+    `_delivery`/`_ungated` need `_standing(...) or closers` because they
+    must always report SOME delivery entry (an empty candidate set would
+    crash `min()`, and a stale entry beats a missing one). A boolean
+    "is this referent closed" caller wants the opposite: if every closer
+    has been withdrawn, the honest answer is NOT closed, full stop — see
+    `_standing_closers` below.
+    """
+    return [e for e in envs if not log.inbound(e.id, EdgeType.SUPERSEDES, offset)]
+
+
+def _standing_closers(log: Log, referent: int, offset: int) -> list[Envelope]:
+    """The `closes` edges onto `referent` that still stand — empty when
+    none do, which correctly reads as `referent` NOT closed.
+
+    `state.opens`, `_held` and `_job_released` each ask exactly one
+    question — is there a LIVE closure — and must ask it here and only
+    here (#2189's structural condition, verified by
+    `test_no_reduction_reads_closes_outside_the_filter` in
+    `test_supersession_audit_fix.py`): a later call site that reads
+    `EdgeType.CLOSES` directly instead of calling this reintroduces
+    #2092 rather than closing it.
+    """
+    return _standing(log, log.inbound(referent, EdgeType.CLOSES, offset), offset)
+
+
 # ── lineage (§5.1, R29) ───────────────────────────────────────────────
 #
 # A SUPERSEDE is a *carrier* for corrected text, not a reclassification
@@ -164,11 +205,15 @@ def _held(
     next one available; this exists so there is one implementation to
     be wrong.
 
-    Work that is finished is not held, whatever the lease clock says.
+    Work that is finished is not held, whatever the lease clock says. And
+    "finished" means a STANDING close — #2092/#2095: this read the raw
+    edge and reported a withdrawn mis-cite as a permanently gone lease,
+    with superseding the mis-cite unable to restore it. Fixed via
+    `_standing_closers`, JOB #2207.
     """
     if eval_ts is None:
         return None
-    if log.inbound(referent, EdgeType.CLOSES, offset):
+    if _standing_closers(log, referent, offset):
         return None
     return live_holder(log, referent, offset, eval_ts)
 
@@ -234,6 +279,14 @@ def _blind_filter(
             continue
         visible = True
         for round_id in rounds:
+            # NOT routed through `_standing_closers` (JOB #2207) —
+            # deliberately out of scope. #2092/#2095's audit named
+            # `state.opens` and `_held`; this is a §8.3 visibility gate,
+            # not a "referent finished" question, and making a withdrawn
+            # round-close reopen a blind filter for requesters who have
+            # already been shown the round as decided is its own design
+            # question this JOB does not answer. Flagged for the gate,
+            # not silently folded in.
             if log.inbound(round_id, EdgeType.CLOSES, offset):
                 continue  # round closed — filter lifts for everyone
             posted = any(
@@ -268,7 +321,10 @@ def state(
     floor = pol.view_floor
     opens = [
         e.id for e in envs
-        if e.type == Act.OPEN and not log.inbound(e.id, EdgeType.CLOSES, offset)
+        # a superseded closer no longer counts (#2092/#2095, JOB #2207) —
+        # a wrong `closes` used to delete an ISSUE from `filed` forever,
+        # surviving its own withdrawal
+        if e.type == Act.OPEN and not _standing_closers(log, e.id, offset)
     ]
     proposals = [
         e.id for e in envs
@@ -785,10 +841,9 @@ def _delivery(
     # the degenerate guard: a closer superseded by an envelope that does
     # not itself close the job would otherwise empty the set, and a
     # reduction that raises is worse than one reporting a stale grade.
-    standing = [
-        c for c in closers
-        if not log.inbound(c.id, EdgeType.SUPERSEDES, offset)
-    ] or closers
+    # `_standing` is the shared predicate (JOB #2207) — this was one of
+    # the three sites that had already re-derived it correctly (R106).
+    standing = _standing(log, closers, offset) or closers
     deliverer = min(standing, key=lambda e: e.id)
 
     # Only FINDING and WARN carry a grade on the ladder (§6.1 — every
@@ -1000,11 +1055,10 @@ def _ungated(log: Log, offset: int, project: str) -> list[dict[str, Any]]:
         # `or closers` is R106's degenerate guard, kept for the same
         # reason: a closer superseded by an envelope that does not itself
         # close the target would empty the set, and a reduction that
-        # raises is worse than one reporting a stale entry.
-        standing = [
-            c for c in closers
-            if not log.inbound(c.id, EdgeType.SUPERSEDES, offset)
-        ] or closers
+        # raises is worse than one reporting a stale entry. `_standing`
+        # is the shared predicate (JOB #2207) — this was one of the three
+        # sites that had already re-derived it correctly (R113).
+        standing = _standing(log, closers, offset) or closers
 
         # THE DELIVERY CHAIN, not one envelope. A re-delivery may come
         # from another band — #1804 is a handover re-delivery across a
@@ -1349,8 +1403,19 @@ def _job_released(log: Log, job_id: int, offset: int) -> bool:
 
     Deliberately NOT "has a live holder": a job someone is working is
     emphatically not finished, and a taken blocker must keep blocking.
+
+    **A SIXTH INSTANCE OF #2092/#2095, found while fixing the other two
+    (JOB #2207).** The brief's audit named `state.opens` and `_held`;
+    this reads the identical raw `EdgeType.CLOSES` check and was not in
+    that grep's output, but the defect is the same one wearing a third
+    caller's clothes: a mis-cited `closes` on a blocking JOB would have
+    permanently released every job it gates, with no way back even after
+    the mis-cite is superseded. Fixed alongside the named two rather than
+    filed separately, because #2189's structural test (below) would
+    otherwise have had to carve out an exemption for exactly the bug it
+    exists to catch.
     """
-    if log.inbound(job_id, EdgeType.CLOSES, offset):
+    if _standing_closers(log, job_id, offset):
         return True
     return bool(_job_replacements(log, job_id, offset))
 
@@ -1417,8 +1482,19 @@ def jobs(log: Log, timeline: PolicyTimeline, offset: int, ns: str) -> dict[str, 
         if live_blockers:
             blocked_by[str(job.id)] = live_blockers
 
+        # RAW fetch, deliberately — `_delivery` below needs every closer,
+        # superseded or not, to walk the chain (R106). The CLASSIFICATION
+        # decision (open vs. delivered) must not use this list directly:
+        # `_held`'s own docstring has always claimed "for `state` and
+        # `jobs` alike," but this branch never called it — its own
+        # unfiltered `if closers:` was the real seventh site, caught by
+        # `test_a_mis_cited_close_on_a_claimed_job_is_withdrawn_by_superseding_it`
+        # failing against THIS line, not against `_held` (#2092/#2095,
+        # JOB #2207): a withdrawn mis-cite left the job filed as
+        # `delivered` forever, so `_held`'s fix could never be reached to
+        # restore it to `taken`.
         closers = log.inbound(job.id, EdgeType.CLOSES, offset)
-        if closers:
+        if _standing(log, closers, offset):
             blocked_by.pop(str(job.id), None)  # finished work is not blocked
             _, job_pol = timeline.policy_at(job.ns, job.id)
             delivered.append(
