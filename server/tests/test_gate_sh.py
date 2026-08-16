@@ -107,7 +107,7 @@ def test_every_leg_captures_the_exit_code_on_the_next_line() -> None:
 
 # ── the denominator (#2485, #2514) ────────────────────────────────────
 
-def test_the_battery_declares_eleven_legs() -> None:
+def test_the_battery_declares_twelve_legs() -> None:
     """M comes from the DECLARATION, which is the whole point.
 
     The gavel settled M = 10 at #2514: 3 suites + browser + 3 CI-parity
@@ -116,11 +116,20 @@ def test_the_battery_declares_eleven_legs() -> None:
     side effect — this assertion is that act, restated as a check. A
     report that counted what it happened to run could not tell a
     shrunken battery from a whole one (#2482).
+
+    **M MOVES 11 -> 12 AT JOB #3160**, and this line is that act. The
+    twelfth is `floors`: the calibration load, which is DECIDED (it
+    parses a file, runs nothing, cannot flake) and runs before every
+    guarded leg. It is a leg rather than a silent precondition because a
+    missing calibration must be visible in the report as a red, not as
+    an absence a reader has to notice — the same reason the battery
+    reports `SKIPPED` and `NOT REACHED` rather than omitting them.
     """
     legs = _bash_array("LEG_NAMES")
-    assert len(legs) == 11, f"expected 11 declared legs, found {len(legs)}: {legs}"
+    assert len(legs) == 12, f"expected 12 declared legs, found {len(legs)}: {legs}"
     assert len(set(legs)) == len(legs), f"duplicate leg name in {legs}"
     assert "ledger-disposition" in legs
+    assert "floors" in legs
 
 
 def test_ruff_and_mypy_are_separate_legs_though_one_command_runs_them() -> None:
@@ -420,29 +429,6 @@ def _call_gate_fn(snippet: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_every_floored_leg_is_a_declared_leg() -> None:
-    """A floor naming a leg the battery does not run is dead text that
-    reads like coverage."""
-    floors = _bash_assoc("LEG_FLOOR")
-    legs = set(_bash_array("LEG_NAMES"))
-    orphans = sorted(set(floors) - legs)
-    assert orphans == [], f"floors declared for legs that do not exist: {orphans}"
-
-
-def test_the_floors_are_the_values_of_record() -> None:
-    """#2994's named act. Floors move ONLY by that path — measured,
-    proposed on the log, named by the desk — so this test is what makes
-    an edit-to-match-a-run visible as a diff rather than a silent
-    loosening. A floor derived from the run it guards is #2963's defect
-    with an extra step.
-    """
-    floors = _bash_assoc("LEG_FLOOR")
-    assert floors == {
-        "suite-server": "940", "suite-cli": "335", "suite-mcp": "237",
-        "ci-server": "940", "ci-cli": "335", "ci-mcp": "237",
-    }, f"floors differ from the values named at #2994: {floors}"
-
-
 def test_the_collect_appends_no_verbosity_flag() -> None:
     """THE -qq TRAP, GUARDED STRUCTURALLY. Every floored leg already
     passes `-q`; appending a second one gives pytest `-qq`, which
@@ -577,3 +563,141 @@ def test_the_shallow_leg_reports_the_re_entrant_exclusion() -> None:
         "from the report rather than being named"
     )
     assert "$excluded_note" in body, "the exclusion is computed but never reported"
+
+
+# ── the floors file (JOB #3160, option C ruled #3098) ──────────────────
+# The calibration moved out of `gate.sh` into `tools/gate-floors.txt` so
+# the gating seat can maintain the DATA at each merge without editing the
+# instrument it is recused from (#2503), and so every floor carries the
+# sha it was measured at (#3100/#3102 — a constant does not travel, it
+# sits, and what decays is the ability to recover why it was right).
+
+FLOORS = REPO / "tools" / "gate-floors.txt"
+
+
+def _floor_rows() -> list[list[str]]:
+    rows = []
+    for line in FLOORS.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        rows.append(stripped.split())
+    return rows
+
+
+def test_the_hardcoded_floor_table_is_gone() -> None:
+    """The retirement, asserted rather than assumed. A leftover literal
+    table would shadow the file silently and the two would drift."""
+    text = GATE.read_text(encoding="utf-8")
+    match = re.search(r"^declare -A LEG_FLOOR=\((.*?)\)", text, re.M | re.S)
+    assert match, "LEG_FLOOR is no longer declared at all — the report reads it"
+    body = match.group(1).strip()
+    assert body == "", (
+        "LEG_FLOOR still carries literal entries; the calibration is the "
+        f"file's job now and two sources of truth is one too many: {body!r}"
+    )
+
+
+def test_every_floor_row_names_a_declared_leg() -> None:
+    """Dead calibration reads like coverage — the same defect as a floor
+    declared for a leg that does not run (guarded above for the old
+    table, and now for the file)."""
+    legs = set(_bash_array("LEG_NAMES"))
+    orphans = sorted({row[0] for row in _floor_rows()} - legs)
+    assert orphans == [], f"floor rows for legs that do not exist: {orphans}"
+
+
+def test_every_floor_row_carries_its_provenance() -> None:
+    """THE BINDING CLAUSE (#3100). A bare number is the `939` defect —
+    retired twice in one day, both times unrecoverable without going and
+    looking. Six fields, and the sha is what makes a row checkable."""
+    for row in _floor_rows():
+        assert len(row) == 6, (
+            f"row has {len(row)} fields, want 6 "
+            f"(leg floor sha revision band date): {' '.join(row)}"
+        )
+        leg, floor, sha, revision, band, date = row
+        assert floor.isdigit(), f"{leg}: floor is not a number: {floor}"
+        assert re.fullmatch(r"[0-9a-f]{7,40}", sha), f"{leg}: not a sha: {sha}"
+        assert re.fullmatch(r"R\d+", revision), f"{leg}: not a revision: {revision}"
+        assert band.startswith("band:"), f"{leg}: not a band id: {band}"
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", date), f"{leg}: not a date: {date}"
+
+
+@pytest.mark.parametrize(
+    "planted, needle",
+    [
+        ("suite-cli 335 e5a658ac R164", "want 6"),
+        ("suite-cli lots e5a658ac R164 band:x 2026-08-16", "not a number"),
+        ("suite-imaginary 1 e5a658ac R164 band:x 2026-08-16", "not a declared leg"),
+    ],
+)
+def test_load_floors_refuses_each_malformed_shape(
+    tmp_path: Path, planted: str, needle: str,
+) -> None:
+    """The real bash function against a real planted file, per row shape.
+
+    Each refusal names a DIFFERENT cause: a parse that answered "bad
+    file" to all three would be one check wearing three names, and the
+    controls could not tell which clause fired (#3151).
+    """
+    staged = tmp_path / "gate-floors.txt"
+    staged.write_text(FLOORS.read_text(encoding="utf-8") + planted + "\n", encoding="utf-8")
+    result = _call_gate_fn(
+        f'if load_floors "{staged}"; then echo OK; else echo "$FLOORS_ERROR"; fi'
+    )
+    assert "OK" not in result.stdout, f"the parser accepted {planted!r}"
+    assert needle in result.stdout, (
+        f"refused {planted!r} but not for the stated reason: {result.stdout!r}"
+    )
+
+
+def test_load_floors_refuses_an_absent_file(tmp_path: Path) -> None:
+    """A floor is not a default. An empty directory is the shape a fresh
+    checkout or a botched merge produces."""
+    result = _call_gate_fn(
+        f'if load_floors "{tmp_path}/nonexistent.txt"; then echo OK; else echo "$FLOORS_ERROR"; fi'
+    )
+    assert "OK" not in result.stdout, "the parser invented a calibration"
+    assert "missing" in result.stdout, result.stdout
+
+
+def test_load_floors_accepts_the_shipped_file() -> None:
+    """CONTROL for the four refusals above. A parser that rejected
+    everything would pass all of them and measure nothing."""
+    result = _call_gate_fn(
+        'if load_floors; then echo "OK ${#LEG_FLOOR[@]}"; else echo "$FLOORS_ERROR"; fi'
+    )
+    assert result.stdout.startswith("OK "), result.stdout
+    assert int(result.stdout.split()[1]) == len(_floor_rows())
+
+
+def test_a_failed_calibration_reds_every_leg_not_just_guarded_ones() -> None:
+    """FAIL WIDE. With no file the battery cannot know which legs were
+    supposed to be guarded, and that ignorance IS the defect — so a leg
+    carrying no floor when the file is present must red too, rather than
+    the battery deciding from a table it could not read that it did not
+    matter."""
+    text = GATE.read_text(encoding="utf-8")
+    fn = re.search(r"^assert_counts\(\) \{\n(.*?)^\}$", text, re.M | re.S)
+    assert fn, "assert_counts is no longer a top-level function"
+    body = fn.group(1)
+    guard = body.index('if [ -n "$FLOORS_ERROR" ]')
+    floor_read = body.index('local floor=')
+    assert guard < floor_read, (
+        "the FLOORS_ERROR guard runs AFTER the floor lookup, so a leg with "
+        "no floor returns green before the guard is reached"
+    )
+
+
+def test_the_floors_leg_is_declared_and_runs_before_the_guarded_legs() -> None:
+    """Order is load-bearing: a guarded leg that runs first would assert
+    against a calibration that had not been read."""
+    assert "floors" in _bash_array("LEG_NAMES"), "the floors leg is not declared"
+    text = GATE.read_text(encoding="utf-8")
+    battery = re.search(r"^run_battery\(\) \{\n(.*?)^\}$", text, re.M | re.S)
+    assert battery, "run_battery is no longer a top-level function"
+    body = battery.group(1)
+    assert body.index("run_floors_leg") < body.index("run_leg suite-server"), (
+        "the floors leg does not run before the first guarded leg"
+    )

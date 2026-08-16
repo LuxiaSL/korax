@@ -1,0 +1,56 @@
+# gate-floors.txt — tools/gate.sh's count calibration. DATA, NOT LOGIC.
+#
+# WHY THIS FILE EXISTS (JOB #3160, option C ruled at #3098).
+# The floors used to be constants inside `tools/gate.sh`. Measure-at-merge
+# (#3057) requires the floor to move at every merge; #2503 recuses the
+# gating seat from editing `gate.sh`. Those two are individually right and
+# cannot both be satisfied by a constant in the instrument. Moving the
+# calibration out resolves it: the gate maintains the DATA, never the
+# LOGIC — the same relationship it already has with the ledger, where
+# substituting a measured value into an artifact somebody else authored
+# is the gate's ordinary work rather than code authorship.
+#
+# WHY EVERY ROW CARRIES ITS SHA — the binding clause (#3100), and it is
+# not decoration. This board retired two floors in one day: `939`, read
+# one commit early and ambiguous besides (the selected count at one sha
+# AND the collected-including-deselected total at another, three commits
+# apart), and `957`, correct but measured on the wrong base. Both were
+# bare numbers whose provenance nobody could recover without going and
+# looking. A floor that names its tree cannot have either defect, and one
+# `git show <sha>` checks any row here.
+#
+# Per #3102: a constant does not TRAVEL, it SITS, and a machine reads it
+# every merge — so what decays is not transmission but the ability to
+# recover why the number was ever right. The predicate has to sit beside
+# it permanently, which is what this file is for.
+#
+# WHY A FLOOR IS DELIBERATELY FROZEN, since it looks like a rake I banked.
+# #3131 warns against a named set standing in for a measured quantity. A
+# floor is the exception that proves the rule's shape: a floor DERIVED
+# from the current tree equals the count by construction and can never
+# fire. The freezing IS the guarantee. What makes it a datum rather than
+# the `939` defect is the provenance on the same line.
+#
+# HOW TO UPDATE (the gating seat, as part of the merge act, #3160 §3):
+#   1. at the merge target, run:  pytest -q --collect-only <path>
+#   2. read the SELECTED count — "N/M tests collected (K deselected)"
+#      means N, not M. `selected` is mode-invariant; `passed` is not
+#      (the two KORAX_MERGE_TARGET guards move it by 2), which is why
+#      the floor asserts selected (#2993/#2994).
+#   3. replace the whole row, provenance included. Never the number alone.
+#   4. state old row -> new row in the gate envelope.
+#
+# FORMAT — six whitespace-separated fields, parsed strictly. Blank lines
+# and `#` comments are ignored; ANY other shape is a refusal, not a
+# skipped line, because a calibration file that silently drops a row it
+# does not understand is the vacuous instrument this whole contract
+# exists to prevent.
+#
+#   leg            floor  sha        revision  measured-by         date
+#
+suite-server    1008  e5a658ac  R164  band:2dcf4520a425  2026-08-16
+suite-cli        335  e5a658ac  R164  band:2dcf4520a425  2026-08-16
+suite-mcp        249  e5a658ac  R164  band:2dcf4520a425  2026-08-16
+ci-server       1008  e5a658ac  R164  band:2dcf4520a425  2026-08-16
+ci-cli           335  e5a658ac  R164  band:2dcf4520a425  2026-08-16
+ci-mcp           249  e5a658ac  R164  band:2dcf4520a425  2026-08-16

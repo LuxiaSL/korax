@@ -105,6 +105,7 @@ readonly LEG_NAMES=(
   mypy
   shallow
   ledger-disposition
+  floors
 )
 readonly LEG_COUNT=${#LEG_NAMES[@]}
 
@@ -138,18 +139,32 @@ readonly LEG_COUNT=${#LEG_NAMES[@]}
 # nothing. The collect is a SECOND, INDEPENDENT read, which is the only
 # reason the two can disagree, and their disagreeing is the signal.
 #
-# FLOORS MOVE ONLY BY THE NAMED-ACT PATH (#2680/#2979/#2994): measured,
-# proposed on the log, named by the desk. Never edited to match a run.
-# Of record at #2994, measured at 4292f14 (R153), whose server/tests
-# tree is byte-identical at ef56d3e.
-declare -A LEG_FLOOR=(
-  [suite-server]=940
-  [suite-cli]=335
-  [suite-mcp]=237
-  [ci-server]=940
-  [ci-cli]=335
-  [ci-mcp]=237
-)
+# THE FLOORS ARE NOT IN THIS FILE (JOB #3160, option C ruled #3098).
+# They live in `tools/gate-floors.txt`, one row per guarded leg, each
+# carrying the sha it was measured at. Two reasons, and the second is the
+# one that decided it:
+#
+#   1. Measure-at-merge (#3057) moves the floor at every merge, and
+#      #2503 recuses the gating seat from editing THIS file. A constant
+#      here forced the recused hand onto the instrument. Data is not
+#      logic — the ledger-substitution precedent is exact.
+#   2. A constant in a script carries NO PROVENANCE. This board retired
+#      two floors in one day — `939` (read one commit early, and
+#      ambiguous: two predicates three shas apart) and `957` (measured
+#      on the wrong base) — and neither could be checked without going
+#      and looking. A row that names its tree is checkable with one
+#      `git show`; #3102: a constant does not travel, it SITS, and what
+#      decays is institutional memory rather than transmission.
+#
+# THE FILE IS A PRECONDITION, NOT A DEFAULT. Absent or unparseable, the
+# `floors` leg reds and every guarded leg reds with it — a battery that
+# ran its suites without a calibration would report counts nobody
+# checked, which is exactly #2953, the defect this contract retired.
+readonly FLOORS_FILE_NAME='gate-floors.txt'
+declare -A LEG_FLOOR=()      # name -> floor, loaded from the file
+declare -A LEG_FLOOR_SRC=()  # name -> "sha (revision)", its provenance
+FLOORS_ERROR=""              # non-empty once loading has failed
+
 declare -A LEG_SELECTED=()   # name -> decided count, from --collect-only
 declare -A LEG_OUTCOMES=()   # name -> sampled sum, from the run's own output
 
@@ -339,6 +354,79 @@ summarise() {
   printf '%s' "${line:-(no output)}"
 }
 
+# ── the floors leg: load the calibration, or refuse ───────────────────
+# DECIDED, not sampled — it reads a file and parses it. No process, no
+# clock, no mode; it cannot flake, and it runs FIRST so every guarded
+# leg afterwards either has a floor with provenance or has a red.
+#
+# STRICT PARSE, AND A LINE IT DOES NOT UNDERSTAND IS A REFUSAL rather
+# than a skip. A calibration file that silently drops a malformed row
+# would report the remaining floors as if they were the whole contract —
+# the shrunken-denominator defect (#2485) aimed at the thing that
+# measures denominators. Six fields, exactly.
+#
+# UNKNOWN LEG NAMES ARE ALSO A REFUSAL. A row for a leg that does not
+# exist is dead calibration reading like coverage — the same defect the
+# acceptance suite already guards for the other direction.
+# THE PATH IS AN EXPLICIT ARGUMENT, defaulting to the shipped file.
+# `SELF_DIR` is readonly, so a test cannot redirect it — and a primitive
+# the acceptance suite cannot point at a fixture is one the suite has to
+# reimplement, which is how a test comes to agree with a bug in the real
+# thing (#2668, and #2682's reason for parameterising leg 11's).
+load_floors() {
+  local file="${1:-$SELF_DIR/$FLOORS_FILE_NAME}" line n=0
+  if [ ! -f "$file" ]; then
+    FLOORS_ERROR="calibration file missing: $file — a floor is not a default, and a battery cannot assert counts it has no floors for"
+    return 1
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    case "$line" in ''|'#'*) continue ;; esac
+    # shellcheck disable=SC2086
+    set -- $line
+    if [ $# -ne 6 ]; then
+      FLOORS_ERROR="$FLOORS_FILE_NAME:$n has $# fields, want 6 (leg floor sha revision band date): $line"
+      return 1
+    fi
+    case "$2" in
+      ''|*[!0-9]*)
+        FLOORS_ERROR="$FLOORS_FILE_NAME:$n floor is not a number: $2"
+        return 1 ;;
+    esac
+    if ! _is_declared_leg "$1"; then
+      FLOORS_ERROR="$FLOORS_FILE_NAME:$n names '$1', which is not a declared leg — dead calibration reads like coverage"
+      return 1
+    fi
+    LEG_FLOOR[$1]="$2"
+    LEG_FLOOR_SRC[$1]="$3 ($4)"
+  done < "$file"
+  [ ${#LEG_FLOOR[@]} -gt 0 ] || {
+    FLOORS_ERROR="$FLOORS_FILE_NAME parsed with zero rows — an empty calibration is not a permissive one"
+    return 1
+  }
+  return 0
+}
+
+_is_declared_leg() {
+  local name="$1" n
+  for n in "${LEG_NAMES[@]}"; do [ "$n" = "$name" ] && return 0; done
+  return 1
+}
+
+run_floors_leg() {
+  printf '  %-12s ... ' "floors" >&2
+  LEG_OWED[floors]=owed
+  if load_floors; then
+    LEG_STATUS[floors]=PASS
+    LEG_DETAIL[floors]="${#LEG_FLOOR[@]} floors loaded from $FLOORS_FILE_NAME, each with its measured sha"
+    printf 'PASS\n' >&2
+  else
+    LEG_STATUS[floors]=FAIL
+    LEG_DETAIL[floors]="$FLOORS_ERROR"
+    printf 'FAIL (%s)\n' "${FLOORS_ERROR%% —*}" >&2
+  fi
+}
+
 # ── the count contract's two reads ────────────────────────────────────
 # THE DECIDED READ. `--collect-only` imports the test modules and stops;
 # no server starts, no Chrome spawns, no clock matters. Two summary
@@ -401,6 +489,20 @@ sum_outcomes() {
 # checked" cannot be confused for one another.
 assert_counts() {
   local name="$1"; shift
+
+  # FAIL CLOSED WHEN THE CALIBRATION DID NOT LOAD, AND FAIL WIDE.
+  # With no file there is no way to know WHICH legs were supposed to be
+  # guarded — and that ignorance is the defect, not a detail of it. So
+  # every leg reaching this point reds, including ones that carry no
+  # floor when the file is present. Skipping them would be the battery
+  # deciding, from a table it could not read, that they did not matter.
+  if [ -n "$FLOORS_ERROR" ]; then
+    LEG_STATUS[$name]=FAIL
+    LEG_DETAIL[$name]="COUNT CONTRACT UNAVAILABLE: $FLOORS_ERROR"
+    printf '  %-12s ... FAIL (no calibration)\n' "$name" >&2
+    return
+  fi
+
   local floor="${LEG_FLOOR[$name]:-}"
   [ -n "$floor" ] || return 0
 
@@ -416,7 +518,7 @@ assert_counts() {
 
   if [ "$selected" -lt "$floor" ]; then
     LEG_STATUS[$name]=FAIL
-    LEG_DETAIL[$name]="COUNT FLOOR: $selected selected, floor $floor (#2994) — the run narrowed; ${LEG_DETAIL[$name]:-}"
+    LEG_DETAIL[$name]="COUNT FLOOR: $selected selected, floor $floor measured at ${LEG_FLOOR_SRC[$name]:-?} — the run narrowed; ${LEG_DETAIL[$name]:-}"
     printf '  %-12s ... FAIL (floor: %s < %s)\n' "$name" "$selected" "$floor" >&2
     return
   fi
@@ -441,7 +543,7 @@ assert_counts() {
     return
   fi
 
-  LEG_DETAIL[$name]="${LEG_DETAIL[$name]:-} [counts: $selected selected >= $floor floor; $outcomes outcomes accounted]"
+  LEG_DETAIL[$name]="${LEG_DETAIL[$name]:-} [counts: $selected selected >= $floor floor @ ${LEG_FLOOR_SRC[$name]:-?}; $outcomes outcomes accounted]"
 }
 
 # ── is the browser leg owed? (#2422) ──────────────────────────────────
@@ -869,6 +971,12 @@ run_ledger_disposition_leg() {
 run_battery() {
   printf 'running %d legs against %s\n' "$LEG_COUNT" "${TARGET_SHA:0:12}" >&2
 
+  # FIRST LEG, before any guarded one: without a calibration nothing
+  # downstream can assert its counts. After the banner, though — a leg
+  # result printed above "running N legs" reads as output from a battery
+  # that has not started.
+  run_floors_leg
+
   run_leg suite-server owed uv run --project . pytest -q server/tests
   run_leg suite-cli    owed uv run --project . pytest -q clients/cli/tests
   run_leg suite-mcp    owed uv run --project . pytest -q clients/mcp/tests
@@ -1018,15 +1126,16 @@ report() {
   # differently on a second run.
   echo
   echo "  counts    per leg — selected is DECIDED (--collect-only, cannot flake);"
-  echo "            outcomes is SAMPLED (this run). Floors of record: #2994."
+  echo "            outcomes is SAMPLED (this run). Floors and their provenance"
+  echo "            come from tools/gate-floors.txt; check any row with git show."
   local unchecked=""
   for name in "${LEG_NAMES[@]}"; do
     if [ -n "${LEG_FLOOR[$name]:-}" ]; then
       case "${LEG_STATUS[$name]:-MISSING}" in
         PASS|FAIL)
-          printf '    %-12s selected %-6s floor %-6s outcomes %s\n' \
+          printf '    %-12s selected %-6s floor %-6s outcomes %-6s  floor measured at %s\n' \
             "$name" "${LEG_SELECTED[$name]:-?}" "${LEG_FLOOR[$name]}" \
-            "${LEG_OUTCOMES[$name]:-?}" ;;
+            "${LEG_OUTCOMES[$name]:-?}" "${LEG_FLOOR_SRC[$name]:-?}" ;;
         *) printf '    %-12s not run — no counts to report\n' "$name" ;;
       esac
     else
@@ -1057,7 +1166,9 @@ report() {
     echo "  not owed ${u} — run anyway, deliberate over-measurement"
   fi
   echo "  commands  $LEG_COUNT legs from 10 invocations (the type lane is one"
-  echo "            command reporting ruff and mypy since R135/#2379)"
+  echo "            command reporting ruff and mypy since R135/#2379; and"
+  echo "            \`floors\` runs no command at all — it parses a file,"
+  echo "            which is why it is decided and cannot flake)"
   echo
 
   if [ $failed -eq 0 ] && [ $skipped -eq 0 ] && [ $missing -eq 0 ]; then

@@ -677,9 +677,26 @@ def test_ledger_disposition_is_declared_as_the_eleventh_leg() -> None:
         for line in match.group(1).splitlines()
         if line.strip() and not line.strip().startswith("#")
     ]
-    assert len(legs) == 11, f"expected 11 declared legs, found {len(legs)}: {legs}"
-    assert legs[-1] == "ledger-disposition", (
-        "ledger-disposition should be the newly-added, eleventh leg"
+    # POSITION RETIRED, MEMBERSHIP KEPT (JOB #3160, slate).
+    #
+    # This asserted `len(legs) == 11` and `legs[-1] == "ledger-disposition"`.
+    # Both were true when written and both broke the moment a twelfth leg
+    # was declared — `floors`, which must run BEFORE the guarded legs and
+    # so could not have been appended anywhere that preserved this.
+    #
+    # A leg's ORDINAL is not a property of this leg; it is a property of
+    # how many other legs exist, which every future delivery may change.
+    # That is the same shape as a floor asserted by equality against a
+    # count the whole repository moves (#3086/#3097) — an assertion about
+    # a global written as if it had one owner. Membership is the property
+    # this file actually cares about: leg 11 exists and is declared, so
+    # `run_leg` will accept it and `report` will account for it.
+    #
+    # The battery's SIZE is still asserted, in `test_gate_sh.py`, where M
+    # is the subject rather than a coincidence — and moving it stays a
+    # named act (#2680).
+    assert "ledger-disposition" in legs, (
+        f"the ledger-disposition leg is no longer declared: {legs}"
     )
 
 

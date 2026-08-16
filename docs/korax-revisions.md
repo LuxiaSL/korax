@@ -8270,3 +8270,80 @@ choice of rule wearing the costume of a measurement.
 
 Tooling and one report section; no server, client or perch behaviour changes,
 nothing to deploy.
+
+## R-NEXT — the floors file: gate.sh's calibration becomes data that carries its own provenance
+
+JOB #3160, option C as ruled at #3098. Raised by this builder against
+their own delivery two positions before it gated (#3097), backed by the
+gate with reasons against its own convenience (#3099), and settled by
+the convention's author (#3102).
+
+**The collision.** Measure-at-merge (#3057) requires the count floor to
+move at every merge. The floor was a constant in `tools/gate.sh`, and
+#2503 recuses the gating seat from editing that file. Both rules are
+right; a constant in the instrument cannot satisfy both. The floors now
+live in `tools/gate-floors.txt`, read at startup — **the mill maintains
+the DATA at each merge and never the LOGIC**, which is precisely the
+relationship it already has with the ledger, where substituting a
+measured value into an artifact someone else authored is the gate's
+ordinary work rather than code authorship.
+
+**Every row carries the sha it was measured at**, and that is the
+binding clause rather than decoration. This board retired two floors in
+one day: `939`, read one commit early and ambiguous besides — it was
+simultaneously the selected count at one sha and the
+collected-including-deselected total at another, three commits apart —
+and `957`, correct but measured on the wrong base. Both were bare
+numbers whose provenance nobody could recover without going and looking.
+A row naming its tree is checkable with one `git show`. Per #3102, a
+constant does not *travel*, it *sits*, and what decays is not
+transmission but the ability to recover why the number was ever right.
+
+**A floor is deliberately frozen, which looks like a defect this same
+delivery's author banked as a rake.** #3131 warns against a named set
+standing in for a measured quantity. A floor is where that rule inverts:
+one *derived* from the current tree equals the count by construction and
+can never fire, so the freezing is the guarantee. What separates a datum
+from the `939` defect is the provenance on the same line — which is why
+the two ship together and neither is optional.
+
+**M moves 11 → 12, named as this delivery's own act** (#2680). The
+twelfth leg is `floors`: it parses the calibration, runs no command, and
+is therefore DECIDED — it cannot flake. It runs before every guarded leg,
+because a leg asserting against a calibration that had not been read
+would be asserting against nothing.
+
+**Fail-closed, and fail WIDE.** An absent file or an unparseable row reds
+the `floors` leg *and* every leg that reaches the count contract —
+including legs that carry no floor when the file is present. With no
+calibration the battery cannot know which legs were supposed to be
+guarded, and that ignorance is the defect rather than a detail of it;
+skipping them would be the battery deciding, from a table it could not
+read, that they did not matter. A malformed row is a refusal and not a
+skipped line, for the same reason.
+
+**Retired:** the hardcoded `LEG_FLOOR` table, and with it the two-floor
+split (#3098 §2) — the file is now the tight structural floor and the
+gate's per-merge arithmetic becomes corroboration. Also retired: leg
+11's positional assertion that `ledger-disposition` is last. A leg's
+ordinal is a property of how many other legs exist, which every future
+delivery may change; membership is what that file actually cares about.
+
+**Every refusal was watched, each naming a different cause** — absent
+file, wrong field count, non-numeric floor, undeclared leg name — with
+the shipped file as the control, because a parser that rejected
+everything would pass all four and measure nothing. The raised-floor
+canary was watched red (floor 400 against 249 selected, naming both
+numbers and the provenance row) and restored green. `load_floors` takes
+its path as an argument so the suite can point it at a fixture: a
+primitive the acceptance suite cannot reach is one the suite has to
+reimplement, and a reimplementation can agree with a bug in the original.
+
+**Seeded by measuring, never by copying** — `1008/335/249` at `e5a658ac`,
+read with `--collect-only` at that tree. The most recently published
+figure was `1003`; it was five low by the time this was written, which is
+the whole reason the brief says the tree is the authority and the
+envelope only records having asked it (#3054).
+
+Tooling and tests only; no server, client or perch behaviour changes,
+nothing to deploy.
