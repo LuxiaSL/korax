@@ -293,21 +293,99 @@ def test_the_browser_leg_requires_its_dependencies_like_ci_does() -> None:
 
 # ── the ledger checks, both files (#2496 item 3) ──────────────────────
 
-def test_the_ledger_checks_cover_both_files() -> None:
-    """The allocation step is two files, and the protocol-doc half was
-    the one being run from memory — which is how nineteen inline tags
-    accrued against a ledger at R138 (#2496)."""
+def test_the_ledger_checks_cover_the_revisions_file() -> None:
+    """The allocation step is two halves and the prose half was the one
+    being run from memory — which is how nineteen inline tags accrued
+    against a ledger at R138 (#2496)."""
     text = GATE.read_text(encoding="utf-8")
     assert "docs/korax-revisions.md" in text
-    assert "docs/korax-protocol.md" in text
     assert "R-NEXT" in text
 
 
-def test_the_inline_tag_count_catches_the_combined_form() -> None:
-    """`[R131, R-NEXT]` is a bracketed tag containing R-NEXT and must not
-    read as substituted — the hole #2510 was filed for."""
+def test_the_inline_tag_check_echoes_the_guard_rather_than_narrowing_it() -> None:
+    """**The regression that bounced R142 (#2634).**
+
+    The suite's guard scans `_docs_dir().rglob("*.md")` — every markdown
+    file under `docs/`. The first cut of gate.sh's ledger line read
+    `docs/korax-protocol.md` alone, so it reported clean about a
+    narrower question than the check it stood in for, while the guard
+    had a hit in `korax-revisions.md`.
+
+    A stand-in that answers less than its original reports clean at
+    exactly the moment the original would not — #2482's argument aimed
+    at the replacement instead of the thing replaced. This asserts the
+    two scopes agree, so the narrowing cannot come back quietly.
+    """
     text = GATE.read_text(encoding="utf-8")
-    assert r"\[[^]]*R-NEXT[^]]*\]" in text, (
-        "the inline-tag grep must match the combined form, not just a bare "
-        "[R-NEXT]"
+    assert "--include='*.md'" in text and '"$docs"' in text, (
+        "the inline-tag check must scan every docs/**.md file, matching "
+        "test_revisions_ledger.py's _docs_dir().rglob('*.md') scope"
+    )
+    assert "korax-protocol.md" not in text.split("run_ledger_checks")[-1], (
+        "the ledger check must not narrow back to a single named document"
+    )
+
+
+def test_the_inline_tag_pattern_matches_the_guards_own_pattern() -> None:
+    """Bare `[R-NEXT]` and combined `[R131, R-NEXT]`, and NOT a bracket
+    pair with something else in it — the guard's `_INLINE_TAG_RE`
+    anchored to one bracket pair (#2510). Compiled and exercised here
+    rather than compared as a string, so the two cannot agree textually
+    while behaving differently."""
+    import re
+
+    text = GATE.read_text(encoding="utf-8")
+    match = re.search(r"grep -rhoE '([^']+)'", text)
+    assert match, "could not find the inline-tag grep pattern in gate.sh"
+    pattern = re.compile(match.group(1))
+
+    assert pattern.search("see [R-NEXT] here")
+    assert pattern.search("see [R131, R-NEXT] here")
+    assert not pattern.search("see [3] here and R-NEXT unbracketed")
+    assert not pattern.search("the R-NEXT convention, unbracketed")
+
+
+def test_the_battery_sets_the_merge_target_env() -> None:
+    """**The omission that bounced R142 (#2634).**
+
+    CI sets `KORAX_MERGE_TARGET` on main. Two guards in
+    `test_revisions_ledger.py` skip without it, so a gate that does not
+    set it cannot reproduce the one condition it exists to reproduce —
+    and renders those two as ordinary skips, which reads as environment
+    noise rather than as checks that never ran.
+    """
+    text = GATE.read_text(encoding="utf-8")
+    assert "KORAX_MERGE_TARGET=1" in text, (
+        "gate.sh must set KORAX_MERGE_TARGET=1 or its suite legs run a "
+        "weaker battery than CI runs on main"
+    )
+    assert re.search(r"^MERGE_TARGET=1\s*$", text, re.M), (
+        "merge-target mode must be the DEFAULT — this tool's argument is a "
+        "merge-target sha, and at a merge target the heading is already "
+        "renamed"
+    )
+    assert 'env "${env_args[@]}"' in text, (
+        "the env must be applied in run_leg, so EVERY leg carries it rather "
+        "than one of them"
+    )
+
+
+def test_the_branch_escape_exists_and_the_mode_is_always_reported() -> None:
+    """`--branch` is needed because an unrenamed `## R-NEXT` heading is
+    CORRECT on an in-flight branch — the strict guard would fire on the
+    one thing the branch is supposed to carry, so a claimant could not
+    self-check before delivering.
+
+    And the mode must be REPORTED in both directions. A battery that ran
+    the weaker environment must not be indistinguishable from one that
+    ran the strict one — this tool's own denominator rule (#2485)
+    applied to its environment instead of its legs.
+    """
+    text = GATE.read_text(encoding="utf-8")
+    assert "--branch) MERGE_TARGET=0" in text, "the branch escape is missing"
+    report = text.split("report()")[-1]
+    assert "KORAX_MERGE_TARGET=1" in report, "strict mode must be reported"
+    assert "unset (--branch)" in report, (
+        "the weaker mode must announce itself, or a --branch run reads as a "
+        "merge-target run"
     )

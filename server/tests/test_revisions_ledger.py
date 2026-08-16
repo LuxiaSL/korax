@@ -262,3 +262,150 @@ def test_no_r_next_on_the_merge_target(headings: list[Heading]) -> None:
         "number at merge, where the ordering is finally known. Replace the "
         "token with the next free revision number."
     )
+
+
+# ---------------------------------------------------------------------------
+# The inline tag, everywhere else a shipping revision gets cited
+# (ISSUE #2400/#2403) — a DIFFERENT convention from the heading above, and
+# a different failure. `## R-NEXT` marks a whole ledger ENTRY, substituted
+# at merge by the desk's own ritual and guarded since JOB #715. `[R-NEXT]`
+# marks one CLAIM beside a rule, wherever that rule lives in prose — and
+# nothing had ever looked, in any file, for up to ~90 revisions:
+# `docs/korax-protocol.md` alone carried 18 unsubstituted instances at
+# discovery, 13 of them mid-sentence rather than headings, which is exactly
+# the shape a heading-anchored pattern cannot see (#2403's own gate-ritual
+# gap: `grep -cE '^## R-NEXT'` reported this file clean nine times running).
+# ---------------------------------------------------------------------------
+
+#: The bracketed form. Deliberately distinct from `_HEADING`'s pattern (no
+#: `##`, no em-dash) so this can never match the ledger's own heading
+#: convention — the two tags coexist in the same repo on purpose and must
+#: stay distinguishable by shape alone, not by which file they are in.
+_INLINE_TAG = "[R-NEXT]"
+
+#: `_INLINE_TAG` as an exact substring missed the COMBINED shape — a
+#: section that already shipped one revision and was amended by a later
+#: one writes `[R131, R-NEXT]`, not `[R-NEXT]` alone, and
+#: `"[R-NEXT]" in "[R131, R-NEXT]"` is False (ISSUE #2510, found live: the
+#: guard reported this file clean on the merge commit that carried the
+#: exact tag it exists to catch). Anchored to ONE bracket pair — never
+#: matches across two — so unbracketed prose naming the convention by
+#: word stays outside it, same discipline as `_HEADING` above; a bracket
+#: pair with something else inside (`[3]`) and R-NEXT unbracketed
+#: elsewhere on the same line must not match either.
+_INLINE_TAG_RE = re.compile(r"\[[^\[\]]*\bR-NEXT\b[^\[\]]*\]")
+
+
+def _docs_dir() -> Path:
+    return _repo_root() / "docs"
+
+
+def _markdown_files(root: Path) -> list[Path]:
+    return sorted(root.rglob("*.md"))
+
+
+def _find_inline_tags(files: list[Path]) -> list[tuple[Path, int, str]]:
+    """Every line across `files` carrying an inline `R-NEXT` tag, bare
+    (`[R-NEXT]`) or combined with an already-shipped revision beside it
+    (`[R131, R-NEXT]`).
+
+    Scans every `docs/**.md` file, never just the ledger — the defect this
+    guards against was found in prose, not in a heading, and there is no
+    reason to believe `korax-protocol.md` is the only document that can
+    grow one.
+    """
+    offenders: list[tuple[Path, int, str]] = []
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            if _INLINE_TAG_RE.search(line):
+                offenders.append((path, line_no, line.strip()))
+    return offenders
+
+
+@pytest.mark.skipif(
+    not _merge_target(),
+    reason=(
+        f"{_MERGE_TARGET_ENV} is unset: an inline {_INLINE_TAG} tag is "
+        "CORRECT on an in-flight branch (the shipping revision is not "
+        "known until merge) — the same shape as the ledger's own heading "
+        "check, so this strict half runs only against the merge target too."
+    ),
+)
+def test_no_inline_r_next_tag_in_docs_on_the_merge_target() -> None:
+    """The substitution pass's own guard (#2400/#2403), extended to the
+    combined shape #2510 found it blind to, so neither backlog can
+    silently reaccrue."""
+    offenders = _find_inline_tags(_markdown_files(_docs_dir()))
+    assert not offenders, (
+        f"an inline {_INLINE_TAG}-shaped tag, bare or combined with an "
+        "already-shipped revision (`[R131, R-NEXT]`), reached the merge "
+        "target — each marks a rule whose shipping revision was never "
+        "substituted for the real one (#2400, #2510):\n"
+        + "\n".join(
+            f"  {p.relative_to(_repo_root())}:{n}: {line}"
+            for p, n, line in offenders
+        )
+    )
+
+
+#: Canary matrix (#2510: "the canary matrix is the deliverable, because
+#: the defect is not that the string was wrong but that one shape was
+#: never enumerated"). Two axes — bare vs. combined, heading vs.
+#: mid-sentence — four red cases, crossed explicitly rather than folded
+#: into one assertion so a regression in any one cell fails on its own
+#: line instead of behind a passing `len() == 4`.
+_RED_CANARY_CASES = {
+    "bare_heading": "### 1.1 A heading `[R-NEXT]`\n",
+    "bare_mid_sentence": "A claim, scoped `[R-NEXT]` mid-sentence.\n",
+    "combined_heading": "### 11.5 A heading `[R131, R-NEXT]`\n",
+    "combined_mid_sentence": (
+        "A claim, scoped `[R131, R-NEXT]` mid-sentence.\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("case_name", sorted(_RED_CANARY_CASES))
+def test_the_inline_tag_scan_can_fail(case_name: str, tmp_path: Path) -> None:
+    """Canary, red direction (#112), one case per cell of the matrix
+    above. The combined cases are the ones ISSUE #2510 found missing: a
+    section that already shipped one revision and was amended by another
+    writes `[R131, R-NEXT]`, and an exact-substring test for `[R-NEXT]`
+    alone — `"[R-NEXT]" in "[R131, R-NEXT]"` — is False. That exact tag
+    reached the merge commit at `97239cc` with the un-fixed guard reading
+    it clean; this is the case that must not go quiet again."""
+    doc = tmp_path / f"{case_name}.md"
+    doc.write_text(_RED_CANARY_CASES[case_name], encoding="utf-8")
+    found = _find_inline_tags([doc])
+    assert found == [(doc, 1, _RED_CANARY_CASES[case_name].strip())]
+
+
+def test_the_inline_tag_scan_stays_quiet_on_unrelated_brackets(
+    tmp_path: Path,
+) -> None:
+    """Canary, green direction, the control the combined-form fix needs on
+    its own: a bracket pair that does NOT contain `R-NEXT`, on a line that
+    separately names `R-NEXT` outside any brackets, must not match — the
+    regex is anchored to one bracket pair and must not let an unrelated
+    pair on the same line stand in for it."""
+    clean_doc = tmp_path / "clean.md"
+    clean_doc.write_text(
+        "See item [3] about the R-NEXT convention, unbracketed here.\n"
+        "Two pairs: [ok] then more text, R-NEXT named but not bracketed.\n",
+        encoding="utf-8",
+    )
+    assert _find_inline_tags([clean_doc]) == []
+
+
+def test_the_inline_tag_scan_stays_quiet_on_a_clean_doc(tmp_path: Path) -> None:
+    """Canary, green direction. Real prose that mentions the ledger's own
+    `R-NEXT` convention BY NAME, unbracketed, must never trip this guard —
+    a scan keyed on the bare word would refuse the ledger's own preamble
+    explaining the convention, and every future reference to it."""
+    clean_doc = tmp_path / "clean.md"
+    clean_doc.write_text(
+        "This section shipped in R42. The next revision (written R-NEXT "
+        "in the ledger's own heading convention) is not this one.\n",
+        encoding="utf-8",
+    )
+    assert _find_inline_tags([clean_doc]) == []

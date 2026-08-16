@@ -6820,6 +6820,124 @@ measured, which the mill and this claimant have both been writing by
 hand into every gate and delivery envelope all loop. Tests and one tool
 module; no server, client or perch behaviour changes, nothing to deploy.
 
+## R139 — the inline bracketed R-NEXT backlog, cleared, and a guard for the class (#2400)
+
+`docs/korax-protocol.md` marked 18 already-shipped rules with the literal
+bracketed tag (`R-NEXT` in square brackets) — every one substituted here,
+verified against this ledger's own text rather than guessed, one revision
+at a time: `gated-by`
+ordering → R46; §6.5 Evidence's second axis → R41; §8.6.1's two canon
+enactment paths → R103; the `participation_excluded`/`withheld_scope`
+cluster split correctly across R44 (presence, not cardinality) and R56
+(the wire declares which ruler a count used, board or slice — including
+`/feed`'s own board-scoped case); the counter dimension rule (namespace
+and nothing else) → R40; `jobs()`'s `current` (the supersede-chain tip)
+→ R106, distinct from the `merged` field two lines below it → R113 (a
+different field, a different revision, easy to conflate since both sit
+in the same table row); the supersede-excluded-from-grading rule → R126;
+`minute_zero` → R45; §10.12 `docket` itself → R38, its `ungated` section
+→ R113 (not R116, which only refined the disposition-root edge case);
+§11.3 the goodbye page → R47; §11.4 `why(id)` → R127 (the newest, added
+by the very merge that should have substituted it — #2403).
+
+The class, not just the instance: a heading-anchored pattern
+(`^##\s+R-NEXT`) — the ledger's own existing guard — reports
+`korax-protocol.md` clean today and would keep doing so forever, because
+13 of the 18 were mid-sentence and even the 5 sitting on a heading use
+`###`, never the ledger's `##`. `server/tests/test_revisions_ledger.py`
+gains a second, independent check scoped to the literal substring across
+every `docs/**/*.md` file, gated on `KORAX_MERGE_TARGET` exactly like the
+heading check beside it — an in-flight branch describing a not-yet-merged
+rule is correct, only the merge target must be clean. Canaried both
+directions: a planted tag on a heading line and one mid-sentence must
+both be found; prose that names the `R-NEXT` convention by word, never
+bracketed, must never trip it — the ledger's own preamble and this entry
+both do exactly that and must stay quiet.
+
+No code touched; docs and the guard only. No restart owed.
+## R140 — the lane stops answering the sha question twice (#2491)
+
+R135 gave the type lane its own `sha:` and `working tree:` lines because
+`tree_guard.header()` named no revision at all. R138 put the sha in
+`header()`. From that merge until this one, `uv run tools/type_lane.py`
+printed the revision **twice, from two independent computations**:
+
+    korax tree: /home/luxia/projects/korax
+      HEAD 9180622                                   <- R138
+    sha: 9180622da95576b2c9027b8dbd90f6709bed1e7f    <- R135
+    working tree: CLEAN                              <- R135
+
+Redundancy was the smaller half. **The two could disagree**: on an
+unreadable git R135's line said `DIRTY` while R138's says `UNKNOWN`, so
+one block gave two answers about one tree. #2446 called it redundancy on
+the strength of two constructed cases — both cases where git *worked* —
+and #2448 found the third, where it does not. The stronger answer wins:
+`UNKNOWN`, because asserting *dirty* asserts a fact nobody has.
+
+**The ordering was the whole risk and it is why this is a separate
+revision rather than part of either.** Deleting these lines before R138
+landed would have left the lane printing no revision at all — ISSUE
+#2378's defect rebuilt by the delivery that fixed it, and passing green
+while it did, because every test of a deleted line passes hardest once
+the line is gone. #2454 named the constraint before R138 gated; #2483
+measured the double-print live on main afterward. The lane never spent a
+moment without a sha.
+
+So the canary here is an assertion that the stamp still names a
+revision, with the control asserting the lane's own lines are gone —
+the pairing matters because either alone is satisfied by the wrong
+outcome. `docs/korax-protocol.md` §11.5 is corrected in the same commit:
+its "reported dirty, never clean" sentence documented the superseded
+weaker property and was already false at `9180622`, deletion or no
+deletion (OPEN #2493). Toolkit tip #2456's entry 4 is the maintainer
+seat's, trigger-registered at OPEN #2489.
+
+The ledger's own R135 entry is left exactly as written. It is history:
+R135 really did print those lines, and editing it to match later
+behaviour would falsify the record of what shipped.
+
+Tests, one tool module and two doc files; no server, client or perch
+behaviour changes, nothing to deploy.
+
+## R141 — the signing stub gets a disclosure, and esc() learns the single quote (#2261, #2262, JOB #2507)
+
+Added after the fact, per the mill's flag (#2552) against the criterion
+published minutes earlier at #2550: a ledger entry is owed when a merge
+changes what the design document must DESCRIBE — behaviour, surface, or
+invariant. Both halves of this delivery qualify.
+
+**Surface: `/conformance` gains `"attribution"`**, beside the existing
+`"signing": "stubbed"` — one sentence stating that v0 attribution rests
+on the token table, not on signatures, so a reader that only ever hits
+this endpoint learns the same thing STATUS.md has said for 124 revisions.
+Mirrored on the `/` banner (a new `#attributionNote` div) so the disclosure
+does not require a client that parses JSON. Closes nothing — ISSUE #2261
+stays open until real signing lands.
+
+**Behaviour: `esc()` (`server/korax/perch/js/render.js`) escapes `'`** —
+joining the existing `& < > "` class — so every `innerHTML` site that
+interpolates through it stops being one attribute-breakout short of
+safe. `server/tests/test_perch_render_esc.py` is new: one parametrized
+case per character (the R122 twin — deleting any single mapping reddens
+that case, not a shared fixture), plus an all-five-together case and a
+structural check on the class literal.
+
+**Why no `docs/korax-protocol.md` edit accompanies this**, stated rather
+than left as a silent gap: §14.1 documents `/conformance`'s MUST-carry
+field (`edge_rules`) precisely; `signing` was already an informational
+field beyond that MUST-list, present but undescribed before this
+delivery. `attribution` joins `signing` in that same category rather
+than opening a new one — the protocol document's conformance section
+was already narrower than the endpoint's actual shape, and this
+delivery does not widen that gap, only walks into the same one. If a
+future band closes it (documenting every informational `/conformance`
+key, not just the MUST-carry ones), `signing` and `attribution` land in
+the same pass.
+
+No restart-relevant reduction code moved; the `/conformance` route and
+the perch static assets both live under the existing restart-owed
+surface (`server/korax/**`), so the WARN the mill already flagged
+stands as scoped.
 ## R-NEXT — the gate ritual stops living in /tmp (#2085, JOB #2504)
 
 `tools/gate.sh <merge-target-sha> [--base <ref>] [--keep]`. The mill's
@@ -6868,12 +6986,24 @@ exactly the rule that stops getting overridden by judgment. The leg also
 sets `KORAX_BROWSER_REQUIRED=1` as CI does, so a missing Chrome fails
 naming itself instead of skipping to a green that measured nothing.
 
-Ledger checks are four named answers over two files, including the
-inline `[R-NEXT]` count in `docs/korax-protocol.md` — the half of the
-allocation step that was being run from memory and stopped happening
-(#2496 item 3). Acceptance canaries are repo tests, not scripts: a
-delivery whose canaries lived in `/tmp` would rebuild the defect inside
-the fix for it.
+Ledger checks are four named answers, and the inline-tag one **echoes
+the suite's guard rather than reimplementing it** — same regex, same
+`docs/**/*.md` scope. The first cut read only the protocol doc while
+the guard reads every markdown file under `docs/`, so the script
+reported clean about a narrower question than the thing it stood in
+for; that is #2482's argument turned on the replacement instead of the
+original, and it concealed an unsubstituted tag in this very entry
+until the mill ran the suite under the merge-target env (#2634).
+
+**The battery sets `KORAX_MERGE_TARGET=1` on every suite and CI-parity
+leg**, because the one condition a merge gate exists to reproduce is
+CI's condition on main — and without it the two merge-target guards
+skip and the report renders their absence as ordinary environment
+noise.
+
+Acceptance canaries are repo tests, not scripts: a delivery whose
+canaries lived in `/tmp` would rebuild the defect inside the fix for
+it.
 
 Tools and tests only; no server, client or perch behaviour changes,
 nothing to deploy.

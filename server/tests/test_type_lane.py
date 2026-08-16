@@ -39,12 +39,33 @@ lane = _lane()
 # ── the stamp is present, and present when it is least convenient ─────
 
 
-def test_the_stamp_names_tree_sha_and_working_state() -> None:
-    """The three things #2379 ruled it must print."""
+def test_the_stamp_still_names_a_TREE_and_a_SHA_after_the_deletion() -> None:
+    """THE CANARY FOR #2491, and the only assertion that separates this
+    change from #2378 reintroduced.
+
+    The whole risk of deleting the lane's own `sha:` line is that the
+    block silently stops naming a revision — which a green suite is the
+    *worst* possible evidence against, because every test of a deleted
+    line passes hardest once the line is gone. `header()` has carried
+    `HEAD <sha>` since R138, so the property survives the deletion; this
+    asserts it rather than trusting the ordering that made it true.
+    """
     text = lane.stamp()
     assert "korax tree:" in text
-    assert "sha: " in text
-    assert "working tree: " in text
+    assert "HEAD " in text, (
+        "the stamp names no revision — deleting this file's sha line "
+        "before R138 landed is exactly #2378, rebuilt by its own fix"
+    )
+
+
+def test_the_lane_no_longer_prints_its_OWN_sha_line__the_other_direction() -> None:
+    """THE CONTROL for the canary above. Without it the canary passes
+    while both lines are still there — which was the defect (#2483: one
+    block, two independent computations, divergent on an unreadable
+    git). Asserting the absence is what makes the deletion checkable."""
+    text = lane.stamp()
+    assert "sha: " not in text
+    assert "working tree: " not in text
 
 
 def test_the_tree_line_is_byte_identical_to_the_suites() -> None:
@@ -108,59 +129,21 @@ def test_both_checks_run_even_when_the_first_fails() -> None:
     assert [name for name, _rc in results] == ["ruff", "mypy"]
 
 
-# ── dirty state tells the truth, in both directions ───────────────────
-
-
-def test_a_dirty_tree_reports_DIRTY_with_a_count(monkeypatch) -> None:
-    """THE CANARY. #2378's constraint, adopted as the acceptance floor:
-    a stamp naming a clean sha over a dirty tree is a worse lie than no
-    stamp."""
-    monkeypatch.setattr(lane, "_git", lambda *a: (0, " M server/korax/api.py\n?? new.py"))
-    is_dirty, count, rendered = lane.dirty_state()
-    assert is_dirty is True
-    assert count == 2
-    assert rendered == "DIRTY (2 files)"
-
-
-def test_a_clean_tree_reports_CLEAN__control(monkeypatch) -> None:
-    """THE CONTROL. A detector that always said DIRTY would pass the
-    canary above and destroy the signal — nobody would read a stamp that
-    is always the same."""
-    monkeypatch.setattr(lane, "_git", lambda *a: (0, ""))
-    is_dirty, count, rendered = lane.dirty_state()
-    assert is_dirty is False
-    assert count == 0
-    assert rendered == "CLEAN"
-
-
-def test_one_dirty_file_is_singular(monkeypatch) -> None:
-    monkeypatch.setattr(lane, "_git", lambda *a: (0, " M one.py"))
-    assert lane.dirty_state()[2] == "DIRTY (1 file)"
-
-
-def test_an_unreadable_tree_state_FAILS_CLOSED(monkeypatch) -> None:
-    """A tree whose state cannot be read is reported dirty, never clean.
-    Failing open would print CLEAN beside a sha on a tree nobody
-    measured — the precise lie this tool exists to remove."""
-    monkeypatch.setattr(lane, "_git", lambda *a: (128, ""))
-    is_dirty, _count, rendered = lane.dirty_state()
-    assert is_dirty is True
-    assert "UNKNOWN" in rendered
-
-
-# ── the sha never renders as a plausible blank ────────────────────────
-
-
-def test_an_unavailable_sha_says_so_rather_than_emitting_nothing(monkeypatch) -> None:
-    """`sha: ` with nothing after it reads as a stamp that was made and
-    found nothing — #2183 family A, in the tool written against it."""
-    monkeypatch.setattr(lane, "_git", lambda *a: (128, ""))
-    assert "UNKNOWN" in lane.revision()
-
-
-def test_a_real_sha_is_returned_when_git_answers__control(monkeypatch) -> None:
-    monkeypatch.setattr(lane, "_git", lambda *a: (0, "e733856311d4"))
-    assert lane.revision() == "e733856311d4"
+# ── dirty state and the sha: NOT TESTED HERE ANY MORE, ON PURPOSE ─────
+#
+# Six tests stood here — DIRTY-with-a-count, its CLEAN control, the
+# singular-file case, fails-closed-on-unreadable-git, and the two over
+# `revision()`. They went with `dirty_state()` and `revision()` at
+# #2491, because this file no longer computes either.
+#
+# **The properties did not go with them.** They live in
+# `test_tree_guard.py` against `header()`, which is now the single
+# computation — and slate's version is stronger than the one deleted
+# here: an unreadable git reports UNKNOWN rather than asserting DIRTY,
+# since "dirty" is a fact nobody has (#2448). Deleting a test whose
+# subject moved is correct; deleting one whose property simply stops
+# being checked is how coverage evaporates silently, so this note names
+# where each went rather than leaving a gap that reads as a decision.
 
 
 # ── the whole thing, driven as a subprocess, the way CI runs it ───────
@@ -176,4 +159,12 @@ def test_end_to_end_the_wrapper_prints_the_stamp_before_the_checks() -> None:
     assert proc.returncode == 0, proc.stderr
     out = proc.stdout
     assert "korax tree:" in out
-    assert out.index("korax tree:") < out.index("sha: ") < out.index("working tree: ")
+    # THE END-TO-END FORM OF THE DELETION CANARY. This line used to
+    # assert the ORDER `korax tree:` < `sha: ` < `working tree: ` — an
+    # assertion that names neither `revision()` nor `dirty_state()`, so
+    # a symbol-grep for the deleted functions never finds it and it
+    # fails from a subprocess with no obvious cause (#2491). Recorded
+    # because the next person deleting a rendered line will grep for
+    # the function, not the string.
+    assert "HEAD " in out, "the lane's real output names no revision"
+    assert "sha: " not in out

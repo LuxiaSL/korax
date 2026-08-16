@@ -55,7 +55,7 @@
 # guessing which checker passed is the one direction that fails green.
 #
 # USAGE
-#   tools/gate.sh <merge-target-sha> [--base <ref>] [--keep]
+#   tools/gate.sh <merge-target-sha> [--base <ref>] [--keep] [--branch]
 #
 #   --base <ref>  Compute the diff against <ref> to decide whether the
 #                 browser leg is owed (#2422). WITHOUT IT THE BROWSER
@@ -63,6 +63,11 @@
 #                 toward measuring, because a leg skipped for an unknown
 #                 reason is indistinguishable from one that was not owed.
 #   --keep        Leave the worktree and logs in place for inspection.
+#   --branch      Pre-delivery self-check on a BRANCH: unset
+#                 KORAX_MERGE_TARGET, because an unrenamed `## R-NEXT`
+#                 heading is correct there. Two ledger guards then
+#                 SKIP, and the report says so rather than implying
+#                 the strict battery ran.
 
 set -uo pipefail
 # NOTE: deliberately NOT `set -e`. Legs are EXPECTED to fail — that is
@@ -134,6 +139,7 @@ parse_args() {
         [ $# -ge 2 ] || die "--base needs a ref"
         BASE_REF="$2"; shift 2 ;;
       --keep) KEEP=1; shift ;;
+      --branch) MERGE_TARGET=0; shift ;;
       -h|--help) sed -n '1,60p' "${BASH_SOURCE[0]}"; exit 0 ;;
       -*) die "unknown option: $1" ;;
       *)
@@ -141,7 +147,7 @@ parse_args() {
         TARGET_SHA="$1"; shift ;;
     esac
   done
-  [ -n "$TARGET_SHA" ] || die "usage: tools/gate.sh <merge-target-sha> [--base <ref>] [--keep]"
+  [ -n "$TARGET_SHA" ] || die "usage: tools/gate.sh <merge-target-sha> [--base <ref>] [--keep] [--branch]"
 }
 
 # ── precondition: the worktree, with POSITION ASSERTED ────────────────
@@ -186,11 +192,33 @@ setup_worktree() {
 # ── one leg ───────────────────────────────────────────────────────────
 # Output goes to a FILE by redirection, never through a pipe, which is
 # what keeps `$?` the command's own (#2085).
+#: CI sets this on main (`ci.yml`: `github.ref == 'refs/heads/main'`),
+#: and TWO guards in `test_revisions_ledger.py` skip without it: the
+#: zero-`R-NEXT`-headings check and the inline-tag check. A merge gate
+#: that does not set it cannot reproduce the one condition it exists to
+#: reproduce, and renders those two as ordinary skips — environment
+#: noise rather than checks that never ran. That omission bounced this
+#: tool's own first delivery (#2634): the blind spot concealed an
+#: unsubstituted tag in the ledger entry shipping the tool.
+#:
+#: ON BY DEFAULT, because this tool's argument is a MERGE-TARGET sha and
+#: at a merge target the allocation step has already renamed the
+#: heading. `--branch` turns it off for a claimant's pre-delivery
+#: self-check, where an unrenamed `## R-NEXT` heading is CORRECT and the
+#: strict guard would fire on the one thing the branch is supposed to
+#: carry. **The mode is REPORTED either way** — a battery that ran the
+#: weaker environment must not be indistinguishable from one that ran
+#: the strict one, which is this tool's own denominator rule applied to
+#: its environment rather than to its legs.
+MERGE_TARGET=1
+
 run_leg() {
   local name="$1" owed="$2"; shift 2
   _assert_declared "$name"
   printf '  %-12s ... ' "$name" >&2
-  ( cd "$WT" && "$@" ) > "$LOGDIR/$name.log" 2>&1
+  local env_args=()
+  [ "$MERGE_TARGET" -eq 1 ] && env_args=(KORAX_MERGE_TARGET=1)
+  ( cd "$WT" && env "${env_args[@]}" "$@" ) > "$LOGDIR/$name.log" 2>&1
   local rc=$?
   LEG_OWED[$name]="$owed"
   if [ $rc -eq 0 ]; then
@@ -407,14 +435,24 @@ run_ledger_checks() {
     LEDGER_LINES+=("revisions.md  NOT FOUND — neither check performed")
   fi
 
-  if [ -f "$proto" ]; then
-    # Counts the COMBINED form too: `[R131, R-NEXT]` is a bracketed tag
-    # containing R-NEXT and must not read as substituted (#2510).
-    local inline
-    inline="$(grep -oE '\[[^]]*R-NEXT[^]]*\]' "$proto" 2>/dev/null | grep -c .)"
-    LEDGER_LINES+=("protocol.md   inline [R-NEXT] tags    ${inline:-0}   (want 0 on a merge target; combined form counted)")
+  # ECHO OF THE SUITE'S GUARD, NOT A SECOND OPINION. The first cut read
+  # `docs/korax-protocol.md` alone while
+  # `test_revisions_ledger.py::test_no_inline_r_next_tag_in_docs_on_the_merge_target`
+  # reads `_docs_dir().rglob("*.md")` — so the script answered a NARROWER
+  # question than the check it stood in for and reported clean while the
+  # guard had a hit in `korax-revisions.md` (#2634). Same regex, same
+  # scope, and the guard stays the verdict: this line exists so a reader
+  # sees the count without parsing pytest output, never as an independent
+  # ruling. A stand-in that can drift from its original is #2482's defect
+  # aimed at the replacement.
+  local docs="$WT/docs"
+  if [ -d "$docs" ]; then
+    local inline files
+    files="$(find "$docs" -name '*.md' -type f 2>/dev/null | wc -l)"
+    inline="$(grep -rhoE '\[[^][]*\bR-NEXT\b[^][]*\]' --include='*.md' "$docs" 2>/dev/null | grep -c .)"
+    LEDGER_LINES+=("docs/**.md    inline R-NEXT-shaped tags  ${inline:-0}   (want 0 on a merge target; ${files:-0} files, combined form counted; echoes the suite guard)")
   else
-    LEDGER_LINES+=("protocol.md   NOT FOUND — check not performed")
+    LEDGER_LINES+=("docs/**.md    NOT FOUND — check not performed")
   fi
 
   local markers
@@ -441,6 +479,12 @@ report() {
   echo "korax gate — $(cd "$WT" && git rev-parse HEAD)"
   ( cd "$WT" && uv run tools/type_lane.py --stamp-only 2>/dev/null ) || true
   [ -n "$BASE_REF" ] && echo "base:     $BASE_REF"
+  if [ "$MERGE_TARGET" -eq 1 ]; then
+    echo "env:      KORAX_MERGE_TARGET=1 — merge-target battery (CI's condition on main)"
+  else
+    echo "env:      KORAX_MERGE_TARGET unset (--branch) — the two merge-target"
+    echo "          ledger guards SKIP; this is NOT the battery CI runs on main"
+  fi
   echo "worktree: $WT"
   echo "logs:     $LOGDIR"
   echo "════════════════════════════════════════════════════════════════"
