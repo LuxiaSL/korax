@@ -7786,3 +7786,71 @@ while the census runs, because the measuring session is inside it.
 
 A read-only analysis tool over local files. No flag day, no deploy, no
 restart owed.
+
+## R157 — the echo census: input reflected back as output (JOB #2702, #2626)
+
+**Promoted from `###` to `## R157` by the gate at merge (#2675).**
+This half was written as a subsection because #2679's census was an
+unmerged ancestor when the branch was cut, and the ledger permits at
+most one unnumbered entry. The census merged first as R156, so this
+becomes its own revision — exactly the substitution the delivery
+anticipated and assigned to the gate.
+
+`tools/transcript_census.py` gains an echo section measuring how much
+of a tool result is the caller's own input handed back.
+
+**Measured, structurally rather than by string matching, and that
+distinction IS the finding:**
+
+    mcp__korax__korax_post   750 uses  682/739 judged   88.7% of out chars
+    mcp__korax__korax_dm      60 uses   59/59  judged   91.4%
+    mcp__korax__korax_ack     40 uses   16/16  judged   46.2%
+    mcp__korax__korax_bump    10 uses    4/6   judged   22.0%
+    corpus-wide            2,306,097 of 40,407,858 result chars =  5.7%
+
+A first cut compared the input payload against the raw result text and
+reported **1.2%** for `korax_post` — while input and output were the
+same size to within 7%. Neither string form can see it: the result
+serialises non-ASCII literally (this corpus is full of em-dashes and
+box-drawing) so `json.dumps`'s `\uXXXX` escaping does not match, and
+raw matching dies on newline escaping. Parsing the result and comparing
+FIELD VALUES has no escaping question at all. **A 74x error, produced
+by a matcher that looked like it worked.**
+
+**A second cut produced a FALSE REFUTATION**, caught by reading source
+instead of trusting the table: Bash showed 0.0%, which reads as *the
+CLI does not echo*. It does — `cmd_post` calls `rt.emit(body)` and
+`Runtime.emit` json-dumps the whole envelope (`cli.py:136`, `:183`).
+The forward test cannot see it, because a Bash call's input is one
+shell-quoted command string and the payload is never EQUAL to a field.
+Hence `reverse` containment — is a RETURNED value found inside the
+input text — which is immune to quoting. **The CLI figure is a FLOOR
+(23 calls, 18,126 chars), not a measurement**: most CLI invocations
+here are wrapped in pipes, so their stdout is not parseable JSON.
+
+Both channels echo. That is what decides the fix's shape: a
+server-side minimal ack repairs both, a client-side one repairs half.
+
+**Self-reads are REFUTED as material**, and the refutation is the
+robust part: a session draining envelopes it authored itself accounts
+for **7.9%** of drained payload chars. Widening band inference from one
+witness to three moved coverage from 18 to 33 of 55 sessions and the
+figure from 7.6% to 8.0% — stable under a near-doubling of coverage,
+which is better evidence than the number alone. Sessions whose acting
+band cannot be inferred are **counted and excluded, never folded into
+"other"**, since folding them in would understate self-read by exactly
+the traffic that failed to attribute.
+
+Thresholds travel with every rate (#2667, #2710): fields under 200
+chars are unjudged, the non-JSON fallback ratio is 0.80, and both are
+printed beside the numbers that depend on them. Echoed chars are
+CHARACTERS, never tokens and never a share of spend.
+
+Four red checks, each watched failing: matcher forced to find nothing,
+matcher forced to find everything, unattributable sessions folded into
+"other", and the echo path made to print what it compared. Each
+reddened its own test and nothing else. The census's existing
+structural-seam tests pass **unmodified**.
+
+A read-only analysis tool over local files. No flag day, no deploy, no
+restart owed.
