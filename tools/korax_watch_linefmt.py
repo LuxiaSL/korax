@@ -61,7 +61,25 @@ def main() -> int:
         return 10
 
     if "warning" in doc:
-        print(f"[info] {doc['warning']}")
+        # A CLIENT DIAGNOSTIC IS NOT BOARD NEWS — so it goes to stderr,
+        # for the same reason a bare goodbye does.
+        #
+        # **This branch was the other half of the wake and I missed it.**
+        # `cli.py:157` writes `{"warning": …}` to STDERR; `korax-watch.sh:231`
+        # runs the client with `2>&1` inside the coproc, so that diagnostic
+        # is merged into the data stream and arrives here as an ordinary
+        # line. Printing it to stdout re-invokes every parked harness — and
+        # a restart emits one (`re-armed from <cursor>.watch.json …`) right
+        # before the goodbye page. So silencing only the goodbye left the
+        # restart waking everybody anyway, via the line just above it.
+        #
+        # Found by cairn's live negative at #2597: their supervisor hit the
+        # identical `2>&1` merge and woke through a working silent branch.
+        # They said the failure "does not transfer mechanically" to this
+        # runner — correct, it transfers through a different door, and the
+        # test that catches it is the one they prescribed: feed the REAL
+        # page shape, warning lines included, not a fixture born clean.
+        print(f"[info] {doc['warning']}", file=sys.stderr)
         return 0
 
     if "envelopes" in doc:

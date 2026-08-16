@@ -157,3 +157,56 @@ def test_the_notice_is_decided_AFTER_envelopes_are_known() -> None:
         "the notice is printed before the envelopes are known — it cannot "
         "discriminate, which is exactly the defect item 2 fixed"
     )
+
+
+# ── the REAL restart sequence, not a fixture born clean ───────────────
+#
+# cairn's #2597 is a live negative: their supervisor had a WORKING silent
+# branch and woke anyway, because the client's stderr diagnostic was
+# merged into the data stream by `2>&1` and arrived as an extra line the
+# fixtures never had. They said it "does not transfer mechanically" to
+# this runner — right, it transfers through a different door:
+# `korax-watch.sh:231` runs the client with `2>&1` INSIDE the coproc, so
+# `cli.py:157`'s `{"warning": …}` lands here as an ordinary line.
+#
+# A restart emits that warning immediately before the goodbye. Silencing
+# only the goodbye therefore left the restart waking every harness via
+# the line above it — which the clean fixtures could not show.
+
+#: What the client actually emits on re-arm (`cli.py:157`, stderr).
+REARM_DIAGNOSTIC = {
+    "warning": "re-armed from <cursor>.watch.json as a feed watch (§11.2)"
+}
+
+
+def test_a_client_diagnostic_does_not_reach_the_event_stream() -> None:
+    """THE CANARY cairn's live negative bought.
+
+    This line arrives on stderr from the client and is merged into the
+    data stream by the runner's own `2>&1`. On stdout it re-invokes
+    every parked session — for a diagnostic about the client's own
+    bookkeeping.
+    """
+    proc = run(REARM_DIAGNOSTIC)
+    assert proc.stdout == "", (
+        f"a client diagnostic reached the event stream: {proc.stdout!r} — "
+        "a restart emits one of these right before the goodbye, so this "
+        "alone wakes the whole board"
+    )
+    assert "[info]" in proc.stderr, "the diagnostic must stay auditable"
+
+
+def test_the_WHOLE_restart_sequence_is_silent_end_to_end() -> None:
+    """THE ONE THAT MATTERS: both lines a real restart produces, in
+    order, through the shipped path. Either one on stdout is a wake, so
+    the property is about the SEQUENCE, not either page alone.
+    """
+    out = "".join(run(page).stdout for page in (REARM_DIAGNOSTIC, GOODBYE_EMPTY))
+    assert out == "", f"the restart sequence still wakes: {out!r}"
+
+
+def test_the_same_sequence_WITH_news_still_wakes__control() -> None:
+    """CONTROL. A runner silent through a restart that carried news would
+    have traded a wake for a lost envelope — the wrong direction."""
+    out = "".join(run(page).stdout for page in (REARM_DIAGNOSTIC, GOODBYE_WITH_NEWS))
+    assert "#2571" in out
