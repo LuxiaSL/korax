@@ -1,0 +1,218 @@
+"""`tools/r85_compare.py` — the R85 equivalence window (#2320, spec #2327).
+
+Lives here rather than in `server/tests/` for the reason the mill banked
+at #2232 §4: a tool test's HOME is decided by its imports, before it is
+written. This one loads a `tools/` module and never touches the server
+package, and `clients/cli/tests` is the suite that already carries
+`test_korax_export.py` — the same shape, same place.
+
+**What is worth testing here is the REFUSAL.** The comparison itself is
+sha256 over bytes and cannot really be wrong; the thing that makes a
+window trustworthy is that it declines to exist when the precondition
+fails. A guard whose whole job is refusing has to be shown refusing, in
+both directions — otherwise it is an `assert True` with a docstring.
+
+The probe runner is injected throughout, so every case here is exercised
+without a live board. The one thing that cannot be faked — that the real
+CLI emits what the digest is taken over — is the mill's own #2320 run,
+which this tool reproduces rather than replaces.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+from collections.abc import Sequence
+from pathlib import Path
+
+import pytest
+
+REPO = Path(__file__).resolve().parents[3]
+TOOL = REPO / "tools" / "r85_compare.py"
+
+
+def _load():
+    spec = importlib.util.spec_from_file_location("r85_compare_under_test", TOOL)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+r85 = _load()
+
+
+class FakeRunner:
+    """A probe runner that answers from a dict, and records what it was asked.
+
+    Deliberately NOT permissive: an unknown probe raises rather than
+    returning empty bytes, because a runner that answers everything would
+    let a test pass while the tool asked for something nonsensical.
+    """
+
+    def __init__(self, answers: dict[str, bytes]) -> None:
+        self.answers = answers
+        self.calls: list[list[str]] = []
+
+    def __call__(self, argv: Sequence[str]) -> bytes:
+        self.calls.append(list(argv))
+        key = argv[-3] if argv[-2] == "--at" else argv[-1]
+        for name, payload in self.answers.items():
+            if name in " ".join(argv):
+                return payload
+        raise AssertionError(f"unexpected probe: {argv} (key {key})")
+
+
+def _uniform(payload: bytes = b'{"stable": true}') -> FakeRunner:
+    return FakeRunner({"": payload})
+
+
+# ── the precondition, which is the instrument ─────────────────────────
+
+def test_compare_refuses_when_reductions_moved(tmp_path, monkeypatch) -> None:
+    """**The canary.** A window whose restart also moved `reductions.py`
+    cannot separate an incremental-join defect from the new code computing
+    something different. It must refuse, not warn — a confounded run looks
+    clean, and clean-looking tables get quoted."""
+    window = tmp_path / "w"
+    monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
+    r85.capture(window, 2300, "someband", runner=_uniform(), now=lambda: "T0")
+
+    monkeypatch.setattr(
+        r85, "reductions_moved", lambda pre, post: [r85.REDUCTIONS])
+    with pytest.raises(r85.ReductionsMoved) as excinfo:
+        r85.compare(window, runner=_uniform(), post_sha="bbbbbbbbbbbb")
+
+    message = str(excinfo.value)
+    assert "REFUSING" in message
+    assert r85.REDUCTIONS in message, "the refusal must name what moved (#415)"
+    assert "aaaaaaaaaa" in message and "bbbbbbbbbb" in message, (
+        "both shas belong in the refusal — the reader's next move is to diff them"
+    )
+
+
+def test_compare_runs_when_reductions_did_not_move(tmp_path, monkeypatch) -> None:
+    """The other direction (#112). A guard that refused everything would
+    pass the test above and be useless; this is what proves it discriminates."""
+    window = tmp_path / "w"
+    monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
+    r85.capture(window, 2300, "someband", runner=_uniform(), now=lambda: "T0")
+
+    monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [])
+    result = r85.compare(window, runner=_uniform(), now=lambda: "T1",
+                         post_sha="bbbbbbbbbbbb")
+    assert result.failures == ()
+    assert len(result.rows) == len(r85.PROBES)
+
+
+def test_reductions_moved_reads_the_real_git_history() -> None:
+    """The predicate against this repo's own history, so the guard is not
+    merely tested against its own monkeypatch. An identical pair moves
+    nothing; that is the cheapest true statement available without pinning
+    a sha this test would have to chase."""
+    sha = r85.head_sha()
+    assert r85.reductions_moved(sha, sha) == []
+
+
+# ── windows are self-describing and never clobbered ───────────────────
+
+def test_a_window_is_never_overwritten(tmp_path, monkeypatch) -> None:
+    """#2327 §5: the value is N windows across different uptimes, so a tool
+    that clobbered the last run would quietly cap the evidence at one."""
+    window = tmp_path / "w"
+    monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
+    r85.capture(window, 2300, "someband", runner=_uniform(), now=lambda: "T0")
+    with pytest.raises(r85.WindowExists):
+        r85.capture(window, 2300, "someband", runner=_uniform(), now=lambda: "T0")
+
+
+def test_compare_refuses_a_window_that_was_never_captured(tmp_path) -> None:
+    """The failure the post-only rig produced: you cannot start a window
+    after the restart it measures — the pre-side state is gone."""
+    with pytest.raises(r85.R85Error) as excinfo:
+        r85.compare(tmp_path / "never", runner=_uniform())
+    assert "cannot be started after the restart" in str(excinfo.value)
+
+
+def test_the_manifest_records_what_pairs_the_halves(tmp_path, monkeypatch) -> None:
+    window = tmp_path / "w"
+    monkeypatch.setattr(r85, "head_sha", lambda: "abc123abc123")
+    r85.capture(window, 2300, "korax-dev-mill-grist",
+                runner=_uniform(), now=lambda: "2026-08-16T01:43:00Z")
+    saved = json.loads((window / "manifest.json").read_text())
+    assert saved["at"] == 2300
+    assert saved["sha"] == "abc123abc123"
+    assert saved["identity"] == "korax-dev-mill-grist"
+    assert saved["captured_utc"] == "2026-08-16T01:43:00Z"
+
+
+# ── every probe is pinned, by construction ────────────────────────────
+
+def test_every_probe_is_pinned_and_none_can_opt_out() -> None:
+    """#2327 §3, and the mill's #1533 behind it: an unpinned probe evaluates
+    at current head and differs across ANY restart for legitimate reasons.
+    `--at` is appended by the argv builder, so a probe cannot carry its own
+    (or omit one) — the guard is the construction, not a convention."""
+    for probe in r85.PROBES:
+        assert "--at" not in probe.argv, (
+            f"{probe.name} carries its own --at; pinning is the builder's job"
+        )
+        argv = r85.korax_argv("someband", probe, 2300)
+        assert argv[-2:] == ["--at", "2300"]
+
+
+def test_the_probe_set_spans_both_join_families() -> None:
+    """#2327 §2. `browse` exercises the LOG join (scores over inbound edges),
+    `state` the TIMELINE join (policy_in_force, grade_floor, retention,
+    opens, findings, stamped, invalidated). A set that lost one family would
+    still produce a green nine-row table and measure half the question."""
+    names = {p.name for p in r85.PROBES}
+    assert {"browse-top", "browse-hot"} <= names, "the log join, at two sorts"
+    assert sum(n.startswith("state-") for n in names) >= 4, "the timeline join"
+    assert "state-commons-rakes" in names, "keep a rotating nest in the set"
+    assert "state-korax-canon" in names, "and the canon"
+
+
+# ── the report ────────────────────────────────────────────────────────
+
+def test_a_difference_is_reported_as_an_r85_defect_not_a_delivery_fault(
+    tmp_path, monkeypatch
+) -> None:
+    """When this fails, the next band's instinct will be to blame whatever
+    shipped in that restart. The report has to say otherwise, because the
+    precondition already excluded it."""
+    window = tmp_path / "w"
+    monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
+    monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [])
+    r85.capture(window, 2300, "someband", runner=_uniform(b"before"), now=lambda: "T0")
+
+    result = r85.compare(window, runner=_uniform(b"AFTER"), now=lambda: "T1",
+                         post_sha="bbbbbbbbbbbb")
+    assert len(result.failures) == len(r85.PROBES)
+    rendered = result.render()
+    assert "DIFFERS" in rendered
+    assert "R85 DEFECT" in rendered
+    assert "not the fault of whatever delivery" in " ".join(rendered.split())
+    # ...and it is written down, not only printed
+    assert "DIFFERS" in (window / "result.txt").read_text()
+
+
+def test_main_exits_two_on_a_refusal_and_one_on_a_difference(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Exit codes are the machine-readable half: 0 measured-and-equal,
+    1 measured-and-different, 2 not measured at all. Fusing 1 and 2 would
+    make an untrustworthy window look like a defect."""
+    window = tmp_path / "w"
+    monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
+    monkeypatch.setattr(r85, "_default_runner", _uniform())
+    monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [])
+    assert r85.main(["capture", "--window", str(window), "--at", "2300",
+                     "--as", "someband"]) == 0
+    assert r85.main(["compare", "--window", str(window)]) == 0
+
+    monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [r85.REDUCTIONS])
+    assert r85.main(["compare", "--window", str(window)]) == 2
+    assert "REFUSING" in capsys.readouterr().err
