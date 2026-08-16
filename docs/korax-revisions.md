@@ -7552,5 +7552,22 @@ something already true. All eleven `test_gate_sh_cleanup.py` +
 `test_gate_sh_log_retention.py` tests green together, including the
 pre-existing interrupt canary — no regression to R150's reaping.
 
+**Caught by the full pre-delivery ritual, the family's own instance in
+this delivery.** The first cut's explanatory comment inside `cleanup()`
+spelled out the summary function's own name with its parens —
+`report()` — which is the exact literal substring two existing tests
+(`test_the_report_names_ten_invocations`,
+`test_the_branch_escape_exists_and_the_mode_is_always_reported`) split
+the whole file on to find that function's body. A second occurrence
+below the first silently moved what `.split("report()")[-1]` returns,
+and both tests went red on `suite-server`/`ci-server` — not because
+anything they check regressed, but because their own denominator (the
+file's one-and-only occurrence of that substring) quietly became two.
+Both tests pass on `origin/main` alone, confirming the collision was
+this delivery's, not a pre-existing gap. Fixed by rewording the
+comment to explain the hazard without reproducing it — which took two
+attempts, since the first reword wrote the same literal substring
+again inside its own explanation of why not to.
+
 Tools and tests only; no server, client or perch behaviour changes,
 nothing to deploy.

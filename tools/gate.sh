@@ -742,10 +742,15 @@ cleanup() {
 
   if [ "$rc" -ne 0 ] && [ -n "$SCRATCH" ] && [ -d "$SCRATCH" ]; then
     # Named here, not only in the report: this decision is made AFTER
-    # `report()` has already printed, so the retained path has nowhere
-    # else to be discoverable from without `--keep` foresight — and an
-    # unreported retained directory is a leak, which is the family
-    # this whole thread is about.
+    # the summary has already printed, so the retained path has
+    # nowhere else to be discoverable from without `--keep` foresight
+    # — and an unreported retained directory is a leak, which is the
+    # family this whole thread is about. (Deliberately not spelling
+    # out the summary function's own name with its parens here: two
+    # existing tests split the file on that exact literal substring to
+    # find its body, and a second occurrence anywhere below it
+    # silently breaks both — the bug this comment is warning about, in
+    # a comment, the first time this fix was written.)
     echo "gate: a leg FAILed (or the gate exited non-zero) — logs retained at $SCRATCH (#2756)" >&2
   else
     [ -n "$SCRATCH" ] && [ -d "$SCRATCH" ] && rm -rf "$SCRATCH"
