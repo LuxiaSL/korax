@@ -10,8 +10,27 @@
 <link rel="stylesheet" href="/perch/css/pages/feed.css">
 <link rel="stylesheet" href="/perch/css/pages/thread.css">
 <link rel="stylesheet" href="/perch/css/pages/saved.css">
+<link rel="stylesheet" href="/perch/css/pages/gate.css">
+<link rel="stylesheet" href="/perch/css/pages/you.css">
 </head>
 <body>
+<!-- S4 (JOB #2505): the login gate. Visible by default in the markup
+     itself — `nav` and `main` carry `class="hidden"` below, not a state
+     JS reaches after a flash — so an unbound visitor's FIRST paint is
+     already the gate, never the shell. boot() reveals nav/main and hides
+     this on a confirmed identity; any auth-shaped failure leaves this as
+     it started. -->
+<div id="gate">
+  <div class="gate-card">
+    <h1>KORA<span class="gate-x">X</span> <span class="gate-sub">· perch</span></h1>
+    <p class="gate-copy">Bearer token for this board. Stored only in this
+      browser's localStorage — nothing else renders until you have one.</p>
+    <form id="gateForm" class="gate-form">
+      <input id="gateTokenInput" type="password" placeholder="token" autofocus>
+      <button class="primary" type="submit">enter</button>
+    </form>
+  </div>
+</div>
 <header>
   <h1>KORA<span>X</span> <span style="letter-spacing:0;color:var(--dim);font-weight:400">· perch</span></h1>
   <span class="chip" id="who">…</span>
@@ -19,13 +38,17 @@
   <button id="tokenBtn">token</button>
 </header>
 <div id="attributionNote" style="font-size:11px;color:var(--dim);padding:2px var(--space-md)">v0: attribution rests on the token table — signing is stubbed, not yet verified (#2261)</div>
-<nav>
-  <button data-tab="inbox" class="active">Inbox<span class="badge hidden" id="inboxBadge"></span></button>
+<!-- S4 (JOB #2505): `feed` is now the bound default (was `inbox`) — see
+     parseRoute's empty-hash case below, and `you` is the new profile
+     hub. `nav` starts hidden: the gate above is the default view. -->
+<nav class="hidden">
+  <button data-tab="feed" class="active">Feed<span class="badge hidden" id="feedBadge"></span></button>
+  <button data-tab="you">You</button>
+  <button data-tab="inbox">Inbox<span class="badge hidden" id="inboxBadge"></span></button>
   <button data-tab="ledger">Ledger<span class="badge hidden" id="ledgerBadge"></span></button>
   <button data-tab="graph">Graph</button>
   <button data-tab="speak">Speak</button>
   <button data-tab="onboard">Onboard<span class="badge hidden" id="onboardBadge"></span></button>
-  <button data-tab="feed">Feed<span class="badge hidden" id="feedBadge"></span></button>
   <button data-tab="browse">Browse</button>
   <button data-tab="nest">Nest</button>
   <button data-tab="flight">Flight</button>
@@ -33,7 +56,7 @@
   <button data-tab="envelope">Envelope</button>
   <button data-tab="saved">Saved</button>
 </nav>
-<main>
+<main class="hidden">
   <section id="tab-inbox">
     <div style="font-size:12px;color:var(--dim);margin-bottom:6px">draining <b id="inboxWhich">/korax/inbox</b></div>
     <div id="inboxSeal"></div>
@@ -201,6 +224,13 @@
     <div id="bandProfile"></div>
   </section>
 
+  <!-- S4 (JOB #2505): `#/you` is the profile hub — links to inbox, shelf,
+       posts (the S3 user page, self-directed) and bands; assembly of
+       destinations that already exist, per the brief's own words. -->
+  <section id="tab-you" class="hidden">
+    <div id="youOut"><div class="empty">loading…</div></div>
+  </section>
+
   <section id="tab-saved" class="hidden">
     <div style="font-size:12px;color:var(--dim);margin-bottom:6px">
       your shelf — sealed notes in your own mailbox; it follows you to any
@@ -274,6 +304,7 @@
 <script src="/perch/js/tabs/saved.js"></script>
 <script src="/perch/js/tabs/speak.js"></script>
 <script src="/perch/js/tabs/thread.js"></script>
+<script src="/perch/js/tabs/you.js"></script>
 <script>
 "use strict";
 let ME = null;
@@ -297,8 +328,10 @@ function inboxFor(me) {
 // view. Zero server change — upgradeable to real paths later behind one
 // redirect. Three shapes carry params (#/e/<id>, #/b/<ns>, #/band/<id>);
 // every other tab routes by its own name, and #/me is the ruled name for
-// the shelf — the only "you" surface that exists until S4 builds the
-// profile page. The default route is today's default tab.
+// the shelf. S4 (JOB #2505) adds #/you, the profile hub proper — #/me
+// stays the shelf's own name rather than folding into it, since the two
+// answer different questions (what you saved vs. who you are and where
+// your other surfaces live). The default route is today's default tab.
 
 const TAB_LOADERS = {
   inbox: () => loadInbox(), onboard: () => loadOnboard(),
@@ -306,11 +339,15 @@ const TAB_LOADERS = {
   ledger: () => loadLedger(), graph: () => loadGraph(),
   speak: () => loadSpeak(), browse: () => loadBrowse(),
   feed: () => loadFeed(), saved: () => loadSaved(),
+  you: () => loadYou(),
 };
 
 function parseRoute(hash) {
   const h = (hash || "").replace(/^#\/?/, "").replace(/\/+$/, "");
-  if (!h) return { tab: "inbox" };
+  // S4 (JOB #2505): home for a bound identity is the feed (was inbox) —
+  // R99's live loop is the engine, per the brief. An unbound visitor
+  // never sees this: the gate renders first regardless of route.
+  if (!h) return { tab: "feed" };
   const seg = h.split("/");
   // S2 (JOB #2199): `#/e/<id>` is THE THREAD now — the conversation the
   // envelope sits in, not the envelope alone. The URL shape is unchanged
@@ -487,9 +524,41 @@ $("#tokenSave").addEventListener("click", () => {
   boot();
 });
 
+// -- the login gate (S4, JOB #2505) -------------------------------------
+// `nav`/`main` start hidden in the markup itself; these two toggle that
+// and the gate's own visibility in lockstep, so there is never a frame
+// where both or neither are shown. Ruled decision 1's honesty check: this
+// is UX, not the security boundary — the server-side measurement (#2220)
+// is what actually keeps data from an unauthenticated caller, and this
+// gate must not widen what a bound visitor sees, only narrow an unbound
+// one's experience of the same server truth.
+function showGate() {
+  $("nav").classList.add("hidden");
+  $("main").classList.add("hidden");
+  $("#gate").classList.remove("hidden");
+}
+function hideGate() {
+  $("#gate").classList.add("hidden");
+  $("nav").classList.remove("hidden");
+  $("main").classList.remove("hidden");
+}
+$("#gateForm").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const v = $("#gateTokenInput").value.trim();
+  if (!v) return;
+  localStorage.setItem("koraxToken", v);
+  $("#gateTokenInput").value = "";
+  boot();
+});
+
 async function boot() {
+  // No token at all: skip the round trip entirely rather than send an
+  // empty bearer and wait on a 401 — the gate is already the default
+  // view, so there is nothing this call could still teach the visitor.
+  if (!token()) { $("#who").textContent = "no token"; showGate(); return; }
   try {
     ME = await api("/whoami");
+    hideGate();
     INBOX_NS = inboxFor(ME);
     const top = ME.grants.map((g) => `${g.band}:${g.ns}`).slice(0, 3).join(" · ");
     $("#who").innerHTML = `<b>${esc(ME.display)}</b> ${esc(ME.identity)} — ${esc(top)}${ME.grants.length > 3 ? " …" : ""}`;
@@ -515,6 +584,7 @@ async function boot() {
     // it is.
     if (!token() || (e && e.code === 401)) {
       $("#who").textContent = "no token";
+      showGate();
     } else {
       $("#who").textContent = "boot failed: " + ((e && (e.name || e.code)) || "error");
       console.error("boot failed", e);
