@@ -29,8 +29,6 @@ from __future__ import annotations
 
 import json
 import signal
-import subprocess
-import sys
 import threading
 import time
 import urllib.request
@@ -91,12 +89,20 @@ uvicorn.Server(uvicorn.Config(create_app(board), log_level="error")).run(
 """
 
 
-def test_a_real_sigterm_releases_every_parked_call(tmp_path) -> None:
+def test_a_real_sigterm_releases_every_parked_call(tmp_path, perch_rig) -> None:
     script = tmp_path / "serve.py"
     script.write_text(_SERVER, encoding="utf-8")
     info = tmp_path / "info.txt"
 
-    proc = subprocess.Popen([sys.executable, str(script), str(SERVER_DIR), str(info)])
+    # THROUGH THE RIG, not a bare `Popen` (#2601, announced #2738). The
+    # `finally` below still runs on the normal and exception paths, but it
+    # cannot run when pytest is SIGKILLed — and this child is an HTTP
+    # server holding a bound port, so an unreaped one outlives the run and
+    # looks like nothing in particular to anybody hunting leaks. The rig's
+    # PDEATHSIG covers exactly that path; its `killpg` covers the others.
+    # SIGTERM below still reaches the server: PDEATHSIG fires on the
+    # PARENT's death and is inert while pytest lives.
+    proc = perch_rig.serve(script, SERVER_DIR, info)
     try:
         for _ in range(80):
             if info.exists():

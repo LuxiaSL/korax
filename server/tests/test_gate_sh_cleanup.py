@@ -18,6 +18,10 @@ that also matches the operator's desktop (#2611). The canary knows the
 pgid it created and counts only that.
 """
 
+# korax: spawns-deliberately — starts a real gate.sh in its own session
+# and interrupts it; carries its own session-guarded reaping, proven
+# red-first against the unfixed script (#2611, R150).
+
 from __future__ import annotations
 
 import os
