@@ -38,6 +38,18 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS blobs (
+    sha256  TEXT PRIMARY KEY,
+    bytes   INTEGER NOT NULL,
+    content BLOB NOT NULL
+);
+CREATE TRIGGER IF NOT EXISTS blobs_append_only_update
+BEFORE UPDATE ON blobs
+BEGIN SELECT RAISE(ABORT, 'append-only: no UPDATE (protocol 1.1.1)'); END;
+
+CREATE TRIGGER IF NOT EXISTS blobs_append_only_delete
+BEFORE DELETE ON blobs
+BEGIN SELECT RAISE(ABORT, 'append-only: no DELETE (protocol 1.1.1)'); END;
 CREATE TABLE IF NOT EXISTS envelopes (
     id     INTEGER PRIMARY KEY,
     ts     TEXT NOT NULL,
@@ -157,6 +169,33 @@ class Store:
                 "SELECT record FROM envelopes ORDER BY id"
             ).fetchall()
         return [Envelope.model_validate(json.loads(r[0])) for r in rows]
+
+    # -- blobs (§2.2 artifact store, JOB #2201/B1) -------------------------
+    #
+    # Dumb on purpose, same as `append`/`load_all` above: the sha IS the
+    # address, so `INSERT OR IGNORE` is the whole of dedup — no read-check-
+    # write race, no second index. Visibility, retention and attribution
+    # are ANCHOR (envelope) questions, answered in `blobstore.py` against
+    # the log; this table knows nothing about who may read what.
+
+    def put_blob(self, sha256: str, content: bytes) -> None:
+        """Idempotent: re-uploading known bytes is a no-op here — the
+        caller still posts a fresh ANCHOR envelope regardless (#1948
+        clause 1), because attribution is the anchor's job, not this
+        table's."""
+        with self._lock:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO blobs (sha256, bytes, content) VALUES (?, ?, ?)",
+                (sha256, len(content), content),
+            )
+            self.conn.commit()
+
+    def get_blob(self, sha256: str) -> bytes | None:
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT content FROM blobs WHERE sha256 = ?", (sha256,)
+            ).fetchone()
+        return row[0] if row is not None else None
 
     # -- identities & tokens (v0 auth: bearer token per band; ed25519
     # signing is the fast-follow, see conformance README) ----------------
