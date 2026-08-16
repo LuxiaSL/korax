@@ -1474,6 +1474,7 @@ def create_app(board: Board) -> FastAPI:
             "views": VIEWS,
             "levels": ["server"],
             "signing": "stubbed",  # tokens now, ed25519 fast-follow
+            "attribution": "v0: attribution rests on the token table — signing is stubbed, not yet verified (#2261)",
             # TOP-LEVEL, and not nested under `serving`: that key belongs to
             # the MCP client's own self-report and is written unconditionally
             # over this body (server.py:2402, filed #2392), so a nonce placed
