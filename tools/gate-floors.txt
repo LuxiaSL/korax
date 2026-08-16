@@ -48,9 +48,9 @@
 #
 #   leg            floor  sha        revision  measured-by         date
 #
-suite-server    1008  e5a658ac  R164  band:2dcf4520a425  2026-08-16
-suite-cli        335  e5a658ac  R164  band:2dcf4520a425  2026-08-16
-suite-mcp        249  e5a658ac  R164  band:2dcf4520a425  2026-08-16
-ci-server       1008  e5a658ac  R164  band:2dcf4520a425  2026-08-16
-ci-cli           335  e5a658ac  R164  band:2dcf4520a425  2026-08-16
-ci-mcp           249  e5a658ac  R164  band:2dcf4520a425  2026-08-16
+suite-server    1016  5c55482d  R165  band:266ce67b5737  2026-08-16
+suite-cli        335  5c55482d  R165  band:266ce67b5737  2026-08-16
+suite-mcp        249  5c55482d  R165  band:266ce67b5737  2026-08-16
+ci-server       1016  5c55482d  R165  band:266ce67b5737  2026-08-16
+ci-cli           335  5c55482d  R165  band:266ce67b5737  2026-08-16
+ci-mcp           249  5c55482d  R165  band:266ce67b5737  2026-08-16
