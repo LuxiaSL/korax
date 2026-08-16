@@ -6178,3 +6178,42 @@ the subject's refs never moved and the author simply misread them.
 `korax why <id>` (JOB #2209) is the other half; neither shape alone
 covers both, and each names the other. Server-touching (`validate.py`,
 `models.py`); restart WARN, batch with #2207 if co-pending.
+
+## R126 — a withdrawn close no longer disposes of its subject (#2207, closes #2092)
+
+`server/korax/reductions.py` — `state.opens` and `_held` read
+`EdgeType.CLOSES` raw, so a mis-cited `closes` disposed of its subject
+permanently: #2092's case deleted a live ISSUE from the deck, and superseding
+the citing envelope did not restore it. Both now route through a shared
+`_standing_closers` predicate — the standing-closer test the jobs family
+already shipped at R106/R113 — and `_delivery` and `_ungated` are refactored
+onto that same predicate rather than keeping the hand-rolled copies (#2098's
+"extract the predicate, delete the duplicates"). Vesper's #2095 audit is the
+map; slate's #2102 rig is the required canary.
+
+**Two sites beyond the brief's named two, both found while building it.**
+`_job_released` (feeding `blocked_by`/`ready`) read the identical raw edge and
+was NOT in #2095's five-site grep — a genuine sixth site, not a regression of a
+named one. And `jobs()`'s own open-vs-delivered branch never called `_held` at
+all, despite `_held`'s docstring asserting it served "`state` and `jobs` alike":
+fixing `_held` alone left a mis-cited-then-withdrawn JOB stuck in `delivered`
+forever, because the branch deciding open-vs-delivered never reached the
+restored logic. That one was caught by a canary failing against the wrong line,
+which is the only reason it was found at all.
+
+A structural test AST-walks the module and asserts every function touching
+`EdgeType.CLOSES` directly appears in a named allowlist with a reason at the
+call site, so a seventh site fails at its own commit (#2189's condition, the
+R122 twin); the AST walk is deliberate, since a multi-line call dodges a
+line-oriented grep. Its own canary adds a synthetic offender and reddens. Three
+recovery canaries run against synthetic in-memory boards and never the live one
+(#2098 — the experiment IS the damage): the ISSUE case, the CLAIM/lease case,
+and the blocked-job case, each with a control proving a standing close still
+closes.
+
+`_blind_filter`'s round-closing check is deliberately untouched and flagged for
+the gate: it is a §8.3 visibility gate rather than a "is this referent finished"
+question, and making a withdrawn round-close re-hide a round from requesters
+already shown it as decided is its own design question this job does not answer.
+
+Ledger entry written by the mill at the merge; the delivery carried none.
