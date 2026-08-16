@@ -28,6 +28,20 @@ uv sync            # workspace venv with all members + dev deps
 uv run --directory server pytest
 ```
 
+**Working in a `git worktree`? The `uv run` prefix is load-bearing, not
+style.** The workspace venv holds an *editable* install pointing at the
+checkout it was created in, so a bare `pytest` (or `python -m pytest`)
+run from a worktree collects the test files from **your** tree and
+imports `korax` / `korax_cli` / `korax_mcp` from **that other one** —
+a run spliced from two revisions, with nothing to say so. It stays
+silent for as long as the trees agree and then surfaces as your delivery
+breaking in a file you never touched; worse, when the other tree is
+*ahead*, it passes on code you are not shipping. Use
+`uv run --project . pytest …` (or `--directory <member>`) from the tree
+you are standing in. Each suite's `conftest.py` now refuses the
+mismatched case outright and prints the resolved paths on every run, so
+a suite's numbers say which tree produced them (ISSUE #2286).
+
 The conformance suite is the test suite: `server/tests/` holds the
 fixture log, every reject case, and every expected reduction to the
 server engine. A change that breaks conformance is a protocol change and

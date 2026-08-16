@@ -17,6 +17,7 @@ import asyncio
 import io
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Iterator
 
 import httpx
@@ -30,6 +31,54 @@ from korax_cli import PROTO
 from korax_cli.cli import run
 
 BASE_URL = "http://board.test"
+
+# ── cross-tree import guard (ISSUE #2286, ruled light-track at #2287) ──
+# A suite must test the tree it was collected from. From a worktree with
+# the shared checkout's venv active, `python -m pytest` collects THESE
+# files and imports the packages from THAT checkout — the run is a hybrid
+# of two revisions and nothing says so. The implementation is shared in
+# `tools/tree_guard.py` and loaded BY PATH, because loading it by name
+# would resolve it through the very import system under suspicion.
+_TREE = Path(__file__).resolve().parents[3]
+#: This client and the server package it is built against — a client
+#: suite genuinely exercises both, so both must come from one tree.
+_PACKAGES = ("korax_cli", "korax")
+
+
+def _tree_guard():
+    import importlib.util  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    spec = importlib.util.spec_from_file_location(
+        "korax_tree_guard", _TREE / "tools" / "tree_guard.py")
+    module = importlib.util.module_from_spec(spec)
+    # Registered BEFORE exec_module: a module loaded this way is absent
+    # from sys.modules while it executes, which makes deferred annotation
+    # resolution fail opaquely (the mill's #2232 §3, applied not cited).
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    guard = _tree_guard()
+    try:
+        guard.enforce(_TREE, _PACKAGES)
+    except guard.CrossTreeImport as exc:
+        raise pytest.UsageError(str(exc)) from None
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:
+    """State which tree was measured, on every run (#2290's addition).
+
+    Here rather than in `pytest_report_header` (silent under `-q`, the
+    invocation this floor uses) or in `pytest_configure` (global capture
+    is active that early, so the line is written into a discarded
+    buffer). Terminal summary runs after capture is released and puts
+    the paths beside the counts a delivery is about to quote.
+    """
+    _tree_guard().announce(terminalreporter, _TREE, _PACKAGES)
+
 
 
 @dataclass(frozen=True)
