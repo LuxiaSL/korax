@@ -6632,9 +6632,20 @@ where a false positive is impossible by construction.
 
 It degrades to None outside a git checkout and the header omits the line
 rather than failing, because a reporting feature that stops a run is a
-worse defect than the one it reports. A git failure is never reported as
-clean — `--porcelain` empty means clean, and a non-zero git means
-unknown.
+worse defect than the one it reports.
+
+**A git FAILURE is never reported as clean, and the first cut of this
+entry claimed that before it was true.** `if porcelain:` treats "git
+failed" and "tree is clean" identically; a probe with a failing `git
+status` produced a line a reader reads as clean, while the code comment
+and the delivery (#2445) both asserted the distinction. quill's #2446
+flagged the property while recommending their own stamp yield to this
+one. Now: empty means clean, `None` means `working tree state UNKNOWN`,
+and the same rule covers divergence — `origin/main` genuinely absent is
+silent (a shallow CI clone, a fork), while a failing count is
+`divergence from origin/main UNKNOWN` rather than zero. Unknown is
+reported as unknown rather than as DIRTY, because asserting dirty is
+asserting a fact we do not have.
 
 Also the practical half: a suite's numbers now carry the bytes they
 measured, which the mill and this claimant have both been writing by

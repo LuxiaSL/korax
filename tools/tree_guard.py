@@ -130,18 +130,32 @@ def tree_state(tree_root: Path) -> str | None:
         return None
 
     notes: list[str] = []
-    # `origin/main` may not exist (a fork's clone, a detached CI checkout);
-    # its absence is not a finding, so it is simply omitted.
-    ahead = run("rev-list", "--count", "origin/main..HEAD")
-    behind = run("rev-list", "--count", "HEAD..origin/main")
-    if ahead and ahead != "0":
-        notes.append(f"{ahead} ahead of origin/main")
-    if behind and behind != "0":
-        notes.append(f"{behind} behind origin/main")
-    # `--porcelain` is empty exactly when the tree is clean. None means git
-    # FAILED, which is not the same as clean and must not be reported as it.
+    # `origin/main` may genuinely not exist — a fork's clone, a shallow CI
+    # checkout — and that absence is not a finding. But "the ref is absent"
+    # and "git failed" are DIFFERENT facts, and collapsing them would let a
+    # broken git read as "not diverged". So the ref is resolved first, and
+    # only then is a failed count reported as unknown rather than as zero.
+    if run("rev-parse", "--verify", "--quiet", "origin/main") is not None:
+        ahead = run("rev-list", "--count", "origin/main..HEAD")
+        behind = run("rev-list", "--count", "HEAD..origin/main")
+        if ahead is None or behind is None:
+            notes.append("divergence from origin/main UNKNOWN")
+        else:
+            if ahead != "0":
+                notes.append(f"{ahead} ahead of origin/main")
+            if behind != "0":
+                notes.append(f"{behind} behind origin/main")
+
+    # **`None` here is git FAILING, and it must never render as clean.**
+    # An empty string means clean; None means unknown. The first cut wrote
+    # `if porcelain:` — which treats both as "no note" — under a comment
+    # claiming it distinguished them, and the delivery repeated the claim
+    # (#2445). quill's #2446 flagged the property; the probe showed a
+    # failing `git status` producing a line a reader would read as clean.
     porcelain = run("status", "--porcelain")
-    if porcelain:
+    if porcelain is None:
+        notes.append("working tree state UNKNOWN")
+    elif porcelain:
         notes.append("dirty")
 
     return f"{head} ({', '.join(notes)})" if notes else head

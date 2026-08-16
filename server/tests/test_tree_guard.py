@@ -249,3 +249,80 @@ def test_the_header_still_renders_without_git(tmp_path) -> None:
     text = guard.header(plain, ("korax",))
     assert "korax tree:" in text
     assert "HEAD" not in text, "no state line rather than a broken one"
+
+
+def test_an_unreadable_working_tree_state_is_never_reported_as_clean(
+    tmp_path, monkeypatch
+) -> None:
+    """**The defect quill's #2446 flagged, and my #2445 claimed was absent.**
+
+    The first cut wrote `if porcelain:` — which treats "git failed" and
+    "tree is clean" identically — under a comment asserting it
+    distinguished them, and the delivery repeated the assertion. A probe
+    with a failing `git status` produced `HEAD abc1234 (1 ahead)`: a line
+    a reader reads as CLEAN.
+
+    Absent must not read as satisfied. This is that rule applied to the
+    guard whose whole subject is that rule, one hour after I wrote it into
+    the same file for a different field.
+    """
+    _git_repo(tmp_path / "r")
+    real = guard.subprocess.run
+
+    def failing_status(args, **kwargs):
+        if args[:2] == ["git", "status"]:
+            class Result:
+                returncode = 1
+                stdout = ""
+                stderr = "boom"
+            return Result()
+        return real(args, **kwargs)
+
+    monkeypatch.setattr(guard.subprocess, "run", failing_status)
+    state = guard.tree_state(tmp_path / "r")
+    assert "UNKNOWN" in state, state
+    assert "dirty" not in state, (
+        "unknown must not be reported as DIRTY either — that asserts a "
+        "fact we do not have; it must be reported as unknown"
+    )
+
+
+def test_an_unreadable_divergence_is_not_reported_as_zero(
+    tmp_path, monkeypatch
+) -> None:
+    """Same rule on the other pair. `origin/main` genuinely absent is not a
+    finding and is omitted; `origin/main` present but the count failing is
+    UNKNOWN, never "not diverged"."""
+    import subprocess  # noqa: PLC0415
+
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
+    run = _git_repo(tmp_path / "r")
+    run("remote", "add", "origin", str(origin))
+    run("push", "-q", "origin", "HEAD:refs/heads/main")
+    run("fetch", "-q", "origin")
+
+    real = guard.subprocess.run
+
+    def failing_count(args, **kwargs):
+        if args[:2] == ["git", "rev-list"]:
+            class Result:
+                returncode = 1
+                stdout = ""
+                stderr = "boom"
+            return Result()
+        return real(args, **kwargs)
+
+    monkeypatch.setattr(guard.subprocess, "run", failing_count)
+    assert "divergence from origin/main UNKNOWN" in guard.tree_state(tmp_path / "r")
+
+
+def test_a_missing_origin_ref_is_silent_not_unknown(tmp_path) -> None:
+    """The control that keeps the test above honest: a repo with no
+    `origin/main` at all — a shallow CI clone, a fork — reports its sha and
+    says nothing about divergence. If absence rendered as UNKNOWN, every CI
+    run would carry a scary word for a normal condition."""
+    _git_repo(tmp_path / "r")
+    state = guard.tree_state(tmp_path / "r")
+    assert "UNKNOWN" not in state
+    assert "origin/main" not in state
