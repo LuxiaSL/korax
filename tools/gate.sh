@@ -307,26 +307,70 @@ ledger_disposition_is_owed() {
   printf '%s\n' "$changed" | grep -qvE '^docs/'
 }
 
-# THE ENTRY MUST ARRIVE IN THE RANGE, NOT BE INHERITED (#2688's
-# sharpening on the brief): a branch that merely carries a base's own
-# pre-existing `## R-NEXT` heading through, untouched, has brought
-# nothing new. Grepping the DIFF's ADDED lines — never the file's
-# resting content at target — is what keeps that true.
+# ── entry_added / trailer_present ask about TARGET'S OWN FIRST-PARENT
+# DIFF, never the caller-supplied --base (#2777's WARN; quill found a
+# hole in the first fix at #2782, ruled at #2783; #2786/#2790 confirm
+# independently). A base gated more than one revision back sweeps
+# UNRELATED intervening revisions into base..target — a delivery
+# bringing no entry of its own could then read "entry added" (or
+# "trailer present") by inheriting somebody else's, which is the exact
+# vacuity leg 11 exists to prevent, one layer up from #2688's inherited-
+# heading property. For a real two-parent merge, target^1 IS the
+# accurate pre-merge mainline regardless of how many commits the
+# feature branch carried — a TREE diff, unlike a commit-by-commit walk,
+# cannot miss intermediate commits. For a non-merge target (a direct or
+# `--branch`-mode commit), target^1 is its own true predecessor, which
+# is the right question there too (#2783 ruling 2) — no special case
+# needed. owed() below deliberately does NOT move: over-triggering
+# `owed` from a too-far-back base is the same safe direction
+# browser_is_owed already accepts (asks for more than strictly needed,
+# never less); only entry/trailer have a defect-HIDING failure mode, so
+# only they need base-independence.
+#
+# AT MOST TWO PARENTS, ASSERTED NOT ASSUMED (#2783 ruling 2): the desk
+# merges one branch at a time, so an octopus target is a precondition
+# violation this leg refuses rather than interprets. A root commit (no
+# parent) is likewise refused rather than diffed against nothing — not
+# a shape this repo's real history produces, and guessing at empty-tree
+# semantics for a case that cannot occur here is not worth the surface.
+ledger_disposition_parent_count() {
+  local repo="$1" target_sha="$2"
+  git -C "$repo" show -s --format=%P "$target_sha" 2>/dev/null | wc -w
+}
+
+# THE ENTRY MUST ARRIVE, NOT BE INHERITED (#2688's sharpening on the
+# brief): grepping the diff's ADDED lines — never the file's resting
+# content at target — is what keeps a heading that was already present
+# at target^1 from reading as this delivery's own.
 ledger_disposition_entry_added() {
-  local repo="$1" base_sha="$2" target_sha="$3"
-  git -C "$repo" diff "$base_sha" "$target_sha" -- docs/korax-revisions.md 2>/dev/null \
-    | grep -qE '^\+##[[:space:]]+R-NEXT\b'
+  local repo="$1" target_sha="$2"
+  # BOTH SPELLINGS OF "AN ENTRY ARRIVED" (#2777's WARN, ruled #2779).
+  # On a branch the added heading is `## R-NEXT`; on a merge target it
+  # is already `## R<N>`, because the desk's number substitution IS
+  # the merge. Safe under first-parent for the identical reason it was
+  # safe under base-relative (#2786/#2790's unreachability argument):
+  # main can never carry an unrenamed `## R-NEXT`
+  # (`test_no_r_next_on_the_merge_target`, enforced via
+  # `KORAX_MERGE_TARGET` on `refs/heads/main` in CI), so there is never
+  # an INHERITED `## R-NEXT` for a rename to produce — a rename can only
+  # ever apply to a heading the branch itself brought.
+  git -C "$repo" diff "${target_sha}^1" "$target_sha" -- docs/korax-revisions.md 2>/dev/null \
+    | grep -qE '^\+##[[:space:]]+R(-NEXT|[0-9]+)\b'
 }
 
 # THE ESCAPE IS A COMMIT TRAILER, NEVER SILENCE (#2682 ruling 2): a
 # delivery legitimately owing no entry (a tightening repair, #2550's
 # criterion) states so IN THE ARTIFACT. The exact spelling is this
 # leg's to fix (ruled) — `Ledger: none` as a trailer-shaped line,
-# anywhere in any commit's body across the whole range, is read as
-# present regardless of which commit carries it.
+# anywhere in the commits THIS delivery brought, is read as present
+# regardless of which one carries it. `target^1..target_sha` walks
+# exactly those commits for a real merge (everything reachable from the
+# merge but not from its mainline parent) and exactly one commit for a
+# direct delivery — never an unrelated earlier delivery's trailer,
+# which a stale caller-supplied base could otherwise sweep in.
 ledger_disposition_trailer_present() {
-  local repo="$1" base_sha="$2" target_sha="$3"
-  git -C "$repo" log --format=%B "${base_sha}..${target_sha}" 2>/dev/null \
+  local repo="$1" target_sha="$2"
+  git -C "$repo" log --format=%B "${target_sha}^1..${target_sha}" 2>/dev/null \
     | grep -qE '^Ledger:[[:space:]]*none\b'
 }
 
@@ -486,19 +530,39 @@ run_ledger_disposition_leg() {
     return
   fi
 
+  # AT MOST TWO PARENTS (#2783 ruling 2) — checked before entry/trailer,
+  # which need target^1 to mean something. A precondition violation,
+  # not a case to interpret: the desk merges one branch at a time.
+  local n_parents
+  n_parents="$(ledger_disposition_parent_count "$REPO_ROOT" "$TARGET_SHA")"
+  if [ "$n_parents" -gt 2 ]; then
+    LEG_OWED[ledger-disposition]=owed
+    LEG_STATUS[ledger-disposition]=FAIL
+    LEG_DETAIL[ledger-disposition]="target ${TARGET_SHA:0:12} has $n_parents parents (an octopus merge) — ledger-disposition only understands a direct commit or a two-parent merge; the desk merges one branch at a time, so this is a precondition violation, not a case to interpret"
+    printf '  %-12s ... FAIL (%d parents)\n' "ledger-disposition" "$n_parents" >&2
+    return
+  fi
+  if [ "$n_parents" -eq 0 ]; then
+    LEG_OWED[ledger-disposition]=owed
+    LEG_STATUS[ledger-disposition]=FAIL
+    LEG_DETAIL[ledger-disposition]="target ${TARGET_SHA:0:12} has no parent (a root commit) — nothing to diff against; not a shape this repo's real history produces"
+    printf '  %-12s ... FAIL (root commit)\n' "ledger-disposition" >&2
+    return
+  fi
+
   printf '  %-12s ... ' "ledger-disposition" >&2
   local entry_added=0 trailer_present=0
-  ledger_disposition_entry_added "$REPO_ROOT" "$base_sha" "$TARGET_SHA" && entry_added=1
-  ledger_disposition_trailer_present "$REPO_ROOT" "$base_sha" "$TARGET_SHA" && trailer_present=1
+  ledger_disposition_entry_added "$REPO_ROOT" "$TARGET_SHA" && entry_added=1
+  ledger_disposition_trailer_present "$REPO_ROOT" "$TARGET_SHA" && trailer_present=1
 
   LEG_OWED[ledger-disposition]=owed
   case $((entry_added + trailer_present)) in
     1)
       LEG_STATUS[ledger-disposition]=PASS
       if [ $entry_added -eq 1 ]; then
-        LEG_DETAIL[ledger-disposition]="disposition: ## R-NEXT entry added in docs/korax-revisions.md"
+        LEG_DETAIL[ledger-disposition]="disposition: a ledger entry (## R-NEXT or ## R<N>) was added in ${TARGET_SHA:0:12}^1..${TARGET_SHA:0:12}"
       else
-        LEG_DETAIL[ledger-disposition]="disposition: Ledger: none trailer present in ${BASE_REF}..${TARGET_SHA:0:12}"
+        LEG_DETAIL[ledger-disposition]="disposition: Ledger: none trailer present in ${TARGET_SHA:0:12}^1..${TARGET_SHA:0:12}"
       fi
       printf 'PASS\n' >&2 ;;
     0)
