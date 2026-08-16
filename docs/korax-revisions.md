@@ -8424,3 +8424,68 @@ board actually serves.
 
 Tooling and tests; no server, client or perch behaviour changes, nothing to
 deploy.
+
+## R167 — the browser leg runs whenever CI would, and the report names its harness (JOB #3210)
+
+Part (b) of the gate-scope pair, cut at the post-floors window per #3092's
+serial rule. Three clauses, all pre-ruled and none reopened here.
+
+**1. THE BROWSER LEG RUNS ALWAYS, AND THE SKIP PREDICATE IS DELETED.**
+`browser_is_owed()` ran the leg only when the diff touched `PERCH_PATHS`.
+The asymmetry that created was measured: of the six branches queued at
+#2902 §2, **five touched zero perch files**, so the gate printed
+`browser SKIP` while CI ran the leg unconditionally on the merge — zero
+gate signal on precisely the leg that had just produced a red main.
+
+The direction was ruled at #3017 on slate's argument: **a skip predicate
+must be exhaustive to be safe, and this one had already recorded its own
+gap.** It carried `server/korax/perch/**` alone until #2520 and missed a
+driver-only change, because the browser tests execute `.js` drivers that
+live in `server/tests/` — so the leg reported `SKIPPED (no perch files)`
+truthfully, about the wrong question (#2518 §2; real instance R131 /
+`b789438` at #2525).
+
+**Deleted rather than left idle**, per the brief: an unused predicate lints
+clean and reads as live logic to the next reader. Its recorded gap is
+preserved in a comment where the code was, so anyone reintroducing a
+predicate meets the lesson rather than the corpse. Three tests retire with
+it — all three asked whether the predicate was correct, and **a test of a
+retired rule passes forever and guards nothing.** They are replaced by
+`test_the_browser_leg_has_no_skip_path_at_all`, which fails if
+`skip_leg browser` ever returns.
+
+**2. OWED-NESS ASKS THE MERGE-BASE DIFF** (#3090, folded at #3092) — carried
+by the deletion: the leg no longer asks any diff at all, which is the
+limit case of the same safe direction. The two comments that cited
+`browser_is_owed` as a contrast are corrected rather than left pointing at
+deleted code.
+
+**3. `report()` NAMES THE HARNESS THAT PRODUCED IT.** One line: absolute
+path plus a 12-character sha256 of the script itself. The dual-harness
+procedure runs the battery from the merge target's `gate.sh` and from
+main's and compares — and **until this line the only discriminator was the
+leg count, which exists solely when a delivery changes M.** A delivery
+that does not produced two byte-identical reports, so a procedure believed
+to be comparing two harnesses could be reading one twice with nothing able
+to say so (#3200's near-miss; #3201 proposed, #3202 folded, the
+count-assertion alternative refused for slate's two-case reason).
+
+**M IS UNCHANGED AT 12** — which is exactly why this delivery is its own
+clause-3 exhibit: its dual-harness gate is distinguishable only by the line
+it adds.
+
+**Both canaries red-checked, and the pair demonstrates why presence is not
+the property:** making the harness line a constant fails
+`test_two_harnesses_produce_DIFFERENT_harness_lines` and **leaves
+`test_the_report_names_the_harness_that_produced_it` passing** — so the
+presence test alone would have accepted a line that discriminates nothing.
+That distinction is #3181's, struck from an acceptance list an hour before
+this was written.
+
+**Flag day (#2337):** every future gate pays ~4 browser-minutes it may not
+have paid before, in-flight branches included. A cost change, not a
+behaviour change — and since R155 the leg is decidable everywhere it runs,
+so its green carries information rather than being a sampled maybe.
+
+`tools/gate.sh` and its suite; no server, client or perch behaviour
+changes, nothing to deploy.

@@ -220,59 +220,43 @@ def _touch_and_commit(repo: Path, rel: str, base: str) -> None:
                    capture_output=True)
 
 
-@pytest.mark.parametrize(
-    "changed,owed",
-    [
-        ("server/korax/perch/js/app.js", True),
-        ("server/tests/perch_smoke_driver.js", True),
-        ("server/tests/test_perch_smoke.py", True),
-        ("clients/cli/cli.py", False),
-    ],
-)
-def test_the_browser_predicate_fires_on_every_live_perch_root(
-    planted: tuple[Path, str], changed: str, owed: bool
-) -> None:
-    """BOTH directions (#112): it fires where the leg is owed and stays
-    silent where it is not. A predicate that only ever fired would be as
-    useless as one that never did."""
-    repo, base = planted
-    _touch_and_commit(repo, changed, base)
-    assert _fires(repo, base, _bash_array("PERCH_PATHS")) is owed, (
-        f"changing {changed} should {'' if owed else 'NOT '}make the browser leg owed"
-    )
+# ── the browser leg is UNCONDITIONAL (JOB #3210) ──────────────────────
+#
+# THREE TESTS WERE DELETED HERE, and what they proved is worth stating
+# because it is the reason the predicate they guarded is gone:
+#
+#   * the predicate fired on every live perch root, both directions
+#   * `server/korax/perch/**` ALONE missed a driver-only change — the
+#     gap the set carried until #2520, real instance R131/`b789438`
+#     (#2518 §2, #2525)
+#   * it named no directory that does not exist
+#
+# All three tested whether a SKIP PREDICATE was correct. There is no
+# skip predicate now: the leg runs whenever CI would, which is always
+# (#3017's direction). **A test of a retired rule passes forever and
+# guards nothing**, so they retire with it — and the gap they recorded
+# is preserved in `gate.sh` beside the tombstone, where anyone
+# reintroducing a predicate will meet it.
 
 
-def test_the_driver_case_is_the_one_the_app_only_predicate_missed(
-    planted: tuple[Path, str]
-) -> None:
-    """The regression this predicate exists for, shown rather than said.
+def test_the_browser_leg_has_no_skip_path_at_all() -> None:
+    """The replacement guard, and it is a source property because the
+    behaviour is now unconditional.
 
-    `server/korax/perch/**` alone — the set carried until #2520 — returns
-    nothing for a driver-only change, so the leg reports `SKIPPED (no
-    perch files)`: truthfully, about the wrong question. R131/`b789438`
-    is the real instance (#2525); this is the same shape on planted
-    files so it cannot rot when that commit ages out of anyone's memory.
+    Red-check: restoring the `if browser_is_owed` form makes this fail
+    on the `skip_leg browser` line, which is the only thing that could
+    reintroduce a silent gate-vs-CI asymmetry.
     """
-    repo, base = planted
-    _touch_and_commit(repo, "server/tests/perch_smoke_driver.js", base)
-    assert not _fires(repo, base, ["server/korax/perch/**"]), (
-        "the app-only predicate should MISS a driver-only change — if this "
-        "starts passing, the regression it documents has changed shape"
+    text = (REPO / "tools" / "gate.sh").read_text(encoding="utf-8")
+    assert "skip_leg browser" not in text, (
+        "the browser leg acquired a skip path again — CI runs it "
+        "unconditionally, so any skip is a gate that reports green about "
+        "a leg CI will run on the merge (#2902 §2 measured five of six "
+        "queued branches skipping it)"
     )
-    assert _fires(repo, base, _bash_array("PERCH_PATHS")), (
-        "the shipped predicate must catch a driver-only change"
+    assert "browser_is_owed" not in text.replace("# `browser_is_owed()`", ""), (
+        "the retired predicate is back as live logic"
     )
-
-
-def test_the_predicate_names_no_directory_that_does_not_exist() -> None:
-    """`clients/perch/**` was in the handed-down set and has never
-    existed (#2520). A pathspec nobody can trip is indistinguishable
-    from one that is watching, which is #2510's enumeration axis."""
-    for spec in _bash_array("PERCH_PATHS"):
-        root = spec.split("*")[0].rstrip("/")
-        assert (REPO / root).exists(), (
-            f"predicate names {spec!r} but {root!r} does not exist in the tree"
-        )
 
 
 # ── the shallow leg's own control (#2518 §4) ──────────────────────────
@@ -700,4 +684,58 @@ def test_the_floors_leg_is_declared_and_runs_before_the_guarded_legs() -> None:
     body = battery.group(1)
     assert body.index("run_floors_leg") < body.index("run_leg suite-server"), (
         "the floors leg does not run before the first guarded leg"
+    )
+
+
+# ── the harness line discriminates (JOB #3210 clause 3) ───────────────
+
+
+def test_the_report_names_the_harness_that_produced_it() -> None:
+    """Presence. Necessary, and on its own it proves nothing — see the
+    next test, which is the one that can fail for the right reason."""
+    text = (REPO / "tools" / "gate.sh").read_text(encoding="utf-8")
+    assert 'echo "harness:' in text, (
+        "report() must name the gate.sh that produced it, or two reports "
+        "from different harnesses are indistinguishable whenever the "
+        "delivery leaves the leg count unchanged (#3200's near-miss)"
+    )
+
+
+def test_two_harnesses_produce_DIFFERENT_harness_lines(tmp_path: Path) -> None:
+    """THE PROPERTY, not the presence — and this is the distinction I
+    struck from my own acceptance list an hour before writing it
+    (#3181/#3182): a canary that shows a line EXISTS in both runs
+    without comparing them cannot go red for the reason it was written.
+
+    So this extracts the computation from `gate.sh` and evaluates it
+    from two distinct files with distinct content, then asserts the two
+    lines DIFFER. Both halves matter: same content at different paths
+    must differ (path), and same path is impossible here so the content
+    hash carries the rest.
+    """
+    text = (REPO / "tools" / "gate.sh").read_text(encoding="utf-8")
+    start = text.index("  local harness_path harness_hash")
+    end = text.index("\n", text.index('echo "harness:', start))
+    snippet = text[start:end].replace("  local ", "  ")
+
+    outs = []
+    for i, filler in enumerate(("# harness A\n", "# harness B — different bytes\n")):
+        script = tmp_path / f"h{i}" / "gate.sh"
+        script.parent.mkdir(parents=True, exist_ok=True)
+        script.write_text("#!/usr/bin/env bash\n" + filler + snippet + "\n",
+                          encoding="utf-8")
+        proc = subprocess.run(["bash", str(script)], capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stderr
+        line = proc.stdout.strip()
+        assert line.startswith("harness:"), line
+        assert "unavailable" not in line, f"hash did not compute: {line}"
+        outs.append(line)
+
+    assert outs[0] != outs[1], (
+        f"two different harnesses produced the SAME line — the dual-harness "
+        f"procedure would compare one to itself and say nothing:\n{outs[0]}"
+    )
+    # and the hash half discriminates on its own, not just the path
+    assert outs[0].split("sha256 ")[1] != outs[1].split("sha256 ")[1], (
+        "the content hash did not differ between different bytes"
     )
