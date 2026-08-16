@@ -48,7 +48,8 @@ import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
+from collections.abc import Iterator
 
 DEFAULT_ROOT = Path.home() / ".claude/projects/-home-luxia-projects-korax"
 
@@ -171,6 +172,27 @@ class Census:
 # ─────────────────────────────────────────────────────────────────────────
 
 
+# The korax CLI's subcommands, as declared by `sub.add_parser(...)` in
+# `clients/cli/korax_cli/cli.py`. This is a RECOGNISER, not a guess, and
+# `test_the_subcommand_set_matches_the_cli_source` re-derives it from that
+# file so the two cannot drift apart silently.
+#
+# It replaces an earlier flag-whitelist approach that was wrong in a way
+# worth recording: the first run reported `korax-dev-enactor-vesper` as a
+# subcommand (it is the argument to `--as`), and patching that with a list
+# of value-taking flags left `45` as a subcommand with 80 uses (it is the
+# argument to `--limit`). Enumerating the flags is unbounded; enumerating
+# the subcommands is bounded, and anything unrecognised is reported as
+# such instead of being silently believed.
+_KORAX_SUBCOMMANDS = frozenset({
+    "ack", "attach", "auth", "brief", "bump", "conformance", "conventions",
+    "dm", "docket", "enlist", "envelope", "fetch", "grant", "identities",
+    "identity", "invite", "list", "neighbourhood", "new", "onboard", "policy",
+    "post", "provision", "read", "release", "rotate", "save", "search",
+    "subscribe", "unsubscribe", "view", "wait", "watch", "whoami", "why",
+})
+
+
 def _bash_label(command: str) -> tuple[str, str | None]:
     """A Bash command -> (leading token, korax subcommand or None).
 
@@ -178,8 +200,22 @@ def _bash_label(command: str) -> tuple[str, str | None]:
     call, and any token that is not a plain identifier is replaced with
     `<non-identifier>` so a path, a URL or a quoted payload cannot leak
     into the report through a command line.
+
+    Two things learned from the corpus rather than assumed:
+
+    * `cd /some/path && real-command ...` is the dominant Bash shape here
+      (4,937 of 13,445 uses in the first full run). Reporting `cd` as the
+      leading token hid a third of all commands behind a directory change,
+      so the `cd ... &&` prefix is stepped over to reach the real head.
+    * Flag ARGUMENTS look exactly like subcommands to a naive scan
+      (`--as korax-dev-enactor-vesper`, `--limit 45`), so the subcommand is
+      recognised against the CLI's declared set rather than guessed at by
+      position.
     """
     parts = command.strip().split()
+    # step over `cd <path> &&` (possibly repeated) to the command that matters
+    while len(parts) >= 3 and parts[0] == "cd" and parts[2] in {"&&", ";"}:
+        parts = parts[3:]
     if not parts:
         return ("<empty>", None)
     head = parts[0]
@@ -188,10 +224,11 @@ def _bash_label(command: str) -> tuple[str, str | None]:
     if head != "korax":
         return (head, None)
     for tok in parts[1:]:
-        if tok.startswith("-"):
-            continue
-        return ("korax", tok if _SAFE_LABEL.match(tok) else "<non-identifier>")
-    return ("korax", "<bare>")
+        if tok in _KORAX_SUBCOMMANDS:
+            return ("korax", tok)
+    # A korax invocation whose subcommand we do not recognise is reported as
+    # unrecognised, never as whatever token happened to come first.
+    return ("korax", "<unrecognised>")
 
 
 def _tool_label(name: str) -> tuple[str, str | None]:
@@ -276,8 +313,9 @@ def scan_file(path: Path, census: Census, seen_requests: set[str]) -> None:
     session = path.stem
     census.sessions.add(session)
     pending_user_kind: str | None = None
-    # tool_use id -> (channel, verb) so a result can be attributed to its call
-    call_labels: dict[str, tuple[str, str | None]] = {}
+    # tool_use id -> (channel, verb, tool name) so a result can be attributed
+    # to its call — the name is what makes per-tool out-chars possible
+    call_labels: dict[str, tuple[str, str | None, str]] = {}
 
     for rec in iter_records(path, census):
         rtype = rec.get("type")
@@ -302,7 +340,15 @@ def scan_file(path: Path, census: Census, seen_requests: set[str]) -> None:
                     label = call_labels.pop(str(blk.get("tool_use_id")), None)
                     if label is None:
                         continue
-                    channel, verb = label
+                    channel, verb, name = label
+                    # Attribute the result's SIZE back to the tool that
+                    # made the call. Without this the per-tool `out chars`
+                    # column is structurally always zero — a column that
+                    # cannot report anything but 0 is not a measurement,
+                    # and the first full run printed exactly that.
+                    st = census.by_tool[name]
+                    st.out_chars += out_chars
+                    st.out_samples.append(out_chars)
                     _record_result(census, channel, verb, out_chars, raw, session)
             continue
 
@@ -347,7 +393,7 @@ def scan_file(path: Path, census: Census, seen_requests: set[str]) -> None:
                     else:
                         census.by_bash[head].add(in_chars, 0)
 
-            call_labels[str(blk.get("id"))] = (channel, verb)
+            call_labels[str(blk.get("id"))] = (channel, verb, name)
             census.by_tool[name].add(in_chars, 0)
             if channel == "cli:korax":
                 census.korax_cli[str(verb)].add(in_chars, 0)
@@ -512,19 +558,19 @@ def report(census: Census, root: Path, naive_check: bool) -> None:
         f"({_pct(redundant, census.envelope_deliveries)} of deliveries)")
 
     out("\n── WASTE, EACH WITH ITS DEFINITION AND DENOMINATOR (#2667) ──")
-    out(f"  duplicate drains: an envelope id delivered to N>1 distinct sessions,")
-    out(f"    counted as N-1 redundant deliveries.")
+    out("  duplicate drains: an envelope id delivered to N>1 distinct sessions,")
+    out("    counted as N-1 redundant deliveries.")
     out(f"    {redundant:,} of {census.envelope_deliveries:,} deliveries "
         f"= {_pct(redundant, census.envelope_deliveries)}")
-    out(f"  doorbell-only turn cost: billed input on turns whose triggering")
-    out(f"    user record was a doorbell or task-notification.")
+    out("  doorbell-only turn cost: billed input on turns whose triggering")
+    out("    user record was a doorbell or task-notification.")
     out(f"    {db.billed_input_total:,} of {e.billed_input_total:,} billed input "
         f"= {_pct(db.billed_input_total, e.billed_input_total)}")
     out(f"  large tool results: a single result >= {LARGE_RESULT_CHARS:,} chars.")
     out(f"    {census.large_results:,} of {d.tool_results:,} results "
         f"= {_pct(census.large_results, d.tool_results)}, "
         f"{census.large_result_chars:,} chars")
-    out(f"  cache misses: billed input NOT served from cache.")
+    out("  cache misses: billed input NOT served from cache.")
     out(f"    {e.input_tokens + e.cache_creation_input_tokens:,} of "
         f"{e.billed_input_total:,} = "
         f"{_pct(e.input_tokens + e.cache_creation_input_tokens, e.billed_input_total)}")

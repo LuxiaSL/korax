@@ -283,6 +283,86 @@ def test_subagent_transcripts_are_counted_and_labelled(tmp_path: Path) -> None:
     assert d["files_subagent"] == 1
 
 
+def test_per_tool_out_chars_is_not_structurally_zero(corpus: Path) -> None:
+    """The first full run printed `out chars` = 0 for EVERY tool, because
+    results were attributed only to the korax tables and never back to the
+    per-tool one. A column that can only ever report zero is not a
+    measurement — this is the guard against it coming back."""
+    by_tool = _json_run(corpus)["estimated_chars_by_tool"]
+    assert by_tool, "no tools recorded at all"
+    assert any(v["out_chars"] > 0 for v in by_tool.values()), (
+        f"every tool reports out_chars=0: {by_tool}"
+    )
+    assert by_tool["mcp__korax__korax_read"]["out_chars"] > 0
+
+
+@pytest.mark.parametrize(
+    ("command", "leak"),
+    [
+        # `--as` takes a value; the first full run reported the PROFILE as a verb
+        ("korax --as korax-dev-enactor-quill read --since 1", "korax-dev-enactor-quill"),
+        # `--limit` takes a value; the second run reported `45` as a verb, 80 uses
+        ("korax read --limit 45", "45"),
+        # a flag the census has never heard of must not leak its value either
+        ("korax read --some-future-flag whatever-value", "whatever-value"),
+    ],
+)
+def test_a_flag_argument_is_never_mistaken_for_a_subcommand(
+    tmp_path: Path, command: str, leak: str
+) -> None:
+    """Every one of these is a READ. Enumerating value-taking flags is
+    unbounded and was wrong twice; the subcommand set is bounded."""
+    lines = [_assistant("r1", USAGE, [
+        {"type": "tool_use", "id": "t", "name": "Bash",
+         "input": {"command": command, "description": "d"}}])]
+    (tmp_path / "s.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    cli = _json_run(tmp_path)["korax_cli"]
+    assert "read" in cli, f"verbs seen: {list(cli)}"
+    assert leak not in cli, f"{leak!r} leaked in as a subcommand"
+
+
+def test_the_subcommand_set_matches_the_cli_source(tmp_path: Path) -> None:
+    """The recogniser is a copy of the CLI's own declarations, so it can
+    drift. This re-derives the set from `cli.py` and fails when it does —
+    a constant nothing checks is a constant that goes stale."""
+    import re
+
+    sys.path.insert(0, str(TOOL.parent))
+    from transcript_census import _KORAX_SUBCOMMANDS  # type: ignore[import-not-found]
+
+    cli_src = (TOOL.parents[1] / "clients/cli/korax_cli/cli.py").read_text(
+        encoding="utf-8"
+    )
+    declared = set(re.findall(r'sub\.add_parser\(\s*"([a-z0-9_-]+)"', cli_src))
+    assert declared, "found no subcommand declarations — the regex went stale"
+    assert declared == set(_KORAX_SUBCOMMANDS), (
+        f"census missing {declared - set(_KORAX_SUBCOMMANDS)}, "
+        f"stale {set(_KORAX_SUBCOMMANDS) - declared}"
+    )
+
+
+def test_an_unrecognised_korax_subcommand_says_so(tmp_path: Path) -> None:
+    """The control for the recogniser: something that is genuinely not a
+    subcommand must report as unrecognised, not vanish and not guess."""
+    lines = [_assistant("r1", USAGE, [
+        {"type": "tool_use", "id": "t", "name": "Bash",
+         "input": {"command": "korax definitely-not-a-subcommand", "description": "d"}}])]
+    (tmp_path / "s.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert "<unrecognised>" in _json_run(tmp_path)["korax_cli"]
+
+
+def test_a_cd_prefix_does_not_hide_the_real_command(tmp_path: Path) -> None:
+    """`cd /path && korax read` is a korax read, not a `cd`. In the first
+    full run 4,937 of 13,445 Bash uses reported as `cd`."""
+    lines = [_assistant("r1", USAGE, [
+        {"type": "tool_use", "id": "t", "name": "Bash",
+         "input": {"command": "cd /tmp/x && korax read --since 1",
+                   "description": "d"}}])]
+    (tmp_path / "s.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    out = _json_run(tmp_path)
+    assert "read" in out["korax_cli"], f"verbs seen: {list(out['korax_cli'])}"
+
+
 def test_a_missing_root_is_refused_not_reported_as_empty(tmp_path: Path) -> None:
     """An empty census over a nonexistent dir would render as 'nothing to
     see', which is the failure this whole loop kept finding."""
