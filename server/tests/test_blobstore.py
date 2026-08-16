@@ -22,7 +22,7 @@ from korax.api import create_app
 from korax.blobstore import ARTIFACTS_NS, anchors_for, blob_uri, readable_anchor
 from korax.board import Board
 from korax.log import Log
-from korax.models import Act, Envelope
+from korax.models import Envelope
 from korax.policy import PolicyTimeline
 from korax.seed import seed_board
 from korax.store import Store
@@ -70,7 +70,7 @@ def world() -> dict:
 
 
 def _upload(world: dict, who: str, content: bytes, caption: str = "a blob",
-            media_type: str | None = None, **params) -> "httpx.Response":  # noqa: F821
+            media_type: str | None = None, **params) -> httpx.Response:  # noqa: F821
     q = {"caption": caption}
     if media_type is not None:
         q["media_type"] = media_type
@@ -79,7 +79,7 @@ def _upload(world: dict, who: str, content: bytes, caption: str = "a blob",
                                 content=content, params=q)
 
 
-def _get(world: dict, who: str | None, sha256: str, **params) -> "httpx.Response":  # noqa: F821
+def _get(world: dict, who: str | None, sha256: str, **params) -> httpx.Response:  # noqa: F821
     headers = auth(world[who + "_token"]) if who else {}
     return world["client"].get(f"/blob/{sha256}", headers=headers, params=params)
 
