@@ -6,9 +6,18 @@
 //
 //   1. an envelope posted by somebody else appears WITHOUT A RELOAD;
 //   2. a restart produces "restarting" (from the goodbye page's BODY) BEFORE
-//      "reconnecting" — which is the property that won long-poll the design
-//      (#1639 §2) and which is only true if the goodbye wins its race with
-//      the dying socket.
+//      "reconnecting", AND HOLDS IT LONG ENOUGH TO READ — which is the
+//      property that won long-poll the design (#1639 §2) and which is only
+//      true if the goodbye wins its race with the dying socket.
+//
+// **CLAIM 2 CHANGED MEANING IN JOB #2966 AND THIS IS THE FILE THAT DID IT.**
+// It used to assert PRESENCE of "restarting" in a 300 ms sample. Presence was
+// standing in for the thing #1639 actually bought, which is that an operator
+// LEARNS the board is restarting — and a 60 ms flash satisfies presence while
+// telling nobody anything. Worse, the sampler that measured presence was blind
+// to exactly those short states, so the old test failed on real ones while
+// reporting a cause it could not observe. Transitions are now RECORDED and the
+// assertion is on DWELL.
 //
 // Node 22's built-in WebSocket and fetch. No installs, per #1385 D2 and the
 // prior art in perch_smoke_driver.js.
@@ -116,18 +125,102 @@ async function main() {
   await sleep(1200);
   out.cursorBeforeGoodbye = parked;
 
+  // THE RECORDER GOES IN BEFORE THE SIGNAL, NOT AFTER (JOB #2966).
+  //
+  // What this replaces: a loop that read `dataset.state` every 300 ms and
+  // called the result `stateSequence`. That is a SAMPLE, and a sampled
+  // instrument cannot see a state shorter than its interval — measured miss
+  // rate `1 - dwell/300ms`, so a displayed 60 ms state was missed 80% of the
+  // time (#2908 §2). The old assertion then reported "no 'restarting' state
+  // was ever shown", which is a claim about the DOM that a sampler has no
+  // standing to make, and which was FALSE in the one instance anybody
+  // observed end to end (#2930 §2: displayed at t=4774, overwritten at
+  // t=4780, six milliseconds).
+  //
+  // A MutationObserver cannot miss a transition regardless of its duration,
+  // and the rig control for that is in the delivery: it caught a displayed
+  // state 15/15 in every dwell cell tested, including 60 ms.
+  await evalJs(`
+    (() => {
+      const el = document.querySelector("#feedLive");
+      const R = { t0: Math.round(performance.now()), rows: [] };
+      window.__feedRec = R;
+      const push = () => R.rows.push({
+        t: Math.round(performance.now()),
+        state: el.dataset.state,
+        text: el.textContent,
+      });
+      push();
+      new MutationObserver(push).observe(el, {
+        attributes: true, attributeFilter: ["data-state"],
+        childList: true, characterData: true, subtree: true,
+      });
+      return true;
+    })()`);
+
   process.kill(Number(SERVER_PID), "SIGTERM");
 
+  // The poll below decides only WHEN TO STOP WATCHING. It no longer decides
+  // what was seen, so its interval bounds this driver's patience and nothing
+  // about the measurement — which is the whole point of the change.
+  const POLL_MS = 300;
+  const CAP = 260;
+  let iterations = 0;
+  let capExhausted = true;
+  for (let i = 0; i < CAP; i++) {
+    iterations = i + 1;
+    await sleep(POLL_MS);
+    const done = await evalJs(`
+      (() => { const s = new Set(window.__feedRec.rows.map(r => r.state));
+               return s.has("restarting") && s.has("reconnecting"); })()`);
+    if (done) { capExhausted = false; break; }
+  }
+
+  const rec = JSON.parse(await evalJs(`JSON.stringify(window.__feedRec)`));
+  out.transitions = rec.rows;
+
+  // Deduped run-length sequence, the same shape the assertions consume — but
+  // now derived from a recording rather than from samples.
   const seen = [];
   out.stateDetail = {};
-  for (let i = 0; i < 260; i++) {
-    await sleep(300);
-    const s = await evalJs(`document.querySelector("#feedLive").dataset.state`);
-    const d = await evalJs(`document.querySelector("#feedLive").textContent`);
-    if (s && seen[seen.length - 1] !== s) { seen.push(s); out.stateDetail[s] = d; }
-    if (seen.includes("restarting") && seen.includes("reconnecting")) break;
+  for (const r of rec.rows) {
+    if (r.state && seen[seen.length - 1] !== r.state) seen.push(r.state);
+    if (r.state) out.stateDetail[r.state] = r.text;
   }
   out.stateSequence = seen;
+
+  // DWELL: how long `restarting` was actually readable. Measured from its
+  // first appearance to the first row showing a DIFFERENT state. If it never
+  // gave way inside the window, the dwell is a lower bound and is reported as
+  // such rather than silently truncated — an underestimate that reads as a
+  // measurement is how a green becomes unfalsifiable.
+  let dwell = null;
+  let dwellIsLowerBound = false;
+  const first = rec.rows.find((r) => r.state === "restarting");
+  if (first) {
+    const after = rec.rows.find((r) => r.t > first.t && r.state !== "restarting");
+    if (after) {
+      dwell = after.t - first.t;
+    } else {
+      dwell = rec.rows[rec.rows.length - 1].t - first.t;
+      dwellIsLowerBound = true;
+    }
+  }
+  out.restartingDwellMs = dwell;
+  out.restartingDwellIsLowerBound = dwellIsLowerBound;
+
+  // PROPERTY 4 — the instrument states its own parameters, so a red never
+  // needs the reader to open this file to learn how it was watched.
+  out.observation = {
+    mode: "recorded (MutationObserver on #feedLive[data-state])",
+    pollIntervalMs: POLL_MS,
+    pollPurpose: "stop condition only; transitions are recorded, not sampled",
+    capIterations: CAP,
+    iterationsUsed: iterations,
+    capExhausted,
+    watchedMs: rec.rows.length ? rec.rows[rec.rows.length - 1].t - rec.t0 : 0,
+  };
+
   out.cursorAfterGoodbye = await evalJs(`localStorage.getItem("koraxFeedCursor")`);
   out.errors = errors;
 

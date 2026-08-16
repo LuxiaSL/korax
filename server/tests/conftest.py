@@ -58,6 +58,37 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:
     the paths beside the counts a delivery is about to quote.
     """
     _tree_guard().announce(terminalreporter, _TREE, _PACKAGES)
+    _announce_browser_instrument(terminalreporter)
+
+
+def _announce_browser_instrument(terminalreporter) -> None:
+    """State the live-feed rig's own parameters, on the runs where it ran.
+
+    JOB #2966 property 4: a red should never require the reader to open the
+    driver to learn how it was watched. The parameters ride the SAME hook as
+    the tree line for the same measured reason — `pytest_report_header` is
+    silent at negative verbosity and CI runs `-q`
+    (`tools/tree_guard.py:188-210`, where both broken alternatives are
+    recorded).
+
+    Reads the module out of `sys.modules` rather than importing it: importing
+    a browser test from conftest would execute its collection-time Chrome and
+    node lookups on every unrelated run, and the dict is only populated when
+    the test actually ran. **Silent by construction when it did not** — an
+    empty dict prints nothing, so a `pytest -q server/tests` with no browser
+    marker is byte-identical to before this landed.
+    """
+    if terminalreporter is None:
+        return
+    import sys  # noqa: PLC0415
+
+    module = sys.modules.get("test_perch_live_feed_browser")
+    instrument = getattr(module, "INSTRUMENT", None) if module else None
+    if not instrument:
+        return
+    terminalreporter.write_line("live-feed instrument:")
+    for key in sorted(instrument):
+        terminalreporter.write_line(f"  {key}: {instrument[key]}")
 
 
 def load_envelopes() -> list[Envelope]:
