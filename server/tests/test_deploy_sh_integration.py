@@ -230,3 +230,29 @@ def test_a_host_checkout_lagging_origin_still_restarts(fake_bin: Path, host_and_
     # both checkouts land on the real target, not host's stale HEAD
     assert _git(vps, "rev-parse", "HEAD") == _git(other, "rev-parse", "HEAD")
     assert _git(host, "rev-parse", "HEAD") == _git(other, "rev-parse", "HEAD")
+
+
+def test_a_detached_host_checkout_fails_the_position_assertion(fake_bin: Path, host_and_vps) -> None:
+    """#2549/#2663's actual incident, folded in at #2708 part 3: a stray
+    `cd` left a deploy pointed at a detached-HEAD worktree. `git pull
+    --ff-only` happened to refuse that on its own — an accident of that
+    command's own preconditions, not a guard this script owned. The
+    assertion makes the refusal deliberate and named."""
+    host, vps = host_and_vps
+    origin = host.parent / "origin.git"
+
+    detached = host.parent / "detached-checkout"
+    subprocess.run(
+        ["git", "clone", "--quiet", str(origin), str(detached)],
+        check=True, capture_output=True,
+    )
+    _git(detached, "config", "user.email", "test@example.invalid")
+    _git(detached, "config", "user.name", "test")
+    sha = _git(host, "rev-parse", "HEAD")
+    _git(detached, "checkout", "--quiet", sha)
+
+    result = _run_deploy(fake_bin, detached, vps)
+
+    assert result.returncode != 0
+    assert "position assertion FAILED" in result.stdout + result.stderr
+    assert "detached HEAD" in result.stdout + result.stderr

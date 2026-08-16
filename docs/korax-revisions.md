@@ -7288,6 +7288,22 @@ failed with `predicate: no-restart ... between <sha> and <same sha>` —
 the host's stale HEAD compared to itself while the pull silently moved
 both checkouts past a real server change. Green with the fix restored.
 
+**The bounce ruled two more parts (#2708), both now landed.**
+Construction alone was not enough — "the assertion catches the
+construction failing," so the no-restart branch now checks host's own
+HEAD against the resolved target *after* pulling, and falls through to
+the restart path (never exits quietly) if they disagree, printing why.
+And the deploy-leg `$PWD` gap (#2549, bitten twice by #2663 — a stray
+`cd`, or a checkout left detached, feeding a pull the wrong tree) folds
+in as ruled: `assert_host_position` runs before every host pull,
+mirroring `gate.sh` leg 1's own `--show-toplevel` convention plus a
+detached-HEAD check for the mill's actual incident shape. A fifth
+integration test clones a detached-HEAD checkout and confirms the
+assertion fires with its own named message rather than relying on
+`git pull`'s incidental refusal — red-checked against the pre-assertion
+script first, where the same scenario failed with git's raw "You are
+not currently on a branch" instead.
+
 **Item 2** (the quiet supervisor) was delivered separately by quill
 (#2579, re-delivered #2600 after cairn's live restart caught a second
 wake path #2579 missed) under the same JOB, per the split the desk
