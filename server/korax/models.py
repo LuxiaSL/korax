@@ -260,6 +260,40 @@ EDGE_SAME_ACT_EXEMPT: dict[EdgeType, frozenset[Act]] = {
     EdgeType.SUPERSEDES: frozenset({Act.SUPERSEDE}),
 }
 
+# T1 shape 2 (JOB #2208) — edges whose landing on a ref TARGET is a state
+# change the author's `ext.korax.read_basis` cannot have accounted for.
+# Unconditional on the source envelope's act type or grade.
+#
+# THE CRITERION (ruled #2249): an edge is state-changing iff the board's
+# own derived state consumes it — some reduction's answer about the
+# subject moves when the edge lands. That is how each row below earned
+# its place, and how a future edge type gets classified:
+#
+#   supersedes -> X   the tip every reduction serves moves
+#   closes     -> X   the delivery/disposition chain (reductions.py
+#                     ~:1420 -> attests(); #2092's case)
+#   stamps     -> X   effectively_stamped walks inbound STAMPS into X's
+#                     effective grade (reductions.py ~:90-99, feeding
+#                     the state-view floor and delivery grading)
+#   pins       -> X   a PIN puts X into canon-in-force, landing on every
+#                     reader's required-reading closure (civic.py
+#                     ~:197-205) — as derived as state gets
+#
+# An initial reading (#2240) treated "a graded FINDING" as an
+# independent third trigger; struck at #2247/#2249 after an audit of
+# every grade-read site found grade reaches a subject only through
+# `closes` — so that row was `closes` wearing a gloss, not a fourth
+# trigger, and widening it to any edge would have refused `replies`/
+# `derives-from`/`corroborates`/`beside`, which #2205 names as
+# conversation, never a change to the subject. Those four — plus
+# `endorses` (opinion toward a quorum; nothing moves until the pin or
+# stamp that follows), `claims` (moves who holds work, not what the
+# subject is) and `acks` (reading, not content) — stay out by the same
+# criterion, not by a hand-picked exemption list.
+STATE_CHANGING_EDGES: frozenset[EdgeType] = frozenset(
+    {EdgeType.SUPERSEDES, EdgeType.CLOSES, EdgeType.STAMPS, EdgeType.PINS}
+)
+
 # §5 — edges whose *source* act is constrained.
 EDGE_SOURCE_ACTS: dict[EdgeType, frozenset[Act]] = {
     EdgeType.CLAIMS: frozenset({Act.CLAIM}),

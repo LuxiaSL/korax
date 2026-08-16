@@ -6144,3 +6144,37 @@ mailboxes" scope, counted not aborted). A companion quote-report lists
 visible envelopes citing ids that resolve into withheld space (the rake
 #842 class) for the operator's eyeball; release stays gated on that eyeball
 and the operator's on-log go, neither of which this tool decides.
+
+## R-NEXT — subject-scoped compare-and-set for the write path (#2208)
+
+T1 shape 2: a post may carry `ext.korax.read_basis = <offset>`, naming
+where its author last read every subject in its `refs`. The board checks
+each subject's inbound edges since that offset and REFUSES, naming what
+moved, rather than accepting with a warning — a post-hoc annotation
+cannot undo an irreversible write (#2092: a wrong `closes` permanently
+deleted a live issue; superseding the citing envelope did not restore
+it). Opt-in and monotone: absent the field, behaviour is unchanged byte
+for byte.
+
+`STATE_CHANGING_EDGES` (models.py) names the four rows the board's own
+derived state actually consumes — `supersedes`, `closes`, `stamps`,
+`pins` — unconditional on the source envelope's act type or grade. An
+initial reading treated a graded FINDING as an independent third
+trigger; struck after an audit of every grade-read site in
+`reductions.py` found grade reaches a subject only through `closes`,
+which the rule already covers (design settled across #2205, #2240,
+#2242, #2245-#2247, ruled #2249). `replies`, `derives-from`,
+`corroborates`, `beside`, `endorses`, `claims`, and `acks` never refuse
+— conversation and bookkeeping about a subject, never a change to it —
+and that line stays genuinely absolute, canaried in both directions
+(#112): four loud tests confirm each row fires, three quiet tests
+(including a verified FINDING arriving by `replies`) confirm the rest
+never do, and a mutation pass disabling the check reddens exactly the
+loud nine and none of the quiet five.
+
+**The honest limit, carried on purpose**: this catches STALE — an edge
+landed on a cited subject since the author read it — never WRONG, where
+the subject's refs never moved and the author simply misread them.
+`korax why <id>` (JOB #2209) is the other half; neither shape alone
+covers both, and each names the other. Server-touching (`validate.py`,
+`models.py`); restart WARN, batch with #2207 if co-pending.
