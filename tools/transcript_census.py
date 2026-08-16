@@ -162,6 +162,7 @@ class EchoStats:
     uses: int = 0
     considered: int = 0          # calls with an input field big enough to judge
     structural_hits: int = 0     # result parsed as JSON, an input field echoed
+    reverse_hits: int = 0        # a returned value found inside the input text
     near_hits: int = 0           # non-JSON result, similarity >= threshold
     no_echo: int = 0
     in_chars: int = 0
@@ -336,7 +337,24 @@ def _echo_of(inp: Any, out_text: str) -> tuple[int, str]:
     if doc is not None:
         returned = set(_iter_strings(doc))
         echoed = sum(len(s) for s in sent if s in returned)
-        return (echoed, "structural" if echoed else "none")
+        if echoed:
+            return (echoed, "structural")
+
+        # REVERSE CONTAINMENT, and it exists because the forward test
+        # produced a FALSE REFUTATION. Bash showed 0.0% echo, which reads as
+        # "the CLI does not echo" — but `cmd_post` calls `rt.emit(body)` and
+        # emits the whole envelope exactly as the MCP verb does (checked in
+        # `clients/cli/korax_cli/cli.py:183`, not inferred from the table).
+        # The forward test cannot see it: a Bash call's input is one
+        # shell-quoted command string, so the payload is never EQUAL to a
+        # field. Asking instead whether a returned value appears INSIDE the
+        # input text is immune to quoting, and it is what makes CLI and MCP
+        # comparable at all.
+        blob = json.dumps(inp, ensure_ascii=False)
+        back = sum(len(s) for s in returned if len(s) >= ECHO_MIN_CHARS and s in blob)
+        if back:
+            return (back, "reverse")
+        return (0, "none")
 
     # non-JSON result: near match, threshold stated
     best = 0
@@ -549,6 +567,8 @@ def _record_echo(
             st.considered += 1
             if mode == "structural":
                 st.structural_hits += 1
+            elif mode == "reverse":
+                st.reverse_hits += 1
             elif mode == "near":
                 st.near_hits += 1
             else:
@@ -789,24 +809,26 @@ def report(census: Census, root: Path, naive_check: bool) -> None:
         f"{e.billed_input_total:,} = "
         f"{_pct(e.input_tokens + e.cache_creation_input_tokens, e.billed_input_total)}")
     out("\n── ECHO WASTE: INPUT REFLECTED BACK AS OUTPUT (JOB #2702) ──")
-    out(f"  Method: result parsed as JSON, input FIELDS compared by value —")
-    out(f"  exact, no escaping question. Non-JSON results fall back to a")
+    out("  Method: result parsed as JSON, input FIELDS compared by value —")
+    out("  exact, no escaping question. Non-JSON results fall back to a")
     out(f"  similarity ratio >= {NEAR_MATCH_THRESHOLD}. Input fields shorter than")
     out(f"  {ECHO_MIN_CHARS} chars are not judged (short strings collide by chance);")
     out("  those calls appear as 'unjudged' and are excluded from the rates.")
-    out(f"\n  {'verb':30} {'uses':>6} {'judged':>7} {'struct':>7} {'near':>5} "
-        f"{'echoed ch':>11} {'of out':>7}")
+    out("  `reverse` counts a RETURNED value found inside the input text —")
+    out("  the only way a shell-quoted CLI call's echo is visible at all.")
+    out(f"\n  {'verb':30} {'uses':>6} {'judged':>7} {'struct':>7} {'revrs':>6} "
+        f"{'near':>5} {'echoed ch':>11} {'of out':>7}")
     echo_rows = sorted(census.echo.items(), key=lambda kv: -kv[1].echoed_chars)
     tot_echo = tot_out = 0
-    for name, st in echo_rows[:16]:
-        if st.considered == 0 and st.echoed_chars == 0:
+    for name, es in echo_rows[:16]:
+        if es.considered == 0 and es.echoed_chars == 0:
             continue
-        out(f"  {name[:30]:30} {st.uses:>6} {st.considered:>7} {st.structural_hits:>7} "
-            f"{st.near_hits:>5} {st.echoed_chars:>11,} "
-            f"{_pct(st.echoed_chars, st.out_chars):>7}")
-    for _, st in census.echo.items():
-        tot_echo += st.echoed_chars
-        tot_out += st.out_chars
+        out(f"  {name[:30]:30} {es.uses:>6} {es.considered:>7} {es.structural_hits:>7} "
+            f"{es.reverse_hits:>6} {es.near_hits:>5} {es.echoed_chars:>11,} "
+            f"{_pct(es.echoed_chars, es.out_chars):>7}")
+    for es in census.echo.values():
+        tot_echo += es.echoed_chars
+        tot_out += es.out_chars
     out(f"\n  corpus-wide: {tot_echo:,} echoed of {tot_out:,} tool-result chars "
         f"= {_pct(tot_echo, tot_out)}")
 
@@ -900,6 +922,7 @@ def to_json(census: Census) -> dict[str, Any]:
                     "uses": s.uses,
                     "judged": s.considered,
                     "structural_hits": s.structural_hits,
+                    "reverse_hits": s.reverse_hits,
                     "near_hits": s.near_hits,
                     "no_echo": s.no_echo,
                     "in_chars": s.in_chars,
