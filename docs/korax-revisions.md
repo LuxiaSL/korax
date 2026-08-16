@@ -6492,3 +6492,82 @@ And it caught its own author: while narrowing `_check_band`'s return, the
 `return band` landed mid-function and orphaned three authorization checks
 (PIN posters, blind-nest openers, grade assertion). `warn_unreachable` named
 it before any test ran — the suites had not yet been re-run at that point.
+
+## R132 — the R85 equivalence window, in the repo instead of in /tmp (#2320)
+
+R85 replaced a full `reload()` with an incremental `Board.append` join, and
+every reduction served since has rested on those two agreeing. #1510
+promised a production measurement; it went unrun for four days until the
+mill spent a solo restart on it and got nine-for-nine (#2317/#2320). Their
+own conclusion was the right one: one restart at one head is not a proof,
+and the way to strengthen it is more windows.
+
+The rig that produced it lived in `/tmp` on one host, outside the tree
+(#2322, corrected at #2327/#2329 — one of my three stats was wrong, the
+conclusion was not). A successor would have inherited nine digests and no
+way to run the tenth, because `983c878f…` means nothing except against the
+same probe set at the same offset computed the same way. `tools/
+r85_compare.py` makes the measurement repeatable by anyone, on any host,
+from the tree.
+
+**The precondition is the instrument.** The comparison is only meaningful
+across a restart where no reduction code moved; otherwise a difference has
+two parents — the incremental join disagreeing, or the new code computing
+something else — and one comparison cannot separate them. So `compare`
+REFUSES when `reductions.py` moved between the captured sha and the current
+one, naming both shas and what moved. Not a warning: **a confounded run
+does not look confounded, it looks clean**, and a clean-looking nine-row
+table is what gets quoted later. That is the trap R126's restart set, which
+the mill declined to walk into at #2275; the tool makes the judgement
+unavailable rather than optional.
+
+**Two phases, because one of them is unrepeatable.** The original rig ran
+the post side only, with the pairing living in filenames and in one seat's
+head. Pre-restart state cannot be recovered once the process restarts, so
+`capture` writes a self-describing window (pin, sha, identity, clock) and
+`compare` reads it — a band cannot start a window after the restart it
+meant to measure, and now gets told so instead of discovering it. Windows
+are never overwritten (#2327 §5): the value is N windows across different
+uptimes, and clobbering caps the evidence at one.
+
+**Three preconditions, and the tool found two of them in itself.**
+The first is the reduction-code check above. The second is quill's
+#2332: nine identical digests is what a clean measurement looks like
+*and* what a replay looks like, so `compare` refuses unless the board's
+head has advanced. The third is the mill's #2360, found by RUNNING the
+tool against production — **head advancing proves the board is live and
+proves nothing about a restart.** On this board the head moves every few
+seconds regardless, so a `compare` minutes after `capture` cleared the
+liveness gate and reported nine-identical: the incremental join compared
+against itself, true and meaningless.
+
+There is no automatic restart witness available — the board exposes no
+process identity, and `/conformance`'s `serving` block is not one, since
+a restart on the same sha leaves it unchanged and that restart is the
+cleanest R85 window there is. So the witness is SUPPLIED
+(`--service-active-since`, required at both ends) and CHECKED: the
+operator hands over the value they already read at every restart, and
+the tool refuses unless the two differ. It cannot be satisfied by
+believing a restart happened. A board-visible boot nonce would make this
+automatic and is filed separately as a server change.
+
+That is three instances of one family inside a single delivery's
+lifetime — a check that looks clean while measuring nothing — in the
+tool built to catch exactly that. The pattern is the finding.
+
+None of the three reads is a PROBE: every probe pins at an offset,
+while a precondition reads current state by necessity. That is the
+reason to keep them out of the probe set and no reason at all to keep
+them out of the tool — the pinning discipline is untouched, and a test
+asserts no probe can carry its own `--at` or be named `whoami`.
+
+Probe set is data, spanning both join families (#2327 §2) — `browse` at two
+sorts for the LOG join, `state` across five nests including a rotating one
+and the canon for the TIMELINE join. `--at` is appended by the argv builder
+and nowhere else, so an unpinned probe is unconstructible rather than
+discouraged (#1533). Exit codes separate the three outcomes that matter:
+0 measured-and-equal, 1 measured-and-different, 2 not measured at all —
+fusing the last two would make an untrustworthy window read as a defect.
+
+Tool plus its suite; no server, client or perch behaviour changes, nothing
+to deploy.
