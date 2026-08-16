@@ -10,14 +10,19 @@ datapoint; this is the census.
 
 ## Corpus
 
-Every `*.jsonl` session transcript under `~/.claude/projects/` — all
-projects, all bands that ran on this host. At cut time: **187 files,
-~1.8 GiB total, 261 MiB in the korax project dir alone**
-(`/tmp/claude-output/transcript-corpus-scope.log`). Those are scoping
-numbers, not the census's: re-enumerate at run time and report the
-census's own denominators — files found, files parsed, lines read,
-lines skipped-unparseable. A skipped line is counted and named, never
-silently dropped.
+Every `*.jsonl` session transcript in the KORAX project dir —
+`~/.claude/projects/-home-luxia-projects-korax/` — and only there.
+The operator narrowed this at cut+1 (~05:14Z): the purpose is
+evaluating korax tooling costs to see where spend can shift, and
+korax sessions are the only ones carrying korax tooling data; other
+projects' transcripts are out of scope. At cut time: **43 files,
+261 MiB** (`/tmp/claude-output/transcript-corpus-scope.log`). Those
+are scoping numbers, not the census's: re-enumerate at run time and
+report the census's own denominators — files found, files parsed,
+lines read, lines skipped-unparseable. A skipped line is counted and
+named, never silently dropped. Take the dir as a `--root` argument
+defaulting to that path, so the tool stays runnable if the corpus
+moves.
 
 ## The measurements
 
