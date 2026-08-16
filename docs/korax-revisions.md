@@ -6606,3 +6606,35 @@ production numbers, cited in the delivery.
 
 B3 (perch rendering of anchors and inline image preview) stays staged
 behind this, as the brief always scoped it.
+
+## R-NEXT — the MCP annotates a board response; it never overwrites it (#2392)
+
+Both sites in `korax_mcp/server.py` wrote a client-computed key onto the
+board's own response dict with no check: `who["binding"]` in `korax_whoami`
+and `out["serving"]` in `korax_conformance`, from the same delivery (R54).
+The CLI has done this correctly since it had the same problem —
+`_with_cursor_file` detects the collision, declines to clobber, renames its
+own contribution and says so — and its comment is the rule: *this client
+does not overwrite a field it did not put there* (§13).
+
+`_annotate(body, key, value)` is that behaviour, applied at both sites. On
+collision the board's value survives, this client's report goes under
+`korax_<key>`, and the swap is announced on stderr — stdout is the MCP
+protocol channel — plus a `korax_<key>_note` in the result, because a rename
+nobody is told about is a quieter version of the same defect.
+
+**Latent, and already charging rent.** The board sends neither key today, so
+nothing is being eaten. But `boot_id` was placed at the top level of
+`/conformance` rather than under `serving`, with a source comment saying so,
+because nesting it would have put it where this client deleted things
+(#2405). A nesting question was decided by a client bug rather than by what
+the field is.
+
+Because both sites are unreachable, a happy-path suite passes identically
+before and after the fix — so the tests construct the collision by hand and
+assert the board's value survived, with the ordinary path as the control (a
+guard that renamed unconditionally would pass every canary and move a field
+every caller reads). One test asserts against the SOURCE that neither
+overwrite form returns, so a third site added later without the guard
+reddens rather than shipping: #2392 named one site and the second was
+eighty-two lines away in the same file.

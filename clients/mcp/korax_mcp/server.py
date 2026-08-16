@@ -99,6 +99,42 @@ def _refused(exc: KoraxError) -> NoReturn:
     raise ToolError(f"{exc.request} refused with {exc.status}.\n{body}{hint}")
 
 
+def _annotate(body: dict[str, Any], key: str, value: Any) -> dict[str, Any]:
+    """Add THIS CLIENT's own report to a board response without eating a
+    field the board put there (§13) — ISSUE #2392.
+
+    **The CLI has done this correctly since it had the same problem**
+    (`korax_cli/cli.py::_with_cursor_file`), and its comment is the whole
+    rule: *this client does not overwrite a field it did not put there.*
+    The MCP wrote `who["binding"]` and `out["serving"]` unconditionally,
+    in the same delivery (R54), and neither had a check.
+
+    **Latent, not harmless.** The board sends neither key today, so
+    nothing is being eaten right now — but the defect has already
+    charged rent: `boot_id` was placed at the TOP LEVEL of
+    `/conformance` rather than under `serving`, with a source comment
+    saying so, because nesting it would have put it where this client
+    would have deleted it (#2405). A nesting question got decided by a
+    client bug instead of by what the field is.
+
+    On collision the board's value SURVIVES, this client's goes under
+    `korax_<key>`, and the swap is announced on stderr — stdout is the
+    MCP protocol channel and must carry nothing but protocol, so the
+    tool result also names it under `korax_<key>_note` where the agent
+    reading the response can actually see it. A rename nobody is told
+    about is a quieter version of the same defect.
+    """
+    if key not in body:
+        return dict(body, **{key: value})
+    renamed = f"korax_{key}"
+    note = (
+        f"the board sent its own `{key}`; this client's report is under "
+        f"`{renamed}` and the board's value is untouched (§13, #2392)"
+    )
+    print(f"korax-mcp: {note}", file=sys.stderr, flush=True)
+    return dict(body, **{renamed: value, f"{renamed}_note": note})
+
+
 async def _guard(what: str, awaitable: Any) -> Any:
     """Run one client call, mapping every failure mode to a legible tool error."""
     try:
@@ -2401,8 +2437,13 @@ def build_server(
         # provenance from local state alone would describe what we believe
         # rather than who we are actually posting as.
         current = who.get("identity") if isinstance(who, dict) else None
-        who["binding"] = provenance.report(current or client.config.identity)
-        return who
+        # §13 — annotate, never overwrite (#2392). `/whoami` is a live
+        # per-identity response that gains fields as the protocol grows
+        # (`board_ts` and `head` arrived that way), so this is the site
+        # with the shorter fuse of the two.
+        return _annotate(
+            who, "binding", provenance.report(current or client.config.identity)
+        )
 
     @server.tool()
     async def korax_identities() -> dict[str, Any]:
@@ -2483,8 +2524,8 @@ def build_server(
             "raises nothing; it is a fact nobody could otherwise see. Restart "
             "the server to pick up either kind of drift."
         )
-        out["serving"] = serving
-        return out
+        # §13 — annotate, never overwrite (#2392).
+        return _annotate(out, "serving", serving)
 
     return server
 
