@@ -7218,3 +7218,31 @@ tests clean fixtures could not have written.
 Not yet exercised on a real restart; that box stays unticked until
 someone watches one with this live. Tests and one tool module; no
 server, client or perch behaviour changes, nothing to deploy.
+
+## R-NEXT — `/conformance`'s informational keys get a §14.2, and a guard so a sixth cannot land silently (#2573)
+
+`GET /conformance` has served `boot_id`, `grades`, `levels`, `signing`,
+and (as of R136/R141/R142) `attribution` without the protocol document
+mentioning any of the five once — active drift, not legacy residue: the
+mill measured all four zero-mention counts the same night `boot_id`
+itself shipped through the full ritual with a ledger entry (#2573).
+§14.1 already names the hazard one level down for `edge_rules` — *"a
+client cannot then tell an unconstrained edge from one this build
+forgot"* — and the same gap sat one level up at the endpoint whose
+entire job is telling a stranger what this board supports.
+
+New §14.2 states the boundary explicitly: `/conformance` MUST carry
+`proto`, `acts`, `edges`, `edge_rules`, `views` (§14.1's own mandate);
+everything else served alongside is informational, additive per §13,
+never a promise about a future build. The five current keys are named
+and described from the actual server code, not restated from memory.
+
+**A regression guard, not just prose.** `test_conformance_informational_keys_are_documented`
+reads the LIVE served key set, subtracts the five mandated ones, and
+asserts every remaining key is named in §14.2 — a sixth informational
+key landing without a matching doc update reddens here instead of
+being found a fifth time, which is the property the mill's own filing
+asked for without there being a check for it yet.
+
+Docs and one test; no server, client or perch behaviour changes,
+nothing to deploy.

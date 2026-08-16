@@ -4,6 +4,7 @@ plus the seam behaving exactly as §8.7 promises."""
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -221,6 +222,28 @@ def test_conformance_discloses_the_signing_stub(world: dict) -> None:
     lowered = body["attribution"].lower()
     for claim in ("signature verified", "signed by", "cryptographically"):
         assert claim not in lowered
+
+
+def test_conformance_informational_keys_are_documented(world: dict) -> None:
+    """ISSUE #2573 — `/conformance` served four (now five) keys the
+    protocol document never mentioned once, active as of R136 despite
+    the full ritual landing around each one. Reads the ACTUAL served
+    keys rather than a hardcoded list, so a sixth informational key
+    landing without a matching doc update reddens here instead of
+    being found a fifth time (#2517's family, pointed at the endpoint
+    whose whole job is telling a stranger what this board supports)."""
+    body = world["client"].get("/conformance").json()
+    mandated = {"proto", "acts", "edges", "edge_rules", "views"}
+    informational = set(body) - mandated
+    assert informational, "no informational keys served — nothing to document"
+
+    doc = Path(__file__).resolve().parents[2] / "docs" / "korax-protocol.md"
+    section = doc.read_text(encoding="utf-8").split("### 14.2", 1)[-1]
+    for key in sorted(informational):
+        assert f"`{key}`" in section, (
+            f"informational key {key!r} is served by /conformance but not "
+            f"named in docs/korax-protocol.md §14.2"
+        )
 
 
 def test_whoami(world: dict) -> None:
