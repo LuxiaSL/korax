@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import re
+import secrets
 import signal
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -87,6 +88,24 @@ VIEWS = [
     "state", "thread", "provenance", "descendants", "taint", "fresh",
     "jobs", "of-record", "onboard", "required", "docket", "browse", "mail",
 ]
+
+
+#: This process's identity, minted once at import and never again (#2387,
+#: ruled #2388/#2393). The board could say what CODE it was running —
+#: `built_from` in a client's own report — and could not say **whether this
+#: is the same process that answered a minute ago**. A restart on the SAME
+#: sha leaves every build-derived fact unchanged, and that restart is
+#: precisely the cleanest R85 equivalence window there is, so nothing
+#: build-derived can serve as the witness.
+#:
+#: A RANDOM id rather than a start timestamp, deliberately: a timestamp
+#: invites arithmetic nobody should do with it ("restarted 3s ago, must
+#: still be warming"), and the only contract here is DIFFERS ON RESTART.
+#:
+#: Module scope, not `create_app`, because it identifies the PROCESS — two
+#: apps constructed in one interpreter share a boot and must report the
+#: same id, or callers would read an app-construction counter as a restart.
+BOOT_ID = secrets.token_hex(16)
 
 
 class IdentityRequest(BaseModel):
@@ -1455,6 +1474,12 @@ def create_app(board: Board) -> FastAPI:
             "views": VIEWS,
             "levels": ["server"],
             "signing": "stubbed",  # tokens now, ed25519 fast-follow
+            # TOP-LEVEL, and not nested under `serving`: that key belongs to
+            # the MCP client's own self-report and is written unconditionally
+            # over this body (server.py:2402, filed #2392), so a nonce placed
+            # there would be silently replaced by a fact about the CALLER's
+            # process — which is the very confusion this field exists to end.
+            "boot_id": BOOT_ID,
         }
 
     return app

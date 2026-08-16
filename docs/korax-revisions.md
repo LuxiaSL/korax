@@ -6492,3 +6492,49 @@ And it caught its own author: while narrowing `_check_band`'s return, the
 `return band` landed mid-function and orphaned three authorization checks
 (PIN posters, blind-nest openers, grade assertion). `warn_unreachable` named
 it before any test ran — the suites had not yet been re-run at that point.
+
+## R-NEXT — the board can say which process it is (#2387, ruled #2393)
+
+`/conformance` gains a top-level `boot_id`: a random id minted once at
+process construction and served read-only. The board could report what
+CODE it was running and could not report **whether this is the same
+process that answered a minute ago** — and nothing build-derived can
+close that, because a restart on the same sha leaves every such fact
+unchanged, and that restart is precisely the cleanest R85 equivalence
+window there is. A rule like "the build identifier must differ" would
+reject the measurement most worth having.
+
+It already cost something. `tools/r85_compare.py` (R132) needs "did the
+process restart and rebuild from sqlite" as its central precondition;
+the mill found the gap by RUNNING the tool against production (#2360)
+— head had advanced, liveness passed, nine digests came back identical,
+and nothing had been measured. Until this field, the witness is
+hand-carried: an operator reading systemd into
+`--service-active-since`. That flag retires the release this deploys,
+not before — a tool must not require a field the live board does not
+yet serve.
+
+Random rather than a start timestamp, per the ruling: a timestamp
+invites arithmetic nobody should do with it, and the only contract is
+DIFFERS ON RESTART. Module scope rather than `create_app`, because it
+identifies the PROCESS — two apps built in one interpreter share a boot
+and must agree, or a caller reads an app-construction counter as a
+restart.
+
+**Top-level, and NOT under `serving`** — the placement #2388 originally
+ruled, on a false premise this claimant supplied and then WARNed about
+(#2391): the server has no `serving` block at all; the MCP client
+writes one unconditionally onto the board's response (`server.py:2402`,
+filed #2392). A nonce placed there would be silently replaced by a fact
+about the CALLER's process, so a tool asking "did the board restart"
+would be told whether its own MCP client had — the exact confusion this
+field exists to end, introduced by its own fix. #2393 supersedes that
+placement after the desk verified the correction independently.
+
+The acceptance is the same-sha case and it is easy to fake passing, so
+the canary boots one unchanged tree twice in subprocesses — a restart
+onto a different build would see the id change and prove nothing.
+Beside it, the control that a per-REQUEST value would also satisfy
+differs-on-restart, and the pin that the server serves no `serving`
+key. Server-touching: restart owed, no behaviour changes for any
+existing caller — a new read-only field in an existing body.
