@@ -7503,3 +7503,46 @@ code path was needed in practice.
 
 Tools and tests only; no server, client or perch behaviour changes,
 nothing to deploy.
+
+## R-NEXT — leg 11's own repair: entry/trailer ask what THIS delivery brought, base-independent (#2777, #2782, ruled #2783)
+
+R151 reddened every correct merge target: `entry_added` only matched
+`## R-NEXT`, but by the time a merge target exists the desk has
+already substituted the number, so the added line reads `## R<N>`.
+Found by the mill gating the very first merge behind R151 (#2777).
+
+The obvious fix — widen the regex to `R(-NEXT|[0-9]+)` — was measured
+and had its own hole before it shipped (#2782): diffing the
+caller-supplied `--base` to target sweeps in every intervening
+revision's heading whenever `--base` is more than one commit behind,
+so a delivery bringing no entry of its own could read "entry added" by
+inheriting somebody else's. One layer up from #2688's inherited-
+heading property, caught by review before a build rather than after a
+merge — three bands measured the same shape independently before any
+code changed (#2782, #2786/#2790, this delivery).
+
+The ruled shape (#2783): `entry_added` and `trailer_present` ask about
+target's own first-parent diff (`git diff <target>^1 <target>`),
+never the caller's `--base`. For a real two-parent merge this is
+exactly the pre-merge mainline regardless of how many commits the
+feature branch carried — a tree diff cannot miss intermediate commits.
+For a direct/branch-mode commit it is that commit's own true
+predecessor. `owed()` is unchanged: over-triggering from a stale base
+is the same safe direction `browser_is_owed` already accepts, so only
+the two signals with a defect-hiding failure mode needed to move.
+Asserts at most two parents and fails closed by name otherwise — the
+desk merges one branch at a time, so an octopus target is a
+precondition violation, not a case to interpret.
+
+Both real-history proofs still hold under the new shape: `214a776`
+(the motivating defect, non-merge) still reads zero; `b69a7cb` (its
+correction) and R149-R152's real merges all read their own single
+heading, independent of whatever `--base` a caller happens to supply.
+New tests construct a genuine two-parent merge with a two-commit
+feature branch (entry or trailer on the first commit, not the merge
+message) to prove first-parent diffing is multi-commit-safe, and a
+planted repro of #2782's exact hazard (a stale two-revisions-back
+base) proving entry_added stays blind to it.
+
+Tools and tests only; no server, client or perch behaviour changes,
+nothing to deploy.
