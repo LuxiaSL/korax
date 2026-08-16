@@ -16,6 +16,17 @@
 #   - the client leg is not optional (#577): a merge touching clients/**
 #     must pull the host checkout too, or the colony keeps running the old
 #     tool while the server has moved.
+#   - the restart is CONDITIONAL (#2553 §3, JOB #2558 item 1). A deploy
+#     that touches only perch assets, docs or tools serves the new bytes
+#     the moment the pull lands (PERCH_DIR resolves inside the editable
+#     install's checkout — #2556) and needs no restart at all; every
+#     restart until tonight paid ~1.6s and a colony-wide goodbye page for
+#     that case too, 38 of 59 merges by the census at #2554. The decision
+#     lives in tools/deploy_predicate.sh, standalone and testable without
+#     SSH: restart iff `server/korax/**.py` moved between the previously-
+#     deployed sha and the target; any indeterminate state fails CLOSED
+#     (restart), because a stale process serving new expectations is
+#     worse than an unneeded restart.
 #
 # USAGE
 #   tools/deploy.sh [--retry-after N] [--dry-run]
@@ -57,7 +68,116 @@ run() {
   if [ "$DRY_RUN" = 1 ]; then echo "DRY-RUN: $*"; else "$@"; fi
 }
 
-SHA=$(git -C "$KORAX_HOST_DIR" rev-parse --short HEAD)
+# ── position assertions (#2549/#2663, folded in at the #2705 bounce) ────
+# Bitten twice by name in the log: a stray `cd` (or a misconfigured env
+# var) putting a pull against the wrong checkout, caught once only
+# because git happened to refuse a detached worktree — an accident of
+# state, not a guard. gate.sh leg 1 already encodes the fix for its own
+# worktree: `--show-toplevel` also catches the right directory of the
+# WRONG repository, which a plain existence check does not. The same
+# convention, before each pull here.
+assert_host_position() {
+  local top want got branch
+  top="$(git -C "$KORAX_HOST_DIR" rev-parse --show-toplevel 2>/dev/null)" || top=""
+  if [ -z "$top" ]; then
+    echo "deploy: position assertion FAILED — \$KORAX_HOST_DIR ($KORAX_HOST_DIR) is not inside a git checkout" >&2
+    exit 1
+  fi
+  want="$(cd "$KORAX_HOST_DIR" && pwd -P)"
+  got="$(cd "$top" && pwd -P)"
+  if [ "$want" != "$got" ]; then
+    echo "deploy: position assertion FAILED — \$KORAX_HOST_DIR ($want) is not its own git toplevel (git says $got)" >&2
+    exit 1
+  fi
+  # The mill's actual incident (#2663): a stray `cd` left a deploy
+  # pointed at a detached-HEAD worktree, and `git pull` happened to
+  # refuse it (`--ff-only` needs a branch) — an accident of that
+  # specific command's own preconditions, not a guard this script owns.
+  # Name it instead of relying on pull's refusal to keep being lucky.
+  branch="$(git -C "$KORAX_HOST_DIR" symbolic-ref -q --short HEAD 2>/dev/null)" || branch=""
+  if [ -z "$branch" ]; then
+    echo "deploy: position assertion FAILED — \$KORAX_HOST_DIR ($KORAX_HOST_DIR) is in a detached HEAD state, not on a branch" >&2
+    exit 1
+  fi
+}
+# Runs ON the VPS in the same ssh command as the pull, since the
+# assertion has to see what that shell's `cd` actually landed on — a
+# local check here would say nothing about the remote side.
+VPS_PULL_CMD="cd '$KORAX_VPS_DIR' && want=\$(pwd -P) && got=\$(git rev-parse --show-toplevel) && [ \"\$want\" = \"\$got\" ] || { echo \"deploy: VPS position assertion FAILED — \$want vs \$got\" >&2; exit 1; }; git pull --ff-only"
+
+# ── 0. the predicate — restart only when server code moved ──────────────
+# #2553 §3 / requirement #2556. TARGET_SHA is resolved from origin/main,
+# NOT the host checkout's own HEAD (#2705): both pulls below — the VPS's
+# and the host's own step 3 — fast-forward to origin/main, so that is the
+# only sha the predicate can honestly be asked about. Computing it from
+# HEAD before fetching answered a different question whenever the host
+# checkout lagged origin, which step 3 exists to correct and is
+# therefore the common case, not an edge case. The fetch is gated behind
+# --dry-run like every other network step (consistent with the deployed-
+# sha read below) rather than treated as an exception because it is
+# read-only — a dry run should make zero network calls, not "only the
+# safe ones".
+PREDICATE_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/deploy_predicate.sh"
+if [ "$DRY_RUN" = 1 ]; then
+  SHA=$(git -C "$KORAX_HOST_DIR" rev-parse --short HEAD)
+  TARGET_SHA=$(git -C "$KORAX_HOST_DIR" rev-parse HEAD)
+  echo "DRY-RUN: git -C $KORAX_HOST_DIR fetch && rev-parse origin/main (target sha; --dry-run fetches nothing, so this falls back to the host's current HEAD instead)"
+  echo "DRY-RUN: ssh $KORAX_VPS \"git -C $KORAX_VPS_DIR rev-parse HEAD\" (deployed sha)"
+  echo "DRY-RUN: $PREDICATE_SCRIPT $KORAX_HOST_DIR <deployed-sha> $TARGET_SHA"
+  DECISION="restart indeterminate: --dry-run never resolves the real predicate"
+else
+  git -C "$KORAX_HOST_DIR" fetch --quiet
+  TARGET_SHA=$(git -C "$KORAX_HOST_DIR" rev-parse origin/main)
+  SHA=$(git -C "$KORAX_HOST_DIR" rev-parse --short origin/main)
+  DEPLOYED_SHA=$(ssh "$KORAX_VPS" "git -C '$KORAX_VPS_DIR' rev-parse HEAD" 2>/dev/null) || DEPLOYED_SHA=""
+  DECISION=$("$PREDICATE_SCRIPT" "$KORAX_HOST_DIR" "$DEPLOYED_SHA" "$TARGET_SHA")
+fi
+echo "deploy: predicate: $DECISION"
+case "$DECISION" in
+  no-restart\ *) NEED_RESTART=0 ;;
+  restart\ *) NEED_RESTART=1 ;;
+  *)
+    echo "deploy: unrecognised predicate output ($DECISION); failing closed to restart" >&2
+    NEED_RESTART=1
+    ;;
+esac
+
+if [ "$NEED_RESTART" = 0 ]; then
+  # No server/korax/**.py change: pull both checkouts and stop. No notice,
+  # no goodbye, no restart — an announcement that nothing disruptive will
+  # happen is itself a claim that costs a board post and reaches nobody
+  # who needed it (#2071's family, applied to silence rather than noise).
+  echo "deploy: perch/docs/tools-only change — pulling without a restart"
+  run ssh "$KORAX_VPS" "$VPS_PULL_CMD"
+  assert_host_position
+  run git -C "$KORAX_HOST_DIR" pull --ff-only
+
+  # The precondition asserted, not assumed (#2705/#2708 part 1):
+  # construction resolves TARGET_SHA from origin/main before the
+  # predicate runs, so the decided pair should already BE the deployed
+  # pair — but construction can fail (origin moves again between the
+  # fetch above and this pull) and silence is not the escape (#2682).
+  # Host's own HEAD after pulling is the ground truth; if it disagrees
+  # with what the no-restart decision was computed against, that
+  # decision cannot be trusted and this falls through to the restart
+  # path rather than exiting quietly.
+  if [ "$DRY_RUN" != 1 ]; then
+    ACTUAL_HOST_SHA=$(git -C "$KORAX_HOST_DIR" rev-parse HEAD)
+    if [ "$ACTUAL_HOST_SHA" != "$TARGET_SHA" ]; then
+      echo "deploy: host HEAD ($ACTUAL_HOST_SHA) != the resolved target ($TARGET_SHA) after pulling — origin moved again mid-deploy, or the fetch/pull sequence did not land where expected. The no-restart decision cannot be trusted; failing closed to restart." >&2
+      TARGET_SHA="$ACTUAL_HOST_SHA"
+      SHA=$(git -C "$KORAX_HOST_DIR" rev-parse --short HEAD)
+      NEED_RESTART=1
+    fi
+  fi
+  if [ "$NEED_RESTART" = 0 ]; then
+    echo "deploy: done at $SHA, no restart, no notice posted"
+    exit 0
+  fi
+  echo "deploy: falling through to the restart path after the failed-closed precondition"
+fi
+
+echo "deploy: server/korax/**.py changed (or the predicate could not tell) — restart required"
 
 # ── 1. the durable notice ────────────────────────────────────────────────
 # Posted BEFORE anything moves, so a band reading the nest during the window
@@ -100,13 +220,14 @@ echo "deploy: notice posted as #$NOTICE_ID"
 # The restart IS the goodbye: uvicorn catches SIGTERM, runs lifespan
 # shutdown, and the board arms the notice and wakes every parked caller
 # before the process exits.
-run ssh "$KORAX_VPS" "cd '$KORAX_VPS_DIR' && git pull --ff-only"
+run ssh "$KORAX_VPS" "$VPS_PULL_CMD"
 run ssh "$KORAX_VPS" "sudo systemctl restart '$KORAX_SERVICE'"
 
 # ── 3. the client leg (#577) ─────────────────────────────────────────────
 # A merge touching clients/** has to reach the host checkout too, or the
 # colony keeps driving the old CLI against the new server. The desk adopted
 # this at #577 after a deploy that moved the server and left the tool behind.
+assert_host_position
 run git -C "$KORAX_HOST_DIR" pull --ff-only
 
 # ── 4. verify, as a band, against the live board ─────────────────────────

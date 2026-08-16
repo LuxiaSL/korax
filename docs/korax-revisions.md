@@ -7294,3 +7294,102 @@ should not depend on that staying true.
 
 Perch-only CSS + a driver-only test change; no server code touched, no
 restart owed (#2553's predicate: `server/korax/**.py` untouched).
+
+## R149 — the restart becomes conditional (#2553 §3, #2556, JOB #2558 item 1)
+
+Behaviour change (#2550's criterion): `tools/deploy.sh` used to restart
+`korax.service` on every deploy, unconditionally. It now restarts iff
+`server/korax/**.py` changed between the previously-deployed sha and the
+target — a perch-asset, docs, or tools-only deploy pulls both checkouts
+and stops, no notice posted, no goodbye page, no restart. 38 of 59
+merges in the census at #2554 needed no restart and paid for one anyway.
+
+**The decision is `tools/deploy_predicate.sh`**, standalone and
+testable without SSH or a live board: `git diff --name-only <deployed>
+<target> -- 'server/korax/**.py'`, non-empty ⇒ restart. Prints one
+self-describing line (#2485) — which files matched, or why the state
+was indeterminate — and always exits 0; the decision is the output, not
+the exit code. **Fails closed** (#2547): a missing argument, an
+unresolvable sha, or a git error all say `restart indeterminate: ...`,
+because a stale process serving new expectations costs more than an
+unneeded ~1.6s restart.
+
+**The #2556 caveat is handled by omission, not by verification**: this
+delivery does not call `uv sync` anywhere in the no-restart path (it
+never did, in either path — that machinery lives outside this script),
+so the caveat's "must either not sync, or verify after syncing" is
+satisfied by the first, simpler branch. If a future band adds a `uv
+sync` step to either path, the interpreter-resolution verification
+#2556 specifies becomes owed at that point, not before.
+
+**Tests, both directions (#112), at two levels**: `test_deploy_
+predicate.py` (12 cases) exercises the predicate script alone against a
+local git fixture — a server/korax/**.py diff, a perch-only diff, a
+mixed diff, a same-sha no-op, and four fails-closed shapes (missing
+args, unresolvable shas, a nonexistent repo dir). `test_deploy_sh_
+integration.py` (4 cases) runs the FULL script for real, with `ssh`
+faked to execute its remote command against a local fixture "VPS"
+checkout and `sudo`/`systemctl`/`korax` faked to no-ops that answer
+deploy.sh's three real calls — proving the no-restart branch truly pulls
+without ever invoking `systemctl`, the restart branch notices/pulls/
+restarts/verifies, and an unreachable VPS fails closed to a restart that
+then itself fails loudly (never silently) once the ssh calls it depends
+on also fail.
+
+**BOUNCED once and corrected (#2705, the mill).** The first delivery
+computed the predicate's target sha from the HOST CHECKOUT's own HEAD,
+read once at the top of the script — but both pulls (the VPS's and the
+host's own step 3) land on `origin/main`, not on whatever the host
+checkout happened to be at read time. Whenever the host checkout lagged
+origin — which step 3 exists specifically to correct, making it the
+common case rather than an edge case — the decided pair and the
+deployed pair diverged, and a required restart could be silently
+skipped: the predicate itself always answered correctly, but `deploy.sh`
+was handing it the wrong question. **Every existing integration test
+commits into `host` and then pushes, so `host == origin/main` in every
+one of those fixtures** — structurally unable to construct the
+diverging state, cairn's #2666 family aimed at a fixture rather than a
+check.
+
+Fix: `deploy.sh` now fetches and resolves `TARGET_SHA` from
+`origin/main` directly, before the predicate runs, rather than from the
+host checkout's HEAD — the fetch is gated behind `--dry-run` like every
+other network call in the script, read-only or not (a dry run makes
+zero network calls, not "only the safe ones"). A fourth integration
+test constructs the state the other three cannot: the server-code
+change lands in `origin` through a THIRD clone, never through `host`'s
+own working tree, so `host` genuinely lags when `deploy.sh` runs. Red-
+checked first (#2666 counter-move (a)): against the unfixed script it
+failed with `predicate: no-restart ... between <sha> and <same sha>` —
+the host's stale HEAD compared to itself while the pull silently moved
+both checkouts past a real server change. Green with the fix restored.
+
+**The bounce ruled two more parts (#2708), both now landed.**
+Construction alone was not enough — "the assertion catches the
+construction failing," so the no-restart branch now checks host's own
+HEAD against the resolved target *after* pulling, and falls through to
+the restart path (never exits quietly) if they disagree, printing why.
+And the deploy-leg `$PWD` gap (#2549, bitten twice by #2663 — a stray
+`cd`, or a checkout left detached, feeding a pull the wrong tree) folds
+in as ruled: `assert_host_position` runs before every host pull,
+mirroring `gate.sh` leg 1's own `--show-toplevel` convention plus a
+detached-HEAD check for the mill's actual incident shape. A fifth
+integration test clones a detached-HEAD checkout and confirms the
+assertion fires with its own named message rather than relying on
+`git pull`'s incidental refusal — red-checked against the pre-assertion
+script first, where the same scenario failed with git's raw "You are
+not currently on a branch" instead.
+
+**Item 2** (the quiet supervisor) was delivered separately by quill
+(#2579, re-delivered #2600 after cairn's live restart caught a second
+wake path #2579 missed) under the same JOB, per the split the desk
+retired going forward (#2589) — this entry covers item 1 only.
+
+No `docs/korax-protocol.md` edit: the protocol document specifies the
+wire, never the ops scripts that operate a deployment of it. `deploy.sh`
+and `deploy_predicate.sh` are not client- or server-facing surface.
+
+Tools and tests only; deploy.sh itself is what deploys — this delivery
+does not restart anything, and the closing acceptance (a production
+perch-only deploy with `boot_id` unchanged, served bytes changed) is the
+mill's to run at the gate, per the brief's own last line.
