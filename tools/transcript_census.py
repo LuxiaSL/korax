@@ -41,6 +41,7 @@ visible rather than being a claim in a docstring.
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import re
 import statistics
@@ -57,6 +58,17 @@ DEFAULT_ROOT = Path.home() / ".claude/projects/-home-luxia-projects-korax"
 # result". The threshold is STATED because a waste figure whose definition
 # is not beside it is the defect (#2667).
 LARGE_RESULT_CHARS = 20_000
+
+# Echo waste (JOB #2702). An input field shorter than this is not judged for
+# reflection at all: short strings collide by chance ("post", an ns, a band
+# id), and counting those as echo would inflate the figure with noise. The
+# count of calls excluded for being too small is REPORTED, not hidden.
+ECHO_MIN_CHARS = 200
+
+# Similarity above which a NON-JSON result counts as reflecting its input.
+# Printed beside every number that depends on it — a near-match percentage
+# without its threshold is #2710's defect committed against myself.
+NEAR_MATCH_THRESHOLD = 0.80
 
 # Bounded label alphabet. A command token that is not a plain identifier
 # never reaches the report.
@@ -139,6 +151,25 @@ class ToolStats:
 
 
 @dataclass
+class EchoStats:
+    """Input reflected back as output, per verb — JOB #2702.
+
+    `echoed_chars` counts INPUT characters found again in the result. It is
+    a character count, never tokens, and never a share of spend: #2710 is
+    the standing correction that a percentage must carry the unit it counts.
+    """
+
+    uses: int = 0
+    considered: int = 0          # calls with an input field big enough to judge
+    structural_hits: int = 0     # result parsed as JSON, an input field echoed
+    near_hits: int = 0           # non-JSON result, similarity >= threshold
+    no_echo: int = 0
+    in_chars: int = 0
+    out_chars: int = 0
+    echoed_chars: int = 0
+
+
+@dataclass
 class Census:
     denom: Denominators = field(default_factory=Denominators)
     exact: ExactTokens = field(default_factory=ExactTokens)
@@ -165,6 +196,16 @@ class Census:
     sessions: set[str] = field(default_factory=set)
     subagent_files: int = 0
     toplevel_files: int = 0
+
+    # echo waste (JOB #2702)
+    echo: dict[str, EchoStats] = field(default_factory=lambda: defaultdict(EchoStats))
+    # self-reads: drained envelopes authored by the band that ran the drain
+    self_read_envelopes: int = 0
+    self_read_chars: int = 0
+    other_read_envelopes: int = 0
+    other_read_chars: int = 0
+    sessions_with_known_band: int = 0
+    sessions_without_known_band: int = 0
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -248,6 +289,64 @@ def _envelope_ids(text: str) -> list[int]:
     return [int(m) for m in _ENVELOPE_ID.findall(text)]
 
 
+def _iter_strings(node: Any, depth: int = 0) -> Iterator[str]:
+    """Every string VALUE in a parsed structure. Yields text to the caller in
+    this file only, which compares lengths and equality and stores neither."""
+    if depth > 8:
+        return
+    if isinstance(node, str):
+        yield node
+    elif isinstance(node, dict):
+        for v in node.values():
+            yield from _iter_strings(v, depth + 1)
+    elif isinstance(node, list):
+        for v in node:
+            yield from _iter_strings(v, depth + 1)
+
+
+def _echo_of(inp: Any, out_text: str) -> tuple[int, str]:
+    """How many INPUT characters come back in the result -> (chars, mode).
+
+    **Structural, not substring, and that distinction is the whole finding.**
+    A first cut compared the input payload against the raw result text and
+    reported 1.2% echo for `korax_post` while input and output were the same
+    size to within 7%. Both string forms miss it: the result serialises
+    non-ASCII literally (this corpus is full of em-dashes and box-drawing),
+    so `json.dumps(payload)`'s `\\uXXXX` escaping does not match, and raw
+    matching fails on the newline escaping. Parsing the result and comparing
+    FIELD VALUES is exact and has no escaping question at all.
+
+    Falls back to a similarity ratio only when the result is not JSON. The
+    threshold is a module constant and is printed beside every number that
+    depends on it (#2667, #2710).
+
+    Returns a count and a mode label. It never returns the text it compared.
+    """
+    if not isinstance(inp, dict):
+        return (0, "no-input")
+    sent = [v for v in inp.values() if isinstance(v, str) and len(v) >= ECHO_MIN_CHARS]
+    if not sent:
+        return (0, "too-small-to-judge")
+
+    try:
+        doc = json.loads(out_text)
+    except (json.JSONDecodeError, ValueError):
+        doc = None
+
+    if doc is not None:
+        returned = set(_iter_strings(doc))
+        echoed = sum(len(s) for s in sent if s in returned)
+        return (echoed, "structural" if echoed else "none")
+
+    # non-JSON result: near match, threshold stated
+    best = 0
+    for s in sent:
+        ratio = difflib.SequenceMatcher(None, s, out_text).ratio()
+        if ratio >= NEAR_MATCH_THRESHOLD:
+            best = max(best, len(s))
+    return (best, "near" if best else "none")
+
+
 # ─────────────────────────────────────────────────────────────────────────
 
 
@@ -313,9 +412,21 @@ def scan_file(path: Path, census: Census, seen_requests: set[str]) -> None:
     session = path.stem
     census.sessions.add(session)
     pending_user_kind: str | None = None
-    # tool_use id -> (channel, verb, tool name) so a result can be attributed
-    # to its call — the name is what makes per-tool out-chars possible
-    call_labels: dict[str, tuple[str, str | None, str]] = {}
+    # tool_use id -> (channel, verb, tool name, input) so a result can be
+    # attributed to its call — the name makes per-tool out-chars possible,
+    # the input makes echo measurable
+    call_labels: dict[str, tuple[str, str | None, str, Any]] = {}
+
+    # SELF-READ ATTRIBUTION, per session (JOB #2702).
+    # "A session draining envelopes it authored itself" needs to know which
+    # band the session was acting as, and that is NOT a constant across the
+    # corpus: each transcript is a different band's session. A first probe
+    # hard-coded one band id and so measured "how widely quill is read"
+    # rather than self-read — the number looked plausible and answered the
+    # wrong question. The acting band is inferred from the `author` the
+    # board stamped on this session's own accepted posts.
+    acting_bands: set[str] = set()
+    drained: list[tuple[str, int]] = []
 
     for rec in iter_records(path, census):
         rtype = rec.get("type")
@@ -340,7 +451,9 @@ def scan_file(path: Path, census: Census, seen_requests: set[str]) -> None:
                     label = call_labels.pop(str(blk.get("tool_use_id")), None)
                     if label is None:
                         continue
-                    channel, verb, name = label
+                    channel, verb, name, call_input = label
+                    _record_echo(census, name, call_input, raw, out_chars,
+                                 acting_bands, drained)
                     # Attribute the result's SIZE back to the tool that
                     # made the call. Without this the per-tool `out chars`
                     # column is structurally always zero — a column that
@@ -393,13 +506,114 @@ def scan_file(path: Path, census: Census, seen_requests: set[str]) -> None:
                     else:
                         census.by_bash[head].add(in_chars, 0)
 
-            call_labels[str(blk.get("id"))] = (channel, verb, name)
+            call_labels[str(blk.get("id"))] = (channel, verb, name, inp)
             census.by_tool[name].add(in_chars, 0)
             if channel == "cli:korax":
                 census.korax_cli[str(verb)].add(in_chars, 0)
             elif channel == "mcp:korax":
                 census.korax_mcp[str(verb)].add(in_chars, 0)
         pending_user_kind = None
+
+    _attribute_self_reads(census, acting_bands, drained)
+
+
+def _record_echo(
+    census: Census,
+    name: str,
+    call_input: Any,
+    raw: Any,
+    out_chars: int,
+    acting_bands: set[str],
+    drained: list[tuple[str, int]],
+) -> None:
+    """Echo accounting for one call/result pair (JOB #2702).
+
+    Everything here computes on text and stores only integers and the
+    bounded verb name — the seam the census already holds (§8.7).
+    """
+    st = census.echo[name]
+    st.uses += 1
+    st.out_chars += out_chars
+    if isinstance(call_input, dict):
+        st.in_chars += sum(len(v) for v in call_input.values() if isinstance(v, str))
+
+    out_text = raw if isinstance(raw, str) else ""
+    if not isinstance(raw, str) and isinstance(raw, list):
+        out_text = "".join(
+            b.get("text", "") for b in raw if isinstance(b, dict) and isinstance(b.get("text"), str)
+        )
+
+    if out_text:
+        echoed, mode = _echo_of(call_input, out_text)
+        if mode not in {"no-input", "too-small-to-judge"}:
+            st.considered += 1
+            if mode == "structural":
+                st.structural_hits += 1
+            elif mode == "near":
+                st.near_hits += 1
+            else:
+                st.no_echo += 1
+            st.echoed_chars += echoed
+
+    # Learn which band this session acts as, from the board's own stamp on
+    # an accepted post — and collect drained envelopes for attribution once
+    # the whole file has been read.
+    if not out_text:
+        return
+    try:
+        doc = json.loads(out_text)
+    except (json.JSONDecodeError, ValueError):
+        return
+    if not isinstance(doc, dict):
+        return
+
+    # Three independent witnesses to "which band is this session acting as",
+    # because one of them alone covered only 18 of 55 sessions and a rate
+    # computed over a third of the corpus is not a corpus rate:
+    #   post   — the board's own `author` stamp on an accepted envelope
+    #   whoami — `identity`, the connection's own answer
+    #   animate/enlist — `id`, the band just bound
+    if "post" in name and isinstance(doc.get("author"), str) and doc.get("id") is not None:
+        acting_bands.add(doc["author"])
+    ident = doc.get("identity")
+    if isinstance(ident, str) and ident.startswith("band:"):
+        acting_bands.add(ident)
+    bid = doc.get("id")
+    if isinstance(bid, str) and bid.startswith("band:"):
+        acting_bands.add(bid)
+
+    envs = doc.get("envelopes")
+    if isinstance(envs, list):
+        for env in envs:
+            if not isinstance(env, dict):
+                continue
+            author = env.get("author")
+            payload = env.get("payload")
+            if isinstance(author, str):
+                drained.append((author, len(payload) if isinstance(payload, str) else 0))
+
+
+def _attribute_self_reads(
+    census: Census, acting_bands: set[str], drained: list[tuple[str, int]]
+) -> None:
+    """Split a session's drained envelopes into its own and other people's.
+
+    **A session whose acting band could not be inferred is COUNTED AND
+    EXCLUDED, never folded into 'other'.** Folding it in would quietly
+    understate self-read by exactly the traffic we failed to attribute, and
+    the resulting percentage would look like a measurement of the world.
+    """
+    if not acting_bands:
+        census.sessions_without_known_band += 1
+        return
+    census.sessions_with_known_band += 1
+    for author, chars in drained:
+        if author in acting_bands:
+            census.self_read_envelopes += 1
+            census.self_read_chars += chars
+        else:
+            census.other_read_envelopes += 1
+            census.other_read_chars += chars
 
 
 def _record_result(
@@ -574,6 +788,42 @@ def report(census: Census, root: Path, naive_check: bool) -> None:
     out(f"    {e.input_tokens + e.cache_creation_input_tokens:,} of "
         f"{e.billed_input_total:,} = "
         f"{_pct(e.input_tokens + e.cache_creation_input_tokens, e.billed_input_total)}")
+    out("\n── ECHO WASTE: INPUT REFLECTED BACK AS OUTPUT (JOB #2702) ──")
+    out(f"  Method: result parsed as JSON, input FIELDS compared by value —")
+    out(f"  exact, no escaping question. Non-JSON results fall back to a")
+    out(f"  similarity ratio >= {NEAR_MATCH_THRESHOLD}. Input fields shorter than")
+    out(f"  {ECHO_MIN_CHARS} chars are not judged (short strings collide by chance);")
+    out("  those calls appear as 'unjudged' and are excluded from the rates.")
+    out(f"\n  {'verb':30} {'uses':>6} {'judged':>7} {'struct':>7} {'near':>5} "
+        f"{'echoed ch':>11} {'of out':>7}")
+    echo_rows = sorted(census.echo.items(), key=lambda kv: -kv[1].echoed_chars)
+    tot_echo = tot_out = 0
+    for name, st in echo_rows[:16]:
+        if st.considered == 0 and st.echoed_chars == 0:
+            continue
+        out(f"  {name[:30]:30} {st.uses:>6} {st.considered:>7} {st.structural_hits:>7} "
+            f"{st.near_hits:>5} {st.echoed_chars:>11,} "
+            f"{_pct(st.echoed_chars, st.out_chars):>7}")
+    for _, st in census.echo.items():
+        tot_echo += st.echoed_chars
+        tot_out += st.out_chars
+    out(f"\n  corpus-wide: {tot_echo:,} echoed of {tot_out:,} tool-result chars "
+        f"= {_pct(tot_echo, tot_out)}")
+
+    out("\n── SELF-READS: DRAINS RETURNING THE READER'S OWN TEXT ──")
+    tot_read = census.self_read_chars + census.other_read_chars
+    out(f"  sessions with acting band inferred   {census.sessions_with_known_band}")
+    out(f"  sessions NOT attributable (excluded) {census.sessions_without_known_band}")
+    out(f"  own envelopes    {census.self_read_envelopes:>7}   "
+        f"payload chars {census.self_read_chars:>12,}")
+    out(f"  others'          {census.other_read_envelopes:>7}   "
+        f"payload chars {census.other_read_chars:>12,}")
+    out(f"  own share of drained payload chars   "
+        f"{_pct(census.self_read_chars, tot_read)}")
+    out("  The acting band is inferred from the board's own `author` stamp on")
+    out("  this session's accepted posts — not assumed, and not constant")
+    out("  across the corpus, since each transcript is a different band.")
+
     out("\n  Not measurable from this corpus, stated rather than forced:")
     out("  per-tool TOKEN cost (no per-block counts exist in the transcript),")
     out("  and watch-supervisor wakes that never entered a session (they are")
@@ -640,6 +890,33 @@ def to_json(census: Census) -> dict[str, Any]:
             "large_result_threshold_chars": LARGE_RESULT_CHARS,
             "large_results": census.large_results,
             "large_result_chars": census.large_result_chars,
+        },
+        "echo": {
+            "method": "result parsed as JSON, input fields compared by value",
+            "echo_min_chars": ECHO_MIN_CHARS,
+            "near_match_threshold": NEAR_MATCH_THRESHOLD,
+            "by_verb": {
+                n: {
+                    "uses": s.uses,
+                    "judged": s.considered,
+                    "structural_hits": s.structural_hits,
+                    "near_hits": s.near_hits,
+                    "no_echo": s.no_echo,
+                    "in_chars": s.in_chars,
+                    "out_chars": s.out_chars,
+                    "echoed_chars": s.echoed_chars,
+                }
+                for n, s in census.echo.items()
+                if s.considered or s.echoed_chars
+            },
+        },
+        "self_reads": {
+            "sessions_attributed": census.sessions_with_known_band,
+            "sessions_unattributable": census.sessions_without_known_band,
+            "self_envelopes": census.self_read_envelopes,
+            "self_chars": census.self_read_chars,
+            "other_envelopes": census.other_read_envelopes,
+            "other_chars": census.other_read_chars,
         },
     }
 
