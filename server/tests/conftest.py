@@ -120,3 +120,24 @@ class FakeRegistry:
 
     def list_identities(self) -> list[dict[str, str | None]]:
         return [{"id": i, "display": d} for i, d in sorted(self.bands.items())]
+
+
+# ── the browser rig (ISSUE #2608) ─────────────────────────────────────
+# Six browser tests each carried their own spawn-and-kill, and every copy
+# reaped Chrome's ROOT while its ~14 descendants survived — 8 orphaned
+# trees and 9.0 GB on the shared host by the time it was measured
+# (#2601, #2633). The rig lives in `perch_rig.py`; this fixture is what
+# guarantees `reap()` runs, so a test can no longer forget it and a
+# SEVENTH browser test inherits the reaping instead of copying the sixth.
+@pytest.fixture()
+def perch_rig():
+    # Imported as a top-level module, not relatively: `server/tests/` has
+    # no `__init__.py` and every sibling helper is reached this way
+    # (`from perch_source import ...`).
+    from perch_rig import PerchRig
+
+    rig = PerchRig()
+    try:
+        yield rig
+    finally:
+        rig.reap()

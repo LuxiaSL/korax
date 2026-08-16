@@ -24,7 +24,6 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -42,13 +41,6 @@ _SKIP_REASON = (
     "no headless Chrome found" if not CHROME else "no `node` found" if not NODE else None
 )
 
-
-def _free_port() -> int:
-    import socket
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
 
 
 # The child binds its own port and hands it back through the info file — no
@@ -89,50 +81,39 @@ uvicorn.Server(uvicorn.Config(create_app(board), log_level="error")).run(
 
 @pytest.mark.browser
 @pytest.mark.skipif(bool(_SKIP_REASON), reason=str(_SKIP_REASON))
-def test_the_feed_goes_live_and_survives_a_restart(tmp_path) -> None:
+def test_the_feed_goes_live_and_survives_a_restart(tmp_path, perch_rig) -> None:
     script = tmp_path / "serve.py"
     script.write_text(_SEED_AND_SERVE, encoding="utf-8")
     info = tmp_path / "info.txt"
-    server = subprocess.Popen([sys.executable, str(script), str(SERVER_DIR), str(info)])
-    cdp_port = _free_port()
-    chrome = None
-    try:
-        for _ in range(80):
-            if info.exists():
-                break
+    server = perch_rig.serve(script, SERVER_DIR, info)
+    for _ in range(80):
+        if info.exists():
+            break
+        time.sleep(0.25)
+    else:
+        pytest.skip("server did not start; not a statement about the feature")
+    time.sleep(1.0)
+    operator, op_tok, poster, poster_tok, port, head = info.read_text().splitlines()
+    origin = f"http://127.0.0.1:{port}"
+
+    chrome, cdp_port = perch_rig.chrome(
+        CHROME, tmp_path / "chrome-profile")
+    import urllib.request
+
+    for _ in range(60):
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json/version", timeout=1)
+            break
+        except Exception:
             time.sleep(0.25)
-        else:
-            pytest.skip("server did not start; not a statement about the feature")
-        time.sleep(1.0)
-        operator, op_tok, poster, poster_tok, port, head = info.read_text().splitlines()
-        origin = f"http://127.0.0.1:{port}"
+    else:
+        pytest.fail("headless Chrome did not answer its CDP port")
 
-        chrome = subprocess.Popen([
-            CHROME, "--headless=new", "--disable-gpu", "--no-sandbox",
-            f"--remote-debugging-port={cdp_port}",
-            f"--user-data-dir={tmp_path / 'chrome-profile'}", "about:blank",
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        import urllib.request
-
-        for _ in range(60):
-            try:
-                urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json/version", timeout=1)
-                break
-            except Exception:
-                time.sleep(0.25)
-        else:
-            pytest.fail("headless Chrome did not answer its CDP port")
-
-        driver = subprocess.run(
-            [NODE, str(DRIVER), str(cdp_port), origin, op_tok, poster_tok,
-             poster, operator, head, str(server.pid)],
-            capture_output=True, text=True, timeout=240,
-        )
-    finally:
-        if server.poll() is None:
-            server.kill()
-        if chrome is not None and chrome.poll() is None:
-            chrome.kill()
+    driver = subprocess.run(
+        [NODE, str(DRIVER), str(cdp_port), origin, op_tok, poster_tok,
+         poster, operator, head, str(server.pid)],
+        capture_output=True, text=True, timeout=240,
+    )
 
     assert driver.stdout.strip(), f"driver produced no report — stderr:\n{driver.stderr}"
     report = json.loads(driver.stdout.strip().splitlines()[-1])

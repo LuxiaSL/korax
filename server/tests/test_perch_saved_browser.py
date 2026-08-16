@@ -18,9 +18,7 @@ from __future__ import annotations
 
 import json
 import shutil
-import socket
 import subprocess
-import sys
 import time
 import urllib.request
 from pathlib import Path
@@ -39,11 +37,6 @@ _SKIP_REASON = (
     "no `node` found" if not NODE else None
 )
 
-
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
 
 
 _SEED_AND_SERVE = """
@@ -80,64 +73,54 @@ uvicorn.Server(uvicorn.Config(create_app(board), log_level="error")).run(
 
 @pytest.mark.browser
 @pytest.mark.skipif(bool(_SKIP_REASON), reason=str(_SKIP_REASON))
-def test_save_survives_reload_and_unsave_removes(tmp_path) -> None:
+def test_save_survives_reload_and_unsave_removes(tmp_path, perch_rig) -> None:
     script = tmp_path / "serve.py"
     script.write_text(_SEED_AND_SERVE, encoding="utf-8")
     info = tmp_path / "info.txt"
-    server = subprocess.Popen([sys.executable, str(script), str(SERVER_DIR), str(info)])
-    chrome = None
-    cdp_port = _free_port()
-    try:
-        for _ in range(80):
-            if info.exists():
-                break
+    perch_rig.serve(script, SERVER_DIR, info)
+    for _ in range(80):
+        if info.exists():
+            break
+        time.sleep(0.25)
+    else:
+        pytest.skip("server did not start; not a statement about the shelf")
+    time.sleep(1.0)
+    operator, token, port, target_id = info.read_text().splitlines()
+    origin = f"http://127.0.0.1:{port}"
+
+    chrome, cdp_port = perch_rig.chrome(
+        CHROME, tmp_path / "chrome-profile")
+    for _ in range(80):
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json/list")
+            break
+        except Exception:
             time.sleep(0.25)
-        else:
-            pytest.skip("server did not start; not a statement about the shelf")
-        time.sleep(1.0)
-        operator, token, port, target_id = info.read_text().splitlines()
-        origin = f"http://127.0.0.1:{port}"
 
-        chrome = subprocess.Popen([
-            CHROME, "--headless=new", "--disable-gpu", "--no-sandbox",
-            f"--remote-debugging-port={cdp_port}",
-            f"--user-data-dir={tmp_path / 'chrome-profile'}", "about:blank",
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        for _ in range(80):
-            try:
-                urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json/list")
-                break
-            except Exception:
-                time.sleep(0.25)
+    run = subprocess.run(
+        [NODE, str(DRIVER), str(cdp_port), origin, token, target_id],
+        capture_output=True, text=True, timeout=120)
+    report = json.loads(run.stdout or "{}")
+    assert run.returncode == 0, f"driver reported failure: {report}"
 
-        run = subprocess.run(
-            [NODE, str(DRIVER), str(cdp_port), origin, token, target_id],
-            capture_output=True, text=True, timeout=120)
-        report = json.loads(run.stdout or "{}")
-        assert run.returncode == 0, f"driver reported failure: {report}"
+    # -- the server-side half: the wire shapes the brief RULED --------
+    def api(path: str):
+        req = urllib.request.Request(
+            origin + path, headers={"Authorization": "Bearer " + token})
+        return json.load(urllib.request.urlopen(req))
 
-        # -- the server-side half: the wire shapes the brief RULED --------
-        def api(path: str):
-            req = urllib.request.Request(
-                origin + path, headers={"Authorization": "Bearer " + token})
-            return json.load(urllib.request.urlopen(req))
+    mailbox = api(f"/read?ns=/dm/{operator}&limit=100")["envelopes"]
+    saves = [e for e in mailbox
+             if e["type"] == "NOTE"
+             and (e.get("ext") or {}).get("korax", {}).get("saved") is True]
+    assert len(saves) == 1, "exactly one save NOTE should have landed"
+    save = saves[0]
+    assert save["author"] == operator
+    assert save.get("payload") in (None, ""), "the save is payload-optional"
+    edges = {(r["edge"], r["id"]) for r in save.get("refs", [])}
+    assert ("beside", int(target_id)) in edges, "the beside edge is the save"
 
-        mailbox = api(f"/read?ns=/dm/{operator}&limit=100")["envelopes"]
-        saves = [e for e in mailbox
-                 if e["type"] == "NOTE"
-                 and (e.get("ext") or {}).get("korax", {}).get("saved") is True]
-        assert len(saves) == 1, "exactly one save NOTE should have landed"
-        save = saves[0]
-        assert save["author"] == operator
-        assert save.get("payload") in (None, ""), "the save is payload-optional"
-        edges = {(r["edge"], r["id"]) for r in save.get("refs", [])}
-        assert ("beside", int(target_id)) in edges, "the beside edge is the save"
-
-        supers = [e for e in mailbox if e["type"] == "SUPERSEDE"
-                  and any(r["edge"] == "supersedes" and r["id"] == save["id"]
-                          for r in e.get("refs", []))]
-        assert len(supers) == 1, "the unsave is a SUPERSEDE of exactly that NOTE"
-    finally:
-        if chrome is not None and chrome.poll() is None:
-            chrome.kill()
-        server.kill()
+    supers = [e for e in mailbox if e["type"] == "SUPERSEDE"
+              and any(r["edge"] == "supersedes" and r["id"] == save["id"]
+                      for r in e.get("refs", []))]
+    assert len(supers) == 1, "the unsave is a SUPERSEDE of exactly that NOTE"

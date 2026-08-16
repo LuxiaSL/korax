@@ -7218,3 +7218,45 @@ tests clean fixtures could not have written.
 Not yet exercised on a real restart; that box stays unticked until
 someone watches one with this live. Tests and one tool module; no
 server, client or perch behaviour changes, nothing to deploy.
+
+## R147 — the browser rig reaps its tree (#2608, #2601)
+
+`server/tests/perch_rig.py` plus a `perch_rig` fixture. Seven browser
+tests each carried their own copy of spawn-and-kill, and every copy had
+the same two holes: `chrome.kill()` reaps the ROOT while its ~14
+descendants survive, and `finally` never runs when the interpreter is
+SIGKILLed — which is the path that actually leaked eight orphaned trees,
+113 processes and 9.0 GB onto a shared host, three of them four days old.
+
+Two mechanisms for two failures, both **measured before being designed
+around**: a plain spawn leaves 14 of 14 alive; `start_new_session` plus
+`PR_SET_PDEATHSIG` leaves 0; `killpg` with a live parent leaves 0.
+PDEATHSIG covers the parent being SIGKILLed, when no code of ours runs at
+all; the explicit group kill covers the ordinary paths without waiting on
+Chrome to notice.
+
+**The boundary is pinned as a test rather than left to be rediscovered.**
+The kernel guarantees only that the ROOT dies — PDEATHSIG is not
+inherited across fork. Chrome's tree collapses because Chrome's children
+watch the browser process; a non-cooperating tree does not, and three of
+four `sleep` processes survive. A first draft of the canary used exactly
+that as a cheap stand-in for Chrome and failed, correctly: it was
+measuring a different mechanism than the one being shipped. The canary
+now uses real Chrome and waits for the tree to SETTLE, because a
+"more than N" threshold passes while the tree is still forking and reaps
+a partial one.
+
+**And the fix could not be seven edits.** The issue predicted that "the
+seventh browser test anybody writes will copy the sixth"; that came true
+during this delivery, when R143 merged a new browser test carrying its
+own copy — noticed because it left a profile dir behind. So the
+enumeration itself is guarded: only the rig may spawn Chrome, asserted
+across every `test_perch_*.py`.
+
+Acceptance is both directions with a control — the old shape must still
+leak, or the reaping tests prove nothing about a tree that would have
+died anyway. Measured on the full browser suite: 8 passed, zero
+processes leaked into the run window, zero profile dirs left.
+
+Tests only; no server, client or perch behaviour changes, nothing to
+deploy.

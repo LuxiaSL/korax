@@ -32,7 +32,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -63,12 +62,6 @@ _SKIP_REASON = (
 )
 _REQUIRED = os.environ.get("KORAX_BROWSER_REQUIRED") == "1"
 
-
-def _free_port() -> int:
-    import socket
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
 
 
 # Mirrors test_goodbye_signal.py's subprocess-server pattern (R83's
@@ -171,7 +164,7 @@ uvicorn.Server(uvicorn.Config(create_app(board), log_level="error")).run(
 
 @pytest.mark.browser
 @pytest.mark.skipif(bool(_SKIP_REASON) and not _REQUIRED, reason=str(_SKIP_REASON))
-def test_every_route_renders_without_console_errors(tmp_path) -> None:
+def test_every_route_renders_without_console_errors(tmp_path, perch_rig) -> None:
     if _REQUIRED and _SKIP_REASON:
         # #1697's flip: where the environment DECLARED the browser leg
         # required, a missing dependency is a failure that names itself —
@@ -183,53 +176,41 @@ def test_every_route_renders_without_console_errors(tmp_path) -> None:
     script = tmp_path / "serve.py"
     script.write_text(_SEED_AND_SERVE, encoding="utf-8")
     info = tmp_path / "info.txt"
-    server = subprocess.Popen([sys.executable, str(script), str(SERVER_DIR), str(info)])
-    chrome_profile = tmp_path / "chrome-profile"
-    cdp_port = _free_port()
-    chrome = None
-    try:
-        for _ in range(80):
-            if info.exists():
-                break
+    perch_rig.serve(script, SERVER_DIR, info)
+    for _ in range(80):
+        if info.exists():
+            break
+        time.sleep(0.25)
+    else:
+        if _REQUIRED:
+            pytest.fail(
+                "server did not start under KORAX_BROWSER_REQUIRED=1 — "
+                "where the leg is required, an unrunnable rig is a "
+                "failure, not a skip (#1697)"
+            )
+        pytest.skip("server did not start; not a statement about the smoke")
+    time.sleep(1.0)
+    operator, token, port, probe_id, thread_root_id = info.read_text().splitlines()
+    origin = f"http://127.0.0.1:{port}"
+
+    chrome, cdp_port = perch_rig.chrome(
+        CHROME, tmp_path / "chrome-profile")
+    import urllib.request
+    for _ in range(60):
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json/version",
+                                    timeout=1)
+            break
+        except Exception:
             time.sleep(0.25)
-        else:
-            if _REQUIRED:
-                pytest.fail(
-                    "server did not start under KORAX_BROWSER_REQUIRED=1 — "
-                    "where the leg is required, an unrunnable rig is a "
-                    "failure, not a skip (#1697)"
-                )
-            pytest.skip("server did not start; not a statement about the smoke")
-        time.sleep(1.0)
-        operator, token, port, probe_id, thread_root_id = info.read_text().splitlines()
-        origin = f"http://127.0.0.1:{port}"
+    else:
+        pytest.fail("headless Chrome did not answer its CDP port")
 
-        chrome = subprocess.Popen([
-            CHROME, "--headless=new", "--disable-gpu", "--no-sandbox",
-            f"--remote-debugging-port={cdp_port}",
-            f"--user-data-dir={chrome_profile}", "about:blank",
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        import urllib.request
-        for _ in range(60):
-            try:
-                urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json/version",
-                                        timeout=1)
-                break
-            except Exception:
-                time.sleep(0.25)
-        else:
-            pytest.fail("headless Chrome did not answer its CDP port")
-
-        driver = subprocess.run(
-            [NODE, str(DRIVER), str(cdp_port), origin, token, probe_id,
-             thread_root_id],
-            capture_output=True, text=True, timeout=240,
-        )
-    finally:
-        if server.poll() is None:
-            server.kill()
-        if chrome is not None and chrome.poll() is None:
-            chrome.kill()
+    driver = subprocess.run(
+        [NODE, str(DRIVER), str(cdp_port), origin, token, probe_id,
+         thread_root_id],
+        capture_output=True, text=True, timeout=240,
+    )
 
     assert driver.stdout.strip(), (
         f"driver produced no report — stderr:\n{driver.stderr}"
