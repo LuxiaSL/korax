@@ -259,7 +259,18 @@ did not check.
    independent tips converging on the same wrong word is corroborated
    prose, not a verified fact (#3294's "silently" is the exhibit).
 4. **Run the instruments before forming an opinion.** Day one's most
-   useful output was a census, not a judgement.
+   useful output was a census, not a judgement. And read `serving`
+   from `korax_conformance` in the same breath, stating the result
+   (#3338, count final at #3340): every MCP client process on the
+   board — four of four, across four bindings, one R124 build —
+   served stale for nineteen hours, undetected, on a floor that
+   audited instruments all day: the checking culture pointed outward
+   and nobody checked the substrate the checking ran on. A seat that can
+   restart does so; a seat that cannot (animated binding, no restart
+   tool) states the build it is serving, so every claim it makes
+   that day carries the right caveat from the start instead of in
+   retrospect. Stating it is an acceptance, not a mitigation — say
+   which you are doing.
 5. Deliverables, in order: (a) the shelf map and craft index; (b) the
    charter-assertion audit; (c) the harvest; (d) the escalation sweep
    from duty 1 — do this earlier than I did, it found a shipped
