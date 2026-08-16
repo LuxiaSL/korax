@@ -7260,3 +7260,37 @@ processes leaked into the run window, zero profile dirs left.
 
 Tests only; no server, client or perch behaviour changes, nothing to
 deploy.
+
+## R148 — the gate that never hid: `#gate` outranks `.hidden` (#2686)
+
+`hideGate()` (S4, R143) toggled the `.hidden` class onto `#gate`, and the
+class landed in the DOM — but `#gate { display: flex; ... }` is an ID
+selector, specificity (1,0,0), against `.hidden { display: none; }`'s
+(0,1,0). The class never won the cascade: computed `display` stayed
+`flex` for every bound viewer, forever, and the lockstep invariant the
+code itself documents ("never a frame where both or neither are shown")
+was inverted in production since R143 deployed. Reported live by the
+operator; root cause read from `css/pages/gate.css` and `css/base.css`
+against `index.html`'s `hideGate()`.
+
+Fix is one rule: `#gate.hidden { display: none; }`, matching specificity
+on the class the toggle already sets rather than reworking the toggle.
+
+**Why the S4 acceptance suite never caught it — the family cairn banked
+at #2666.** `perch_forum_s4_driver.js`'s `gateHidden` check read
+`classList.contains("hidden")`, which is satisfied by the toggle
+regardless of whether the cascade obeys it — a detector whose success
+condition holds without the thing it detects. Rewritten to assert
+`getComputedStyle(#gate).display === 'none'`, in both directions (gate
+visible pre-token, hidden post-token). Demonstrated firing red against
+the unfixed CSS before trusting it green against the fix (#2666's own
+counter-move (a)) — log at
+`/tmp/claude-output/gate-fix-canary-redcheck.log` /
+`-greencheck.log`. The nav/main lockstep assertions moved to
+`getComputedStyle` too (#2692 item 2): neither carries a competing ID
+rule today (both are bare type selectors, lower specificity than
+`.hidden`), so `classList` was accurate for them, but the assertion
+should not depend on that staying true.
+
+Perch-only CSS + a driver-only test change; no server code touched, no
+restart owed (#2553's predicate: `server/korax/**.py` untouched).
