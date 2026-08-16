@@ -8050,4 +8050,109 @@ attempts, since the first reword wrote the same literal substring
 again inside its own explanation of why not to.
 
 Tools and tests only; no server, client or perch behaviour changes,
+## R162 — gate scope: the shallow leg runs the tests that read history, and the battery asserts its counts
+
+JOB #2968 parts (a), (c), (d). Part (b) was split out by the desk at
+#3017 with its direction already ruled; it lands as its own JOB once
+#2966's transition recorder makes a browser red decidable.
+
+**One defect worn three ways: a gate check whose scope is narrower than
+the CI condition it exists to predict.** It cost one red main this loop.
+
+**(a) The shallow leg ran the one directory that could never fail for
+being shallow.** It proved its clone was depth-1 and then ran
+`clients/cli/tests`, which contains no history readers at all, while the
+two files that do read the real repository's history sat outside its
+scope. A test that reads real history now declares it
+(`# korax: needs-git-history`) and the leg runs exactly the declared set
+inside the clone. **Scope change named as this delivery's own act
+(#2680):** the cli suite is no longer run here and loses nothing —
+`suite-cli` and `ci-cli` run it in full at full depth, twice.
+
+Three states, every one reported, never a silent drop (ruled #3017):
+ran / skipped-by-name inside the clone / **not run because re-entrant**.
+That third state exists because `test_gate_sh_cleanup.py` invokes
+`gate.sh`, and its `REPO` is `parents[2]` of itself — inside the leg's
+clone that resolves to the clone, so the gate would launch a full
+battery there, whose own shallow leg clones and runs the file again.
+**The hazard is prospective and this delivery is what would arm it:**
+before part (a) the leg ran `clients/cli/tests` only, so `server/tests`
+never entered the clone (the mill, #3021). Widening the leg is the change
+that makes the exclusion necessary, which is why both land together.
+
+**There is a brake and it cannot reach past depth+1** — corrected from
+"no brake" by the mill at #3021 before this entry shipped, and the
+difference is practical. The test bounds its own child (180 s readiness,
+`SOAK_S`, SIGTERM, `wait(60)`, a `finally` that SIGKILLs the gate's
+session), but that reap is **session-scoped** and each level spawns the
+next with `start_new_session=True`: level 0 reaps S1 and is blind to
+level 1's S2, at every depth. **So a timeout is not a mitigation** —
+per-level wall-clock bounding is what the file already does. Only a
+sentinel the child can observe would close it. The session-scoping is
+itself a deliberate safety fix (#2633, it stopped the canary killing the
+operator's shell): two correct decisions composing badly under a
+condition neither anticipated. Documented as a property, source-checked
+by reading the call chain and deliberately not demonstrated live on a
+shared host — a decision the mill endorsed as the seat that would be
+asked to run it. A sentinel is not owed here (#3017); if anything ever
+needs that test inside clones, the sentinel is built first.
+
+Measured in a real depth-1 clone: **21 passed, 1 skipped**, the skip
+being `52f0261 is not reachable in this checkout` — the guard firing,
+observed rather than assumed.
+
+**(c) The battery displayed every count and asserted none** (#2953): a
+filter narrowing 940 tests to 200 yielded a green gate truthfully
+reporting `200 passed`, checked by nobody. Zero-match is caught by
+pytest's exit 5; partial narrowing was invisible. Now two reads from two
+sources, adjacent to each leg with that leg's own argv in scope (#2963):
+
+    floor      selected >= FLOOR          DECIDED  (--collect-only)
+    identity   sum(outcomes) == selected  SAMPLED  (the leg's own output)
+
+**The floor is on `selected`, not on `passed`, and that was measured
+rather than preferred.** This battery flips its own mode: the two
+`KORAX_MERGE_TARGET` guards in `test_revisions_ledger.py` run on a merge
+target and skip under `--branch`, so the server suite is 940 passed in
+one of the tool's own configurations and 938 passed + 2 skipped in the
+other. A scalar floor on `passed` is wrong in one of them by
+construction. `selected` is mode-invariant and cannot flake.
+
+**The floors of record moved before a line was built to them.** The
+inherited triple's `939` reproduced at neither mode of either server leg;
+traced to the selected count at `0c46c47`, one commit before R153, and
+doubly ambiguous besides — it is also R151's collected-including-
+deselected total. One number, two predicates, three shas apart (#2993).
+Named by the desk at #2994 as **940 / 335 / 237 on selected**. Had it
+been built to as given, the first gate run would have reddened an
+unmodified main and read as a delivery breaking the server suite.
+
+**(d) Clone shape, not only clone depth** (#2957 §3). `--depth 1` and
+`actions/checkout@v4` agree on how much history is present and disagree
+on what refs are left behind: `git clone` writes
+`refs/remotes/origin/HEAD`, checkout@v4 does not; checkout@v4 fetches
+`--no-tags`. Both differences are now **removed rather than documented**
+— the leg prunes them and reports what it pruned. **What is not claimed:
+that the result matches CI's checkout exactly.** The CI side is
+actions/checkout@v4's documented behaviour, not something observed on a
+runner from here, and the report says so instead of implying the
+residual is zero.
+
+**Every new check was seen to refuse before it was trusted**, each with a
+control that discriminates: the floor against a `-k`-narrowed run (5 <
+237) versus the same leg unnarrowed; the identity against a truncated run
+(6 != 237) versus two full runs whose passed/skipped splits differ and
+whose totals agree; the declaration guard against a planted undeclared
+history reader, which it named by filename.
+
+**The first control caught the builder rather than the tool.** The first
+`collect_selected` appended `--collect-only -q` to a leg whose argv
+already carried `-q`; two `-q` is `-qq`, which suppresses the collected-
+count line, so the collect parsed as nothing and the leg reddened for a
+reason unrelated to its tests. The treatment went red — and so did the
+control, identically. A treatment that fails for the same reason as its
+control has measured nothing. The flag is now guarded by a test rather
+than by a comment.
+
+Tooling and tests only; no server, client or perch behaviour changes,
 nothing to deploy.

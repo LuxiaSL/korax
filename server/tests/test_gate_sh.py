@@ -393,3 +393,187 @@ def test_the_branch_escape_exists_and_the_mode_is_always_reported() -> None:
         "the weaker mode must announce itself, or a --branch run reads as a "
         "merge-target run"
     )
+
+
+# ── the count contract (#2953/#2954/#2963; floors of record #2994) ─────
+# These are the acceptance for JOB #2968 part (c). Where a property can be
+# read off the artifact it is asserted there (DECIDED); where it must be
+# exercised, the real bash function is called against a fixture rather
+# than reimplemented in Python — a test that restates the logic can agree
+# with a bug in it (#2668's canary rule, the same reason leg 11's suite
+# calls gate.sh's own primitives).
+
+
+def _bash_assoc(name: str) -> dict[str, str]:
+    """Pull a `declare -A NAME=( [k]=v ... )` table out of gate.sh."""
+    text = GATE.read_text(encoding="utf-8")
+    match = re.search(rf"^declare -A {name}=\(\n(.*?)^\)$", text, re.M | re.S)
+    assert match, f"{name} is not declared as an associative array in tools/gate.sh"
+    return dict(re.findall(r"\[([\w-]+)\]=(\S+)", match.group(1)))
+
+
+def _call_gate_fn(snippet: str) -> subprocess.CompletedProcess[str]:
+    """Run a real gate.sh function, sourced, in a real bash."""
+    return subprocess.run(
+        ["bash", "-c", f"set -uo pipefail; source {GATE!s}; {snippet}"],
+        capture_output=True, text=True, check=False,
+    )
+
+
+def test_every_floored_leg_is_a_declared_leg() -> None:
+    """A floor naming a leg the battery does not run is dead text that
+    reads like coverage."""
+    floors = _bash_assoc("LEG_FLOOR")
+    legs = set(_bash_array("LEG_NAMES"))
+    orphans = sorted(set(floors) - legs)
+    assert orphans == [], f"floors declared for legs that do not exist: {orphans}"
+
+
+def test_the_floors_are_the_values_of_record() -> None:
+    """#2994's named act. Floors move ONLY by that path — measured,
+    proposed on the log, named by the desk — so this test is what makes
+    an edit-to-match-a-run visible as a diff rather than a silent
+    loosening. A floor derived from the run it guards is #2963's defect
+    with an extra step.
+    """
+    floors = _bash_assoc("LEG_FLOOR")
+    assert floors == {
+        "suite-server": "940", "suite-cli": "335", "suite-mcp": "237",
+        "ci-server": "940", "ci-cli": "335", "ci-mcp": "237",
+    }, f"floors differ from the values named at #2994: {floors}"
+
+
+def test_the_collect_appends_no_verbosity_flag() -> None:
+    """THE -qq TRAP, GUARDED STRUCTURALLY. Every floored leg already
+    passes `-q`; appending a second one gives pytest `-qq`, which
+    suppresses the collected-count line entirely, so the collect parses
+    as nothing and the leg reddens for a reason unrelated to its tests.
+
+    That is not hypothetical — it is what the first cut of this function
+    did, and it was caught only because the CONTROL went red identically
+    to the treatment. A comment would rely on the next person reading it.
+    """
+    text = GATE.read_text(encoding="utf-8")
+    match = re.search(r'out="\$\( cd "\$WT" && "\$@" (.*?) 2>&1 \)"', text)
+    assert match, "collect_selected no longer builds its command the expected way"
+    appended = match.group(1).split()
+    assert appended == ["--collect-only"], (
+        "collect_selected must append ONLY --collect-only; a verbosity flag "
+        f"here makes the leg's own -q into -qq and blinds the parse: {appended}"
+    )
+
+
+def test_the_count_check_runs_adjacent_to_each_leg() -> None:
+    """#2963: per invocation, beside the leg — a battery that checks
+    counts once in a preamble asserts about a run other than the one it
+    reports."""
+    text = GATE.read_text(encoding="utf-8")
+    run_leg = re.search(r"^run_leg\(\) \{\n(.*?)^\}$", text, re.M | re.S)
+    assert run_leg, "run_leg is no longer a top-level function"
+    assert "assert_counts" in run_leg.group(1), (
+        "run_leg does not call assert_counts, so the count contract has "
+        "moved away from the invocation it describes"
+    )
+
+
+def test_the_two_reads_come_from_different_sources() -> None:
+    """The floor reads the artifact; the identity reads the run. If both
+    came from the run's own output the identity would be arithmetic
+    rather than evidence."""
+    text = GATE.read_text(encoding="utf-8")
+    collect = re.search(r"^collect_selected\(\) \{\n(.*?)^\}$", text, re.M | re.S)
+    outcomes = re.search(r"^sum_outcomes\(\) \{\n(.*?)^\}$", text, re.M | re.S)
+    assert collect and outcomes, "the two count readers are no longer both present"
+    assert "--collect-only" in collect.group(1), "the decided read no longer collects"
+    assert "$LOGDIR" not in collect.group(1), (
+        "the decided read is reading the leg's log — that is the sampled "
+        "source, and using it for both makes the identity a tautology"
+    )
+    assert '"$log"' in outcomes.group(1), "the sampled read no longer reads the leg log"
+
+
+@pytest.mark.parametrize(
+    "summary, expected",
+    [
+        ("940 passed, 8 deselected in 76.46s", "940"),
+        ("938 passed, 2 skipped, 8 deselected in 75.68s", "940"),
+        ("1 failed, 5 passed in 2.10s", "6"),
+        ("235 passed, 2 skipped in 18.00s", "237"),
+        ("1 error, 3 passed in 1.00s", "4"),
+    ],
+)
+def test_sum_outcomes_counts_every_outcome_and_no_deselection(
+    tmp_path: Path, summary: str, expected: str,
+) -> None:
+    """The real function, against real summary lines.
+
+    Rows two and four are the load-bearing ones: the SAME total from a
+    different passed/skipped split. That is why the identity survives the
+    battery flipping its own mode, and why the floor could not live on
+    `passed` (#2993).
+
+    `deselected` is deliberately not summed — it is the complement of
+    selected, not an outcome.
+    """
+    log = tmp_path / "leg.log"
+    log.write_text(f"....\n{summary}\n", encoding="utf-8")
+    result = _call_gate_fn(f'sum_outcomes "{log}"')
+    assert result.stdout == expected, (
+        f"sum_outcomes({summary!r}) gave {result.stdout!r}, want {expected!r}"
+    )
+
+
+def test_sum_outcomes_refuses_a_log_with_no_outcome_line(tmp_path: Path) -> None:
+    """Fail closed. An unreadable log must not read as zero outcomes,
+    which would satisfy no identity and look like catastrophic loss, nor
+    as success."""
+    log = tmp_path / "leg.log"
+    log.write_text("collected nothing useful\n", encoding="utf-8")
+    result = _call_gate_fn(f'sum_outcomes "{log}"')
+    assert result.returncode != 0, "sum_outcomes returned success on an unparseable log"
+    assert result.stdout == "", f"it also emitted a count: {result.stdout!r}"
+
+
+# ── the shallow leg's declared set (#2831, three states ruled #3017) ────
+
+
+def test_the_shallow_leg_declares_both_markers() -> None:
+    text = GATE.read_text(encoding="utf-8")
+    for name in ("SHALLOW_MARKER", "SHALLOW_REENTRANT"):
+        assert re.search(rf"^readonly {name}=", text, re.M), (
+            f"{name} is not declared at file scope — inside a function a "
+            "readonly explodes on the second call, which the acceptance "
+            "suite makes by sourcing this script"
+        )
+
+
+def test_the_shallow_leg_fails_closed_on_an_empty_declared_set() -> None:
+    """The one state that would let this leg go green having run nothing
+    — which is the exact defect it was rebuilt to stop. `clients/cli/tests`
+    was never going to fail for being shallow; an empty declared set is
+    the same vacuity with the honest-looking cause."""
+    text = GATE.read_text(encoding="utf-8")
+    leg = re.search(r"^run_shallow_leg\(\) \{\n(.*?)^\}$", text, re.M | re.S)
+    assert leg, "run_shallow_leg is no longer a top-level function"
+    body = leg.group(1)
+    assert "${#runnable[@]} -eq 0" in body, (
+        "no empty-set guard: the leg can run nothing and report PASS"
+    )
+    assert "rc -eq 5" in body, (
+        "pytest exit 5 (nothing collected) is not handled separately — "
+        "'the files were there but nothing ran' is a different repair"
+    )
+
+
+def test_the_shallow_leg_reports_the_re_entrant_exclusion() -> None:
+    """Never a silent drop (#3017). A leg that quietly omits the hard
+    case reports a denominator it did not earn."""
+    text = GATE.read_text(encoding="utf-8")
+    leg = re.search(r"^run_shallow_leg\(\) \{\n(.*?)^\}$", text, re.M | re.S)
+    assert leg, "run_shallow_leg is no longer a top-level function"
+    body = leg.group(1)
+    assert "reentrant" in body and "excluded_note" in body, (
+        "the re-entrant partition is gone; an excluded file would vanish "
+        "from the report rather than being named"
+    )
+    assert "$excluded_note" in body, "the exclusion is computed but never reported"
