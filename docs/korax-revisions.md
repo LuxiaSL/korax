@@ -7032,3 +7032,73 @@ survives a real reload, not just the in-session route.
 
 Client pages, tests, and two small CSS files; no server change, nothing
 to deploy.
+
+## R144 — the gate ritual stops living in /tmp (#2085, JOB #2504)
+
+`tools/gate.sh <merge-target-sha> [--base <ref>] [--keep]`. The mill's
+battery grew from six legs to ten across loop ten, and every one of them
+lived in `/tmp/claude-output/gate-*.sh`, which dies with the session.
+#2492 named that as the first thing the seat would fix and could not fix
+it: the mill is recused from building what it gates (#2239/#2249, ruled
+onto this JOB at #2503), so a builder band builds it and the mill gates
+it through the ritual it encodes.
+
+Ten legs, nine invocations — ruff and mypy stay separately reported
+because #2478's table counts two, while `uv run tools/type_lane.py` is
+one command since R135/#2379. One invocation, two legs, attributed from
+the wrapper's own `lane FAILED:` line; unattributable failure is charged
+to BOTH, because guessing which checker passed fails green.
+
+**The denominator comes from the declaration, not from the loop.**
+`LEG_NAMES` is written down before anything runs and M is its length, so
+a shrunken battery cannot render as a whole one — `9 of 10, browser
+SKIPPED (reason)` rather than `9 of 9`. That is #2485's rule, and the
+same defect this claimant reproduced in `tools/r85_compare.py` at #2482,
+where removing a probe silently shrank the table and still printed a
+clean pass. Legs report in three states: `RAN (owed)`, `RAN (not owed)`,
+`SKIPPED`, so a deliberate over-measurement stays distinguishable from a
+required run.
+
+**The controls live inside the instrument.** The shallow leg clones both
+`file://` and the bare path and reports both commit counts: `--depth` is
+silently ignored for a local path, so if the two agree the leg says the
+`file://` form is not what makes it shallow and reddens, instead of
+passing vacuously. A canary that can only fire red cannot distinguish a
+working check from a vacuous one (#2518), and a control that depends on
+somebody having run it once in a session that is now gone is not a
+control at all — which is the defect this whole revision is about.
+
+The browser predicate gained `server/tests/*perch*`. The set carried
+until now named only the perch app directory plus `clients/perch/**`,
+which has never existed; the browser tests execute driver `.js` files
+that live in `server/tests/`, so a driver-only change altered what the
+leg RAN while the predicate reported `SKIPPED (no perch files)` —
+truthfully, about the wrong question. R131/`b789438` is the real
+instance: ten perch test files, zero perch source, predicate returns 0
+against the new set's 10. The leg ran that day only because quill
+overrode the rule by hand (#2338) — and a rule enforced by a script is
+exactly the rule that stops getting overridden by judgment. The leg also
+sets `KORAX_BROWSER_REQUIRED=1` as CI does, so a missing Chrome fails
+naming itself instead of skipping to a green that measured nothing.
+
+Ledger checks are four named answers, and the inline-tag one **echoes
+the suite's guard rather than reimplementing it** — same regex, same
+`docs/**/*.md` scope. The first cut read only the protocol doc while
+the guard reads every markdown file under `docs/`, so the script
+reported clean about a narrower question than the thing it stood in
+for; that is #2482's argument turned on the replacement instead of the
+original, and it concealed an unsubstituted tag in this very entry
+until the mill ran the suite under the merge-target env (#2634).
+
+**The battery sets `KORAX_MERGE_TARGET=1` on every suite and CI-parity
+leg**, because the one condition a merge gate exists to reproduce is
+CI's condition on main — and without it the two merge-target guards
+skip and the report renders their absence as ordinary environment
+noise.
+
+Acceptance canaries are repo tests, not scripts: a delivery whose
+canaries lived in `/tmp` would rebuild the defect inside the fix for
+it.
+
+Tools and tests only; no server, client or perch behaviour changes,
+nothing to deploy.
