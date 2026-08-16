@@ -554,6 +554,21 @@ async def test_dm_by_band_id_is_untouched(board_tools, world: World) -> None:
 # -- bump: point without writing a document about it (#873) -------------------
 
 
+async def _stored(tools, envelope_id: int) -> dict:
+    """Read an envelope back from the board.
+
+    **Why these assertions moved here (JOB #2743).** The write verbs no
+    longer echo `payload`/`ext` — they were 88.7% of a post result by
+    measurement (#2739) and are the caller's own bytes. The PROPERTIES
+    below are unchanged and still asserted; only the place they are read
+    from moved, from the write's echo to the read the design points at.
+    Deleting these assertions to make the trim pass would have been the
+    trim removing its own coverage.
+    """
+    fetched = await tools.call_tool("korax_envelope", {"id": envelope_id})
+    return fetched.structured_content or {}
+
+
 async def _bump_as(world: World, identity: str, token: str, args: dict):
     """Call korax_bump on a connection bound to `identity`, not the
     operator — the fallback-on-403 tests only mean something if the
@@ -602,7 +617,13 @@ async def test_bump_to_adds_mentions_and_dedupes(world: World) -> None:
         "envelope_id": target["id"], "to": [third, third],
     })
     body = result.structured_content
-    assert body["ext"]["korax"]["mentions"] == [third]  # deduped
+    assert "ext" not in body, "the trim drops the caller's own bytes (#2743)"
+    bumper_client = world.client_for(bumper, btok)
+    try:
+        stored = await _stored(build_server(bumper_client), body["id"])
+    finally:
+        await bumper_client.aclose()
+    assert stored["ext"]["korax"]["mentions"] == [third]  # deduped
 
 
 async def test_bump_why_becomes_the_payload(world: World) -> None:
@@ -619,7 +640,14 @@ async def test_bump_why_becomes_the_payload(world: World) -> None:
     result = await _bump_as(world, bumper, btok, {
         "envelope_id": target["id"], "why": "endorsement pending",
     })
-    assert result.structured_content["payload"] == "endorsement pending"
+    body = result.structured_content
+    assert "payload" not in body, "the trim drops the caller's own bytes (#2743)"
+    bumper_client = world.client_for(bumper, btok)
+    try:
+        stored = await _stored(build_server(bumper_client), body["id"])
+    finally:
+        await bumper_client.aclose()
+    assert stored["payload"] == "endorsement pending"
 
 
 async def test_bump_multiline_why_is_refused(world: World) -> None:
@@ -1589,7 +1617,9 @@ async def test_lease_until_lands_top_level_not_nested(board_tools, world) -> Non
         "ns": "/korax-dev/board", "type": "FINDING", "grade": "n/a",
         "payload": "leased", "lease_until": "2026-08-11T13:00:00Z",
     })
-    ext = (posted.structured_content or {})["ext"]
+    body = posted.structured_content or {}
+    assert "ext" not in body, "the trim drops the caller's own bytes (#2743)"
+    ext = (await _stored(board_tools, body["id"]))["ext"]
     assert ext["lease_until"] == "2026-08-11T13:00:00Z"
     assert "korax" not in ext, "the lease must not be nested under a project key"
 
@@ -1606,7 +1636,7 @@ async def test_lease_until_merges_with_other_ext_fields(board_tools, world) -> N
         # test about ext-merging instead of about mention validity.
         "ext": {"korax": {"mentions": [world.operator]}},
     })
-    ext = (posted.structured_content or {})["ext"]
+    ext = (await _stored(board_tools, (posted.structured_content or {})["id"]))["ext"]
     assert ext["lease_until"] == "2026-08-11T13:00:00Z"
     assert ext["korax"]["mentions"] == [world.operator]
 
@@ -1621,7 +1651,8 @@ async def test_an_explicit_ext_lease_wins_over_the_parameter(board_tools, world)
         "lease_until": "2026-08-11T13:00:00Z",
         "ext": {"lease_until": "2026-08-11T09:00:00Z"},
     })
-    assert (posted.structured_content or {})["ext"]["lease_until"] == "2026-08-11T09:00:00Z"
+    stored = await _stored(board_tools, (posted.structured_content or {})["id"])
+    assert stored["ext"]["lease_until"] == "2026-08-11T09:00:00Z"
 
 
 async def test_the_ext_description_no_longer_contradicts_the_docstring(

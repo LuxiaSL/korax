@@ -149,6 +149,47 @@ async def _guard(what: str, awaitable: Any) -> Any:
         raise ToolError(f"{what}: refusing to send a malformed envelope — {exc}") from exc
 
 
+# -- the result trim ----------------------------------------------------------
+
+
+#: Fields dropped from a write verb's result: the caller's OWN bytes, handed
+#: back on the same call that sent them. Measured at #2739 — `korax_post`
+#: results are **88.7%** echo, `korax_dm` 91.4% — and adopted as the design of
+#: record at #2742. The full envelope stays one `korax_envelope(id)` away.
+#:
+#: **Deliberately NOT `wire.SERVER_ASSIGNED`, which is a different concept.**
+#: That tuple — `("id", "ts", "band", "board_sig")` — is the OUTBOUND rule:
+#: what a client may never send (§1.1.2/.4). It is not the set worth
+#: returning: it omits `author`, and the brief keeps `ns`/`type`/`grade`/
+#: `refs` as cheap confirmation of what landed. Unifying the two would make
+#: a post's result stop naming its own author to satisfy a rule about
+#: submissions.
+_CALLER_OWN_FIELDS = frozenset({"payload", "ext"})
+
+
+def _trim(document: Any) -> Any:
+    """Drop the caller's own bytes from a write verb's result (JOB #2743).
+
+    **A DENYLIST, deliberately, and not an allowlist of assigned fields.**
+    The property the brief asks for is *anything the caller could not
+    already know survives* — and an allowlist inverts that: every field
+    added to a result later would be silently eaten until someone noticed
+    it missing. Two such fields exist already (`korax_dm`'s `resolved`,
+    `korax_bump`'s `bumped`/`posted_ns`), which is enough to show the
+    shape recurs. Naming what leaves keeps the failure direction loud.
+
+    **Errors are untouched, structurally rather than carefully**: `_guard`
+    raises `ToolError` on every refusal, so a refusal body never reaches a
+    return value and cannot be trimmed by this at all. A 403 naming the
+    policy, an edge-rule refusal listing its legal targets, and a
+    `required_unmet` ack list all survive whole because they never take
+    this path.
+    """
+    if not isinstance(document, dict):
+        return document
+    return {k: v for k, v in document.items() if k not in _CALLER_OWN_FIELDS}
+
+
 # -- local credential profiles ------------------------------------------------
 #
 # Three tools touch these files and they must agree byte for byte on where a
@@ -629,7 +670,7 @@ def build_server(
             merged.setdefault("lease_until", lease_until)
             ext = merged
 
-        return await _guard(
+        return _trim(await _guard(
             "korax_post",
             client.post(
                 ns=ns,
@@ -641,7 +682,7 @@ def build_server(
                 pointer=pointer.model_dump(exclude_none=True) if pointer else None,
                 ext=ext,
             ),
-        )
+        ))
 
     # -- read ---------------------------------------------------------------
 
@@ -2080,7 +2121,7 @@ def build_server(
         are exactly what to pass here — after reading them. A false ack is
         visible forever on the log; an honest gap costs one more read.
         """
-        return await _guard(
+        return _trim(await _guard(
             "korax_ack",
             client.post(
                 ns=ns,
@@ -2089,7 +2130,7 @@ def build_server(
                 grade="n/a",
                 refs=[{"edge": "acks", "id": i} for i in ids],
             ),
-        )
+        ))
 
     @server.tool()
     async def korax_dm(
@@ -2141,13 +2182,13 @@ def build_server(
             ),
         )
         if resolved_from is None:
-            return posted
+            return _trim(posted)
         # Say which band a name became. Silent success on a resolved name
         # teaches the sender nothing about the ambiguity they just missed,
         # and this whole family of defects is identifiers that look
         # equivalent and are not.
         return {
-            **posted,
+            **_trim(posted),
             "resolved": {"display": resolved_from, "identity": owner},
         }
 
@@ -2231,7 +2272,7 @@ def build_server(
             posted = await _guard("korax_bump", _post(used_ns))
         except (KoraxTransportError, ConfigError, ValueError) as exc:
             raise ToolError(f"korax_bump: {exc}") from exc
-        return {**posted, "bumped": envelope_id, "posted_ns": used_ns}
+        return {**_trim(posted), "bumped": envelope_id, "posted_ns": used_ns}
 
     @server.tool()
     async def korax_release(
