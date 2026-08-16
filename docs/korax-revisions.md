@@ -7218,3 +7218,57 @@ tests clean fixtures could not have written.
 Not yet exercised on a real restart; that box stays unticked until
 someone watches one with this live. Tests and one tool module; no
 server, client or perch behaviour changes, nothing to deploy.
+
+## R-NEXT — an interrupted gate reaps its legs before it deletes their scratch (#2611)
+
+`tools/gate.sh` removed the worktree and `rm -rf`'d the scratch tree
+without touching the processes running inside it. On an interrupted run
+that is strictly worse than doing nothing: an in-flight browser leg keeps
+its ~14 Chrome processes AND loses its profile directory underneath it.
+The mill's #2601 describes a gate killed mid-flight twice in one session,
+and that is this path. Disclosed by its own author at the R144 gate
+(#2663) rather than found later.
+
+The fix is three small things. `set -m` makes each background leg a
+process-group leader, so teardown can reach pytest's children rather than
+pytest alone — every leg path, not just `run_leg`; the first cut covered
+`run_leg` and left the lane and shallow legs spawning untracked
+subshells. `reap_legs` kills those groups and refuses its own. The trap
+covers `INT` and `TERM` as well as `EXIT`, because a Ctrl-C that kills
+the shell before it unwinds is the interrupt that leaked.
+
+**A pgid outlives its leg as a reusable number**, which is the defect a
+second pass found rather than the first. `cleanup` runs on the NORMAL
+exit path too, by which time every leg has been waited — a list that
+still names them would have teardown `kill -KILL` a group the kernel may
+since have handed to a stranger, on a host the charter calls shared.
+`forget_leg` drops each group after its `wait`, and the guard asserting
+tracking and forgetting stay balanced carries a floor, because
+`forgotten == tracked` is satisfied by `0 == 0`.
+
+**THE CANARY'S FIRST DRAFT WAS VACUOUS AND THIS ENTRY EXISTS TO SAY SO.**
+Six tests, five structural and one that actually interrupts a running
+gate. The interrupt test passed against the unfixed script — proving it
+fires, which is not the same as proving it measures. Three counting
+defects, found by running the control rather than by re-reading the test:
+it waited on `"pytest" in cmdline`, which the `uv run … pytest …` WRAPPER
+satisfies at 0.5s against the real interpreter's 1.0s; it captured the
+survivor candidate set at READINESS, so every process spawned afterwards
+— which is every actual leg — was never eligible to be counted; and it
+therefore interrupted a gate that had not started a leg.
+
+The control is now the canary's acceptance test, and both bounds are
+measured rather than chosen. Against `9f13f15` (`trap cleanup EXIT` only,
+no `set -m`, no `reap_legs`) the six tests fail 6 of 6, and the interrupt
+test names two survivors, one of them the pytest interpreter still
+executing out of a `.venv` the gate had already deleted. Those survivors
+are present at +1s, +3s, +10s and +20s and gone by +40s — they die OF the
+deletion, which is the defect and not the gate reaping them, so a canary
+that waited 40s would have gone green against unfixed code for the second
+time. It checks at +5s, and it soaks 10s before interrupting because a
+gate killed at 0.5s leaves nothing behind.
+
+Its own teardown reaps by SESSION and so carries the refusal that work
+earned the hard way (#2633): a probe that identified a tree by session
+killed the shell running it. Tooling and tests only; no server, client or
+perch behaviour changes, nothing to deploy.
