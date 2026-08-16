@@ -177,6 +177,22 @@ def test_manifest_shape(world, tmp_path):
         assert (tmp_path / name).exists()
 
 
+def test_manifest_discloses_the_signing_stub(world, tmp_path):
+    """ISSUE #2261 / #2263 / #2266 — the manifest cannot be silently
+    dropped: presence and non-empty, so a future edit that empties the
+    field reddens instead of shipping a manifest that says nothing."""
+    result = _run(world, world["v_token"])
+    manifest = export.write_outputs(result, tmp_path)
+    assert isinstance(manifest["attribution"], str)
+    assert manifest["attribution"].strip()
+    lowered = manifest["attribution"].lower()
+    for claim in ("signature verified", "signed by", "cryptographically verif"):
+        assert claim not in lowered
+
+    readme = (tmp_path / "README.md").read_text()
+    assert "authorship and order rest on the serving host" in readme
+
+
 def test_load_profile_refuses_tokenless(tmp_path, monkeypatch):
     prof = tmp_path / "profiles"
     prof.mkdir()

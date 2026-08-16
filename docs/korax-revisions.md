@@ -6938,3 +6938,45 @@ No restart-relevant reduction code moved; the `/conformance` route and
 the perch static assets both live under the existing restart-owed
 surface (`server/korax/**`), so the WARN the mill already flagged
 stands as scoped.
+
+## R142 — the export manifest gets an attribution key, and the cursor commits after it emits (#2263/#2266, #2363/#2367, JOB #2508)
+
+Both items change what a design document must describe (the criterion
+published at #2550, applied here on the first attempt rather than after
+a flag — #2552 was the flag on the sibling delivery, #2507).
+
+**Surface: `tools/korax_export.py`'s `build_manifest()` gains
+`attribution`**, stating that the exported corpus's authorship and order
+rest on the serving host, not signatures. README gains a matching
+paragraph as item 2 (renumbering the prior item 2 to 3), beside the
+register-bias item #2263 pinned. Presence-and-non-empty test in
+`test_korax_export.py` so the disclosure cannot be silently dropped.
+This is a RESUMPTION PRECONDITION for the paused export thread #2215 —
+landing it does not resume the thread.
+
+**Behaviour: `korax_cli/cursor.py` splits `save_cursor` into
+`stage_cursor` / `commit_cursor`.** `cli.py`'s three cursor-persist call
+sites (`cmd_read`, `cmd_wait`, `cmd_watch`'s loop) now stage the cursor
+before emitting and commit (the atomic rename that actually advances
+the file a resumed watch reads) only after. A process killed between
+emit and commit leaves the real cursor file untouched — the next arm
+re-drains the overlap rather than silently skipping envelopes that were
+staged past but never delivered, the reverse of ISSUE #2363's failure.
+`test_cursor_ordering.py` proves both directions (#112): a kill between
+the two leaves the cursor file absent, and a completed run commits
+exactly once. The existing `cursor_file.written` contract — including
+the directory-at-path failure case — is preserved unchanged via a
+preflight `is_dir()` check in `stage_cursor`, so no caller-visible
+interface moved.
+
+**No `docs/korax-protocol.md` edit accompanies this.** `tools/
+korax_export.py`'s manifest and `korax watch`'s cursor-file shape are
+both client/tool-side conventions the protocol document has never
+described (it specifies the wire, not this CLI's on-disk cursor format
+or its export tool's manifest fields) — neither changes anything §11 or
+any MUST-clause governs. The drain-by-id workaround in circulating
+handovers stays VALID after the cursor fix; nobody must stop using it,
+they no longer must.
+
+Client-only (`clients/cli/**`, `tools/korax_export.py`); no server
+change, no restart owed.
