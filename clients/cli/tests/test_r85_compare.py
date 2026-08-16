@@ -21,6 +21,7 @@ which this tool reproduces rather than replaces.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import json
 import sys
 from collections.abc import Sequence
@@ -115,21 +116,85 @@ def test_compare_runs_when_reductions_did_not_move(tmp_path, monkeypatch) -> Non
     assert len(result.rows) == len(r85.PROBES)
 
 
-def test_reductions_moved_runs_against_this_repos_real_history() -> None:
+@pytest.fixture()
+def tiny_repo(tmp_path: Path) -> tuple[Path, str, str, str]:
+    """A real git repository this test BUILDS, with three real commits.
+
+    **Why not this repo's own history.** The first version borrowed two
+    shas from main. They are permanent here and absent in CI:
+    `actions/checkout@v4` clones SHALLOW, so a depth-1 checkout holds HEAD
+    and nothing else, and `git diff <old>..<new>` cannot resolve either
+    end. It went red on main (#2409) and **no local run could have caught
+    it** — the one machine that can never reproduce a shallow-clone
+    failure is the machine where the fixture was written.
+
+    So the history is made here instead: portable to any clone depth,
+    immune to rebases, and still exercising the REAL predicate through
+    REAL git rather than a monkeypatch. `fetch-depth: 0` would also have
+    fixed the symptom, at the price of a full clone on every CI run
+    forever and a fixture still unportable for whoever copies it next.
+    """
+    run = lambda *args: subprocess.run(  # noqa: E731
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+        cwd=tmp_path, capture_output=True, text=True, check=True)
+
+    run("init", "-q")
+    target = tmp_path / r85.REDUCTIONS          # the exact watched path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("# reductions\n", encoding="utf-8")
+    other = tmp_path / "server" / "korax" / "elsewhere.py"
+    other.write_text("# not the watched file\n", encoding="utf-8")
+    run("add", "-A")
+    run("commit", "-qm", "base")
+    base = run("rev-parse", "HEAD").stdout.strip()
+
+    target.write_text("# reductions, changed\n", encoding="utf-8")
+    run("add", "-A")
+    run("commit", "-qm", "touch the watched file")
+    touched = run("rev-parse", "HEAD").stdout.strip()
+
+    other.write_text("# elsewhere, changed\n", encoding="utf-8")
+    run("add", "-A")
+    run("commit", "-qm", "touch something else")
+    untouched = run("rev-parse", "HEAD").stdout.strip()
+
+    return tmp_path, base, touched, untouched
+
+
+def test_reductions_moved_runs_against_real_git_both_directions(
+    tiny_repo: tuple[Path, str, str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """**The predicate itself, unmocked, both directions.**
 
-    The first version of this test asserted `reductions_moved(sha, sha) ==
-    []` — which short-circuits on the equal-shas guard and never reaches
-    git. So the real predicate had NO test at all while both canaries
-    monkeypatched it: a vacuous check inside the delivery whose whole
-    subject is vacuous checks. The mill caught it by reading (#2360) and
-    supplied these two pairs, which are permanent on main and need no
-    chasing.
+    The version before this asserted `reductions_moved(sha, sha) == []`,
+    which short-circuits on the equal-shas guard and never reaches git —
+    so the real predicate had NO test while both canaries monkeypatched
+    it. A vacuous check inside the delivery whose whole subject is vacuous
+    checks (caught by the mill, #2360).
     """
-    # R131 (quill's type lane) touched reductions.py
-    assert r85.reductions_moved("0d66fa6", "e733856") == [r85.REDUCTIONS]
-    # R129 (the blob store) deliberately did not
-    assert r85.reductions_moved("7d01861", "0d66fa6") == []
+    repo, base, touched, untouched = tiny_repo
+    monkeypatch.setattr(r85, "REPO", repo)
+
+    assert r85.reductions_moved(base, touched) == [r85.REDUCTIONS], (
+        "a commit touching the watched file must be reported"
+    )
+    assert r85.reductions_moved(touched, untouched) == [], (
+        "a commit touching a DIFFERENT file must not be — otherwise the "
+        "guard refuses every window and the tool is unusable"
+    )
+
+
+def test_the_fixture_needs_no_history_beyond_its_own(
+    tiny_repo: tuple[Path, str, str, str]
+) -> None:
+    """The property that failed in CI, asserted directly: everything this
+    test needs is inside the repository it built. Nothing here resolves
+    against the checkout the suite is running from, at any depth."""
+    repo, base, touched, _ = tiny_repo
+    assert (repo / ".git").is_dir()
+    assert base != touched
+    # and the watched path really is the one the tool looks for
+    assert (repo / r85.REDUCTIONS).is_file()
 
 
 def test_the_equal_sha_shortcut_is_a_shortcut_and_not_the_answer() -> None:
