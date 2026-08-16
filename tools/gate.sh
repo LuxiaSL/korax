@@ -152,9 +152,17 @@ readonly LEG_COUNT=${#LEG_NAMES[@]}
 #      two floors in one day — `939` (read one commit early, and
 #      ambiguous: two predicates three shas apart) and `957` (measured
 #      on the wrong base) — and neither could be checked without going
-#      and looking. A row that names its tree is checkable with one
-#      `git show`; #3102: a constant does not travel, it SITS, and what
+#      and looking. #3102: a constant does not travel, it SITS, and what
 #      decays is institutional memory rather than transmission.
+#
+# EACH ROW NAMES A PAIR — base sha and delivery sha (JOB #3239, ruled
+# (a)+two-shas). One sha was not enough: it says where a number was
+# anchored and not what reproduces it, so R167's true anchor had to be
+# stated in prose on the board where this file cannot see it (#3226 §4).
+# The pair is decidable — `git merge-tree --write-tree <base> <delivery>`
+# then `--collect-only` — and the command, its exit-status trap and what
+# it does NOT reconstruct are documented in the floors file's own header,
+# beside the data, because the row's consumer is a verifier not a browser.
 #
 # THE FILE IS A PRECONDITION, NOT A DEFAULT. Absent or unparseable, the
 # `floors` leg reds and every guarded leg reds with it — a battery that
@@ -348,7 +356,15 @@ summarise() {
 # than a skip. A calibration file that silently drops a malformed row
 # would report the remaining floors as if they were the whole contract —
 # the shrunken-denominator defect (#2485) aimed at the thing that
-# measures denominators. Six fields, exactly.
+# measures denominators. Seven fields, exactly.
+#
+# THE SIX-FIELD SHAPE IS REFUSED BY THAT SAME CLAUSE (JOB #3239), and
+# that is the point rather than a side effect: a row naming ONE sha names
+# no reproducible quantity, so nothing could ever check it. `900` against
+# a tree collecting 1017 parsed clean and green under the old shape, and
+# so would `101` for `1017` (#3247 §2, measured). No mixed-format file is
+# ever legal — a file half-migrated is a file where half the rows cannot
+# be checked and nothing says which half.
 #
 # UNKNOWN LEG NAMES ARE ALSO A REFUSAL. A row for a leg that does not
 # exist is dead calibration reading like coverage — the same defect the
@@ -369,8 +385,8 @@ load_floors() {
     case "$line" in ''|'#'*) continue ;; esac
     # shellcheck disable=SC2086
     set -- $line
-    if [ $# -ne 6 ]; then
-      FLOORS_ERROR="$FLOORS_FILE_NAME:$n has $# fields, want 6 (leg floor sha revision band date): $line"
+    if [ $# -ne 7 ]; then
+      FLOORS_ERROR="$FLOORS_FILE_NAME:$n has $# fields, want 7 (leg floor base delivery revision band date): $line"
       return 1
     fi
     case "$2" in
@@ -378,12 +394,30 @@ load_floors() {
         FLOORS_ERROR="$FLOORS_FILE_NAME:$n floor is not a number: $2"
         return 1 ;;
     esac
+    # BOTH SHAS ARE CHECKED, AND SEPARATELY. A row whose delivery column
+    # is a revision tag or a date parses as seven fields and reproduces
+    # nothing; the shape has to be refused at the column that is wrong,
+    # not at the field count, or the refusal names the wrong cause (#3151).
+    case "$3" in
+      *[!0-9a-f]*|'') FLOORS_ERROR="$FLOORS_FILE_NAME:$n base is not a sha: $3"; return 1 ;;
+    esac
+    case "$4" in
+      *[!0-9a-f]*|'') FLOORS_ERROR="$FLOORS_FILE_NAME:$n delivery is not a sha: $4"; return 1 ;;
+    esac
     if ! _is_declared_leg "$1"; then
       FLOORS_ERROR="$FLOORS_FILE_NAME:$n names '$1', which is not a declared leg — dead calibration reads like coverage"
       return 1
     fi
     LEG_FLOOR[$1]="$2"
-    LEG_FLOOR_SRC[$1]="$3 ($4)"
+    # THE PAIR IS THE PROVENANCE, so the report prints both. `+` and not
+    # `..`: a git range would read as a commit walk, and these two shas
+    # are inputs to a merge rather than endpoints of one. A row measured
+    # directly at one pushed sha repeats it, and says so.
+    if [ "$3" = "$4" ]; then
+      LEG_FLOOR_SRC[$1]="$3 ($5, direct)"
+    else
+      LEG_FLOOR_SRC[$1]="$3+$4 ($5)"
+    fi
   done < "$file"
   [ ${#LEG_FLOOR[@]} -gt 0 ] || {
     FLOORS_ERROR="$FLOORS_FILE_NAME parsed with zero rows — an empty calibration is not a permissive one"
@@ -403,7 +437,7 @@ run_floors_leg() {
   LEG_OWED[floors]=owed
   if load_floors; then
     LEG_STATUS[floors]=PASS
-    LEG_DETAIL[floors]="${#LEG_FLOOR[@]} floors loaded from $FLOORS_FILE_NAME, each with its measured sha"
+    LEG_DETAIL[floors]="${#LEG_FLOOR[@]} floors loaded from $FLOORS_FILE_NAME, each naming the base+delivery pair that reproduces it"
     printf 'PASS\n' >&2
   else
     LEG_STATUS[floors]=FAIL
@@ -503,7 +537,7 @@ assert_counts() {
 
   if [ "$selected" -lt "$floor" ]; then
     LEG_STATUS[$name]=FAIL
-    LEG_DETAIL[$name]="COUNT FLOOR: $selected selected, floor $floor measured at ${LEG_FLOOR_SRC[$name]:-?} — the run narrowed; ${LEG_DETAIL[$name]:-}"
+    LEG_DETAIL[$name]="COUNT FLOOR: $selected selected, floor $floor reproducing from ${LEG_FLOOR_SRC[$name]:-?} — the run narrowed; if the reduction is deliberate, DECLARE it with before/after counts so the floor moves as part of the merge act (#3249), rather than re-gating against a stale row; ${LEG_DETAIL[$name]:-}"
     printf '  %-12s ... FAIL (floor: %s < %s)\n' "$name" "$selected" "$floor" >&2
     return
   fi
@@ -1148,13 +1182,16 @@ report() {
   echo
   echo "  counts    per leg — selected is DECIDED (--collect-only, cannot flake);"
   echo "            outcomes is SAMPLED (this run). Floors and their provenance"
-  echo "            come from tools/gate-floors.txt; check any row with git show."
+  echo "            come from tools/gate-floors.txt. Each row names the PAIR that"
+  echo "            reproduces it: merge-tree --write-tree <base> <delivery>, then"
+  echo "            collect at that tree. Read the oid, not the exit status — the"
+  echo "            ledger conflicts on every real delivery (see that file's header)."
   local unchecked=""
   for name in "${LEG_NAMES[@]}"; do
     if [ -n "${LEG_FLOOR[$name]:-}" ]; then
       case "${LEG_STATUS[$name]:-MISSING}" in
         PASS|FAIL)
-          printf '    %-12s selected %-6s floor %-6s outcomes %-6s  floor measured at %s\n' \
+          printf '    %-12s selected %-6s floor %-6s outcomes %-6s  floor reproduces from %s\n' \
             "$name" "${LEG_SELECTED[$name]:-?}" "${LEG_FLOOR[$name]}" \
             "${LEG_OUTCOMES[$name]:-?}" "${LEG_FLOOR_SRC[$name]:-?}" ;;
         *) printf '    %-12s not run — no counts to report\n' "$name" ;;

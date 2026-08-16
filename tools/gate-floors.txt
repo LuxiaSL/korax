@@ -10,19 +10,54 @@
 # substituting a measured value into an artifact somebody else authored
 # is the gate's ordinary work rather than code authorship.
 #
-# WHY EVERY ROW CARRIES ITS SHA — the binding clause (#3100), and it is
-# not decoration. This board retired two floors in one day: `939`, read
-# one commit early and ambiguous besides (the selected count at one sha
-# AND the collected-including-deselected total at another, three commits
-# apart), and `957`, correct but measured on the wrong base. Both were
-# bare numbers whose provenance nobody could recover without going and
-# looking. A floor that names its tree cannot have either defect, and one
-# `git show <sha>` checks any row here.
+# WHY EVERY ROW NAMES A PAIR OF SHAS (JOB #3239, ruled (a)+two-shas).
+# The first cut of this file gave each row ONE sha, and one sha names no
+# reproducible quantity. R167 proved it: the floor was measured at a
+# merge target, and the closest true statement the six-field format
+# allowed was that the row's anchor was the BASE while its value was the
+# POST-MERGE count — a distinction the format could not carry, so it was
+# written in prose on the board (#3226 §4, #3230 §3) where the file
+# cannot see it. Worse, a six-field row could not be checked at all: a
+# floor of `900` against a tree collecting 1017 parsed clean and green,
+# and so would `101` for `1017`, silently disarming the contract while
+# every report printed the number in green (#3247 §2, measured).
 #
-# Per #3102: a constant does not TRAVEL, it SITS, and a machine reads it
-# every merge — so what decays is not transmission but the ability to
-# recover why the number was ever right. The predicate has to sit beside
-# it permanently, which is what this file is for.
+# A row that names BASE and DELIVERY is decidable. See HOW TO CHECK A ROW
+# below — the command is stated here, beside the data, because the row's
+# consumer is a verifier and not a browser.
+#
+# WHAT A ROW MEANS — READING A, ruled at #3249.
+# A row records the merge that LANDED and constrains the NEXT one. It is
+# not written from the tree about to be gated: a floor equal to that
+# tree's own count makes `selected >= floor` true by construction and the
+# count contract vacuous for that run.
+#
+# TWO CONSEQUENCES, STATED BECAUSE BOTH LOOK LIKE BUGS FROM INSIDE A RUN:
+#
+#   1. A re-gate following a named floor act is ALWAYS VACUOUS on the leg
+#      the act touched (#3246 §2, the mill's rule, verbatim). The act
+#      lowers the floor from the tree being gated, so that leg's
+#      assertion compares a number against itself. This is correct and
+#      unavoidable; it is why the act is named and public.
+#   2. AN UNDECLARED NARROWING REDS AND STAYS RED. That is not a ratchet,
+#      that is the contract (#3249). The red converts to a merge only by
+#      the delivery declaring what it reduced — #2680 applied at the gate.
+#
+# HOW A LEGITIMATE REDUCTION LANDS WITHOUT COSTING A CYCLE (#3249).
+# A delivery that DECLARES its reduction with before/after counts — as
+# quill's did, `gate 43 -> 40, measured not inferred` — lets the gating
+# seat fold the floor update into the merge act up front, gated ONCE.
+# The count contract is then vacuous by construction on that leg for that
+# run, and the gate envelope SAYS SO and quotes its own decided
+# `--collect-only` at the target as the compensating check. That is the
+# corroboration structure #3099 blessed: a leg's assertion stands down
+# exactly when a stronger decided check replaces it, and never silently.
+#
+# WHAT THIS FILE DOES NOT DO. It does not stop a legitimate reduction
+# from reddening a battery that has not declared one, and JOB #3239 was
+# never scoped to (#3250 §3). It makes a floor CHECKABLE. The gate-time
+# comparison is `[ "$selected" -lt "$floor" ]` in gate.sh, a different
+# subsystem from provenance, and no row you can write reaches it.
 #
 # WHY A FLOOR IS DELIBERATELY FROZEN, since it looks like a rake I banked.
 # #3131 warns against a named set standing in for a measured quantity. A
@@ -31,26 +66,86 @@
 # fire. The freezing IS the guarantee. What makes it a datum rather than
 # the `939` defect is the provenance on the same line.
 #
+# ── HOW TO CHECK A ROW ────────────────────────────────────────────────
+#
+#   git merge-tree --write-tree <base> <delivery>     # -> a tree oid
+#   git archive <tree-oid> | tar -x -C <dir>          # or commit-tree it
+#   cd <dir> && pytest -q --collect-only <leg's path> # -> SELECTED count
+#
+# READ THE TREE OID FROM THE FIRST LINE OF STDOUT. DO NOT READ THE EXIT
+# STATUS. `merge-tree` exits NON-ZERO for any conflict, and for a real
+# delivery there is ALWAYS one: every delivery appends a `## R-NEXT`
+# entry at the ledger tail and main's tail has moved, so
+# `docs/korax-revisions.md` conflicts by construction. The exhibit row
+# below does exactly this — exit 1, two live conflict markers in the
+# written tree — and still collects the recorded count, because the
+# conflict is confined to a markdown file no suite collects (#3252 §2,
+# measured end to end).
+#
+# BUT CHECK WHICH PATHS CONFLICTED — the exit status is noise only while
+# EVERY CONFLICTED PATH IS KNOWN-INERT: `docs/**` or `*.md`. Anything
+# else invalidates the reproduction (#3256, #3324, #3332).
+#
+# STATE IT AS AN ALLOWLIST, NEVER AS A PRINCIPLE. "Disjoint from what
+# collection reads" and "outside the Python import graph" are both true
+# and both permitted a wrong implementation — the first missed
+# `server/korax/**`, which conftest imports; the second missed
+# `server/pyproject.toml`, whose `addopts`/`testpaths`/`markers` decide
+# what is collected and deselected at all. Enumerating what is dangerous
+# was wrong twice. Enumerate what is inert and refuse the rest; it fails
+# closed on a file type nobody has thought of yet.
+#
+# `merge-tree` names the conflicted paths in the same output the oid came
+# from, so this costs one look:
+#
+#   conflict in docs/korax-revisions.md   inert -> count correct
+#   conflict in ANYTHING ELSE             -> reproduction invalid
+#
+# The second case does not fail loudly. Conflict markers are a
+# `SyntaxError`, pytest reports `977/985 tests collected ... 1 error`, and
+# the gate's own `collect_selected` greps that line and takes 977 —
+# ordinary, parseable, forty low, and indistinguishable from a clean
+# collect anywhere along the path from merge-tree to number. If the
+# conflicted set touches what you are collecting, THE REPRODUCTION IS
+# INVALID AND THE ROW IS NOT WHAT FAILED — the trap is a verifier
+# accusing an honest row while the reader has no reason to suspect the
+# instrument.
+#
+# AND KNOW WHAT YOU RECONSTRUCTED. The tree `merge-tree` writes is NOT
+# the merge target's tree — the gating seat resolves the ledger by hand,
+# so the real merge has a different tree oid. What reproduces is the
+# COLLECTION, not the tree. A row is a claim about a count, and that is
+# the only thing this procedure can and does check.
+#
 # HOW TO UPDATE (the gating seat, as part of the merge act, #3160 §3):
 #   1. at the merge target, run:  pytest -q --collect-only <path>
 #   2. read the SELECTED count — "N/M tests collected (K deselected)"
 #      means N, not M. `selected` is mode-invariant; `passed` is not
 #      (the two KORAX_MERGE_TARGET guards move it by 2), which is why
 #      the floor asserts selected (#2993/#2994).
-#   3. replace the whole row, provenance included. Never the number alone.
+#   3. replace the whole row, provenance included. Never the number
+#      alone, and never one sha of the pair.
 #   4. state old row -> new row in the gate envelope.
 #
-# FORMAT — six whitespace-separated fields, parsed strictly. Blank lines
-# and `#` comments are ignored; ANY other shape is a refusal, not a
+# FORMAT — seven whitespace-separated fields, parsed strictly. Blank
+# lines and `#` comments are ignored; ANY other shape is a refusal, not a
 # skipped line, because a calibration file that silently drops a row it
 # does not understand is the vacuous instrument this whole contract
-# exists to prevent.
+# exists to prevent. THE SIX-FIELD SHAPE IS REFUSED BY THE SAME CLAUSE:
+# no mixed-format file is ever legal, and a row that names one sha is
+# exactly the unreproducible row this format replaced.
 #
-#   leg            floor  sha        revision  measured-by         date
+# A ROW MEASURED DIRECTLY AT ONE PUSHED SHA — seeding, or a calibration
+# taken at main itself — REPEATS THAT SHA IN BOTH COLUMNS. It is not a
+# marker and needs no parser branch: `git merge-tree --write-tree X X`
+# is a real command that yields X's own tree (verified), so the check
+# above stays literally true for every row with no exception clause.
 #
-suite-server    1017  e679258e  R167  band:266ce67b5737  2026-08-16
-suite-cli        335  e679258e  R167  band:266ce67b5737  2026-08-16
-suite-mcp        249  e679258e  R167  band:266ce67b5737  2026-08-16
-ci-server       1017  e679258e  R167  band:266ce67b5737  2026-08-16
-ci-cli           335  e679258e  R167  band:266ce67b5737  2026-08-16
-ci-mcp           249  e679258e  R167  band:266ce67b5737  2026-08-16
+#   leg          floor  base      delivery  revision  measured-by         date
+#
+suite-server    1017  e679258e  bd463450  R167  band:266ce67b5737  2026-08-16
+suite-cli        335  e679258e  bd463450  R167  band:266ce67b5737  2026-08-16
+suite-mcp        249  e679258e  bd463450  R167  band:266ce67b5737  2026-08-16
+ci-server       1017  e679258e  bd463450  R167  band:266ce67b5737  2026-08-16
+ci-cli           335  e679258e  bd463450  R167  band:266ce67b5737  2026-08-16
+ci-mcp           249  e679258e  bd463450  R167  band:266ce67b5737  2026-08-16

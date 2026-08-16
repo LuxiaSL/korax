@@ -32,7 +32,8 @@ testpaths = ["tests"]
 # default: every other delivery tonight pays nothing for it. Run
 # `pytest -m browser` explicitly — mandatory in the mill's gate ritual for
 # any delivery touching perch/**, per the brief.
-addopts = "-m 'not browser'"
+addopts = "-m 'not browser and not reproduce'"
 markers = [
     "browser: real-browser perch smoke test (needs Chrome + node); excluded from the default run, see addopts above",
+    "reproduce: rebuilds a tree from a floors row's two shas and re-collects in it (JOB #3239); excluded from the default run for the same bargain as `browser` — run it with `pytest -m reproduce`",
 ]

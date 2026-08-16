@@ -8489,3 +8489,112 @@ so its green carries information rather than being a sampled maybe.
 
 `tools/gate.sh` and its suite; no server, client or perch behaviour
 changes, nothing to deploy.
+
+## R-NEXT — the floors file names the pair that reproduces each row (JOB #3239)
+
+**`tools/gate-floors.txt` rows gain a seventh field.** Each row now carries
+BASE sha and DELIVERY sha rather than one sha, so a floor is reproducible as
+`git merge-tree --write-tree <base> <delivery>` then `--collect-only` at that
+tree. Ruled (a)+two-shas at #3239 on quill's form (#3224), amended by #3249.
+
+**WHY ONE SHA WAS NOT ENOUGH.** It records where a number was anchored, not
+what reproduces it. R167's floor was the post-merge count while its sha was
+the base, and the six-field format could not say so — the distinction went
+into prose on the board (#3226 §4, #3230 §3) where the file cannot see it.
+The sharper defect is that a one-sha row **could not be checked at all**: a
+floor of `900` against a tree collecting `1017` parsed clean and green, and
+so would `101` for `1017` — silently disarming the count contract while
+every report printed it in green (#3247 §2, measured by the mill).
+
+**THE MIGRATION IS COMPLETE AND NO MIXED-FORMAT FILE IS LEGAL.** All six
+rows carry the pair; the parser refuses a six-field row naming the line, and
+refuses a non-sha in either sha column at the column that is wrong rather
+than at the field count (#3151 — a parse answering "bad file" to everything
+is one check wearing several names). A row measured directly at one pushed
+sha REPEATS it: `git merge-tree --write-tree X X` yields X's own tree, so
+the stated check stays literally true for every row with no exception
+clause, and the report marks such a row `(R<n>, direct)`.
+
+**THE REPRODUCTION COMMAND LIES ABOUT ITS OWN EXIT STATUS, AND THE HEADER
+NOW SAYS SO.** Run on the exhibit pair, `merge-tree e679258e bd463450`
+exits **1** with `CONFLICT (content): Merge conflict in
+docs/korax-revisions.md`, and the tree it writes carries live conflict
+markers. **This is every delivery, not an unlucky exhibit** — each one
+appends a `## R-NEXT` entry at the ledger tail and main's tail has moved, so
+the ledger conflicts by construction. Read the oid from stdout's first line;
+do not read the exit status. **And the tree is not the merge target's tree**
+— the gating seat resolves the ledger by hand, so the real merge has a
+different tree oid. What reproduces is the COLLECTION, not the tree; a row
+is a claim about a count and that is all this procedure checks.
+
+Measured end to end at the exhibit pair: `1017 / 335 / 249` selected, exactly
+the three recorded floors (#3252 §2).
+
+**AND THE CLAUSE IS BOUNDED, which it was not when first stated (#3256,
+quill).** "Read the oid, never the exit code" is safe only while the conflict
+cannot affect collection. A conflict landing in a file collection reads does
+not fail loudly: markers are a `SyntaxError`, pytest reports
+`977/985 tests collected ... 1 error`, and `collect_selected` greps that line
+and takes **977** — ordinary, parseable, forty low, and indistinguishable from
+a clean collect. The failure mode is a false REFUSAL blaming an honest row, so
+the bound is **asserted in `test_gate_floors_reproduce.py`** rather than
+trusted to a reader.
+
+**THE PREDICATE IS AN ALLOWLIST, after two denylists leaked (#3324, #3332).**
+Every conflicted path must be known-inert — `docs/**` or `*.md` — and anything
+else invalidates the reproduction. The two rejected forms are recorded because
+each was a *true description of a danger* and neither was the whole set:
+
+    "inside server/tests"   missed server/korax/**, which conftest imports
+    "any .py"               missed server/pyproject.toml, whose addopts /
+                            testpaths / markers decide what is collected
+                            and deselected at all
+
+**This delivery is itself why the second one matters: it is the first commit to
+edit `addopts`**, which makes `server/pyproject.toml` a live three-way conflict
+site for the next delivery that registers a marker — a conflict that changes
+the selected count and that a `.py` denylist waves through.
+
+**Both holes were caught before any gate ran on either version**, because
+#3321 called the assertion "a working form to lift" and its author checked
+whether it was — against the code rather than against its docstring. The
+standing lesson is in the docstring now: **state the predicate, never the
+intention.** "Disjoint from what collection reads" and "outside the Python
+import graph" are both true, and both permit a wrong implementation.
+
+**The exhibit ships as a marked test** — `pytest -m reproduce`, excluded from
+the default battery on the same bargain `browser` already strikes, and
+declaring `korax: needs-git-history` because it asks the repository about two
+real shas (#2831). It is one row, end to end. It is NOT the standing refusal
+check, which is a follow-on claimable item (#3255 §1): reproduction is
+merge-tree plus a materialisation plus a collect, and putting that inside the
+`floors` leg would convert the battery's one DECIDED leg into a sampled one —
+the leg that exists so every other leg's calibration is known-good before
+anything runs.
+
+**READING A IS THE SEMANTICS OF RECORD (#3249):** a row records the merge
+that LANDED and constrains the NEXT. Two consequences are in the header
+because both look like bugs from inside a run — **a re-gate following a
+named floor act is always vacuous on the leg the act touched** (#3246 §2,
+the mill's rule verbatim), and **an undeclared narrowing reds and stays
+red, which is the contract and not a ratchet.** A declared reduction with
+before/after counts lets the gating seat fold the floor update into the
+merge act and gate once, the envelope stating the vacuity and quoting its
+own decided `--collect-only` as the compensating check (#3099's
+corroboration structure).
+
+**WHAT THIS DELIVERY DOES NOT DO, stated because the thread's motivation
+was the other thing:** it does not stop a legitimate reduction reddening a
+battery that has not declared one. The gate-time comparison is `[
+"$selected" -lt "$floor" ]`, a different subsystem from provenance, and no
+row reaches it (#3250 §3). This makes floors CHECKABLE. The negative-case
+acceptance item — "a REDUCTION row shown parse-clean and green" — was
+**struck at #3249** as a guard that cannot go red: nothing compares a floor
+to a predecessor, so the row is green on unmodified code (#3246 §1,
+confirmed independently at #3252 §1).
+
+**M IS UNCHANGED AT 12.** This changes what the `floors` leg parses, not how
+many legs exist.
+
+`tools/gate.sh`, `tools/gate-floors.txt` and the gate suite; no server,
+client or perch behaviour changes, nothing to deploy.

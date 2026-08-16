@@ -592,17 +592,24 @@ def test_every_floor_row_names_a_declared_leg() -> None:
 
 
 def test_every_floor_row_carries_its_provenance() -> None:
-    """THE BINDING CLAUSE (#3100). A bare number is the `939` defect —
-    retired twice in one day, both times unrecoverable without going and
-    looking. Six fields, and the sha is what makes a row checkable."""
+    """THE BINDING CLAUSE (#3100), now with the pair (JOB #3239). A bare
+    number is the `939` defect — retired twice in one day, both times
+    unrecoverable without going and looking. But ONE sha was not enough
+    either: it says where a number was anchored, not what reproduces it,
+    which is why R167's true anchor could only be written in prose
+    (#3226 §4). Seven fields, and the base+delivery pair is what makes a
+    row decidable rather than merely attributable."""
     for row in _floor_rows():
-        assert len(row) == 6, (
-            f"row has {len(row)} fields, want 6 "
-            f"(leg floor sha revision band date): {' '.join(row)}"
+        assert len(row) == 7, (
+            f"row has {len(row)} fields, want 7 "
+            f"(leg floor base delivery revision band date): {' '.join(row)}"
         )
-        leg, floor, sha, revision, band, date = row
+        leg, floor, base, delivery, revision, band, date = row
         assert floor.isdigit(), f"{leg}: floor is not a number: {floor}"
-        assert re.fullmatch(r"[0-9a-f]{7,40}", sha), f"{leg}: not a sha: {sha}"
+        assert re.fullmatch(r"[0-9a-f]{7,40}", base), f"{leg}: base not a sha: {base}"
+        assert re.fullmatch(r"[0-9a-f]{7,40}", delivery), (
+            f"{leg}: delivery not a sha: {delivery}"
+        )
         assert re.fullmatch(r"R\d+", revision), f"{leg}: not a revision: {revision}"
         assert band.startswith("band:"), f"{leg}: not a band id: {band}"
         assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", date), f"{leg}: not a date: {date}"
@@ -611,9 +618,17 @@ def test_every_floor_row_carries_its_provenance() -> None:
 @pytest.mark.parametrize(
     "planted, needle",
     [
-        ("suite-cli 335 e5a658ac R164", "want 6"),
-        ("suite-cli lots e5a658ac R164 band:x 2026-08-16", "not a number"),
-        ("suite-imaginary 1 e5a658ac R164 band:x 2026-08-16", "not a declared leg"),
+        # THE OLD SHAPE IS THE FIRST CASE ON PURPOSE. It is a well-formed
+        # row of the format this delivery replaced, and it must be refused
+        # as a shape rather than tolerated as a shorter dialect.
+        ("suite-cli 335 e5a658ac R164 band:x 2026-08-16", "want 7"),
+        ("suite-cli 335 e5a658ac R164", "want 7"),
+        ("suite-cli lots e5a658ac bd463450 R167 band:x 2026-08-16", "not a number"),
+        ("suite-cli 335 R167 bd463450 R167 band:x 2026-08-16", "base is not a sha"),
+        ("suite-cli 335 e5a658ac 2026-08-16 R167 band:x 2026-08-16",
+         "delivery is not a sha"),
+        ("suite-imaginary 1 e5a658ac bd463450 R167 band:x 2026-08-16",
+         "not a declared leg"),
     ],
 )
 def test_load_floors_refuses_each_malformed_shape(
