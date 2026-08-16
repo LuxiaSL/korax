@@ -44,7 +44,7 @@ from .client import (
     ApiError,
     KoraxClient,
 )
-from .cursor import START, load_cursor, save_cursor
+from .cursor import START, commit_cursor, load_cursor, stage_cursor
 from .wire import (
     SummaryReadPage,
     BlobUploaded,
@@ -304,7 +304,9 @@ async def cmd_read(
     # rule that a client must not fabricate a board fact).
     page = _check_shape(SummaryReadPage if args.summary else ReadPage,
                         body, "/read")
-    rt.emit(_with_cursor_file(body, page.cursor, since, cursor_path, rt))
+    emitted, temporary = _stage_cursor_file(body, page.cursor, since, cursor_path, rt)
+    rt.emit(emitted)
+    _commit_cursor_file(temporary, cursor_path, rt)
     return 0
 
 
@@ -362,7 +364,11 @@ async def cmd_wait(
     since, cursor_path, seeded_from = await _resolve_since_for_wait(args, client, rt)
     body, model = await _poll(args, client, config, since)
     page = _check_shape(model, body, "/feed" if _is_bare(args) else "/wait")
-    rt.emit(_with_cursor_file(body, page.cursor, since, cursor_path, rt, seeded_from))
+    emitted, temporary = _stage_cursor_file(
+        body, page.cursor, since, cursor_path, rt, seeded_from
+    )
+    rt.emit(emitted)
+    _commit_cursor_file(temporary, cursor_path, rt)
     return 0
 
 
@@ -745,7 +751,7 @@ async def cmd_watch(
             continue
 
         failures = 0
-        emitted = _with_cursor_file(
+        emitted, temporary = _stage_cursor_file(
             body, page.cursor, since, cursor_path, rt, seeded_from
         )
 
@@ -766,6 +772,12 @@ async def cmd_watch(
             # --repeat one — R39's own `degraded` defect, rebuilt one job
             # later, in the job that follows it.
             emit(emitted)
+            # ISSUE #2363 — the cursor commits AFTER the envelopes it
+            # describes reach the consumer, never before: a process killed
+            # between the two calls leaves the cursor file where it was, so
+            # the next arm re-drains the overlap instead of skipping
+            # envelopes this arm staged a cursor past but never delivered.
+            _commit_cursor_file(temporary, cursor_path, rt)
             if not args.repeat:
                 # Exit 0: a goodbye is an ANSWER, not a failure. A supervised
                 # harness re-arms on any exit, and a nonzero code here would
@@ -787,8 +799,12 @@ async def cmd_watch(
                 # answer early would be worse than the herd, because it
                 # returns a client to a board mid-restart.
                 await asyncio.sleep(notice_delay(notice.get("retry_after_s")))
-        # an empty page with no notice is the long poll expiring: re-arm,
-        # say nothing
+        else:
+            # an empty page with no notice is the long poll expiring:
+            # nothing was emitted this round, so nothing depends on
+            # ordering — commit straight through and re-arm, saying
+            # nothing.
+            _commit_cursor_file(temporary, cursor_path, rt)
 
 
 async def cmd_view(
@@ -2536,17 +2552,28 @@ async def _resolve_since_for_wait(
     return head, path, "head"
 
 
-def _with_cursor_file(
+def _stage_cursor_file(
     body: dict[str, Any],
     cursor: int,
     since: int,
     path: Path | None,
     rt: Runtime,
     seeded_from: str | None = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], Path | None]:
+    """Annotate `body` with where the cursor will land, and STAGE the
+    value — never commit it. The caller emits the returned body, THEN
+    calls `_commit_cursor_file` (§11, ISSUE #2363): committing before the
+    envelopes it describes are delivered is exactly the ordering that let
+    a cursor advance past envelopes nobody had received yet."""
     if path is None:
-        return body
-    written = save_cursor(path, cursor, rt.warn)
+        return body, None
+    temporary = stage_cursor(path, cursor)
+    written = temporary is not None
+    if not written:
+        rt.warn(
+            f"could not persist cursor {cursor} to {path}; "
+            "the drained cursor is in this invocation's output (§11)"
+        )
     annotation: dict[str, Any] = {"path": str(path), "since": since, "written": written}
     if seeded_from is not None:
         # Never seed silently: a caller that expected a full drain must be
@@ -2558,8 +2585,16 @@ def _with_cursor_file(
             "the server sent its own `cursor_file`; reporting this "
             f"invocation's under `korax_cursor_file` instead: {annotation}"
         )
-        return dict(body, korax_cursor_file=annotation)
-    return dict(body, cursor_file=annotation)
+        return dict(body, korax_cursor_file=annotation), temporary
+    return dict(body, cursor_file=annotation), temporary
+
+
+def _commit_cursor_file(temporary: Path | None, path: Path | None, rt: Runtime) -> None:
+    """Make a staged cursor durable. Call only after `_stage_cursor_file`'s
+    returned body has been emitted (§11, ISSUE #2363)."""
+    if temporary is None or path is None:
+        return
+    commit_cursor(temporary, path, rt.warn)
 
 
 Model = TypeVar("Model", bound=BaseModel)
