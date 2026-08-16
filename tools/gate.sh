@@ -176,21 +176,6 @@ declare -A LEG_OUTCOMES=()   # name -> sampled sum, from the run's own output
 readonly SHALLOW_MARKER='korax: needs-git-history'
 readonly SHALLOW_REENTRANT='korax: invokes-the-gate'
 
-#: Where the perch actually lives. BOTH roots are load-bearing: the
-#: browser tests execute driver `.js` files that sit in `server/tests/`
-#: (`test_perch_smoke.py:43` -> `perch_smoke_driver.js`), so a
-#: driver-only change alters what the browser leg RUNS while touching
-#: nothing under `server/korax/perch/`. A predicate naming only the app
-#: directory reports `SKIPPED (no perch files)` truthfully, about the
-#: wrong question (#2518 §2, whose own path set had this gap; verified
-#: at #2520). `clients/perch/**` is deliberately absent — no such
-#: directory exists, and a pathspec nobody can trip is indistinguishable
-#: from one that is watching.
-readonly PERCH_PATHS=(
-  'server/korax/perch/**'
-  'server/tests/*perch*'
-)
-
 # ── state ─────────────────────────────────────────────────────────────
 declare -A LEG_STATUS=()   # name -> PASS | FAIL | SKIP
 declare -A LEG_DETAIL=()   # name -> one-line summary or reason
@@ -546,20 +531,25 @@ assert_counts() {
   LEG_DETAIL[$name]="${LEG_DETAIL[$name]:-} [counts: $selected selected >= $floor floor @ ${LEG_FLOOR_SRC[$name]:-?}; $outcomes outcomes accounted]"
 }
 
-# ── is the browser leg owed? (#2422) ──────────────────────────────────
-browser_is_owed() {
-  [ -n "$BASE_REF" ] || return 1          # no base -> not *owed*; runs anyway
-  local base_sha changed
-  base_sha="$(git -C "$REPO_ROOT" rev-parse --verify "${BASE_REF}^{commit}" 2>/dev/null)"
-  [ -n "$base_sha" ] || return 1
-  changed="$(git -C "$REPO_ROOT" diff --name-only "$base_sha" "$TARGET_SHA" \
-             -- "${PERCH_PATHS[@]}" 2>/dev/null)"
-  [ -n "$changed" ]
-}
+# ── the browser leg's skip predicate is GONE (JOB #3210 clause 2) ─────
+# `browser_is_owed()` and `PERCH_PATHS` lived here. Clause 1 removed
+# their last consumer, and the brief's instruction was explicit: delete
+# it or fix it, do not leave a wrong predicate idle in the file. **An
+# unused predicate lints clean and reads as live logic to the next
+# person**, which is how a retired rule gets re-consulted.
+#
+# What they knew is not lost, because a future skip predicate would
+# inherit the same trap: the set carried `server/korax/perch/**` alone
+# until #2520 and MISSED a driver-only change, since the browser tests
+# execute `.js` drivers living in `server/tests/` — so the leg reported
+# `SKIPPED (no perch files)` truthfully, about the wrong question
+# (#2518 §2, instance R131/`b789438` at #2525). **A skip predicate must
+# be exhaustive to be safe, and this one had already recorded one gap.**
 
 # ── the ledger-disposition primitives (#2680 → #2682) ─────────────────
-# Each takes REPO/BASE/TARGET as explicit arguments, unlike
-# browser_is_owed above — this leg's own decision logic (four cases over
+# Each takes REPO/BASE/TARGET as explicit arguments, unlike the browser
+# predicate that used to sit above (retired in #3210, which read them
+# from globals) — this leg's own decision logic (four cases over
 # two signals, one of them a contradiction) is complex enough that a
 # test reimplementing it in Python risks silently agreeing with a bug in
 # the real one (#2668's canary rule). Parameterized, the acceptance
@@ -591,9 +581,11 @@ ledger_disposition_is_owed() {
 # slate, ruled by the desk — the fail-closed direction is kept, and the
 # FAIL message below is what tells a multi-commit claimant why). owed()
 # below deliberately does NOT move: over-triggering
-# `owed` from a too-far-back base is the same safe direction
-# browser_is_owed already accepts (asks for more than strictly needed,
-# never less); only entry/trailer have a defect-HIDING failure mode, so
+# `owed` from a too-far-back base is the same safe direction the
+# retired browser predicate accepted (asks for more than strictly
+# needed, never less) — and which the browser leg now takes to its
+# limit by always running (#3210); only entry/trailer have a
+# defect-HIDING failure mode, so
 # only they need base-independence.
 #
 # AT MOST TWO PARENTS, ASSERTED NOT ASSUMED (#2783 ruling 2): the desk
@@ -893,8 +885,9 @@ run_shallow_leg() {
 # entry that also claims to be none is a contradiction, not a stronger
 # green.
 #
-# NO FALLBACK WITHOUT --base, UNLIKE THE BROWSER LEG. browser_is_owed
-# can run its whole suite without a base (worst case: an unowed run);
+# NO FALLBACK WITHOUT --base, UNLIKE THE BROWSER LEG. That leg needs no
+# base at all since #3210 — it simply always runs, which is the same
+# safe direction taken to its limit (worst case: time spent);
 # this leg's OWN CHECK, not just its owed-ness, is a question about a
 # RANGE — with no base there is nothing to scan, so it skips rather
 # than guessing at ownership.
@@ -987,16 +980,23 @@ run_battery() {
   # run nothing — a green leg that measured zero tests, which is this
   # file's own defect class. With it, a missing dependency fails naming
   # itself, exactly as on CI.
-  if browser_is_owed; then
-    run_leg browser owed env KORAX_BROWSER_REQUIRED=1 \
-        uv run --project . pytest -q -m browser server/tests
-  elif [ -n "$BASE_REF" ]; then
-    skip_leg browser "diff against ${BASE_REF} touches no perch files (#2422)"
-  else
-    printf '  (browser: no --base given — running rather than assuming unowed)\n' >&2
-    run_leg browser unowed env KORAX_BROWSER_REQUIRED=1 \
-        uv run --project . pytest -q -m browser server/tests
-  fi
+  # THE BROWSER LEG RUNS WHENEVER CI WOULD, WHICH IS ALWAYS (JOB #3210
+  # clause 1; direction ruled at #3017 and not reopened here).
+  #
+  # It used to run only when the diff touched `PERCH_PATHS`, and the
+  # asymmetry that created was measured: of the six branches queued at
+  # #2902 §2, FIVE touched zero perch files — so the gate printed
+  # `browser SKIP` while CI ran the leg unconditionally on the merge.
+  # **Zero gate signal on precisely the leg that had just produced a red
+  # main.**
+  #
+  # COST, stated because it is the whole objection (#2337 flag day):
+  # every gate now pays ~4 browser-minutes it may not have paid before,
+  # in-flight branches included. That is a cost change, not a behaviour
+  # change — and since R155 the leg is DECIDABLE everywhere it runs, so
+  # its green carries information instead of being a sampled maybe.
+  run_leg browser owed env KORAX_BROWSER_REQUIRED=1 \
+      uv run --project . pytest -q -m browser server/tests
 
   # CI parity: `--directory` is the only form that catches a server test
   # importing a client package — the repo-root invocation resolves all
@@ -1090,6 +1090,27 @@ report() {
   fi
   echo "worktree: $WT"
   echo "logs:     $LOGDIR"
+  # WHICH GATE.SH PRODUCED THIS REPORT (JOB #3210 clause 3, #3201/#3202).
+  #
+  # The dual-harness procedure runs the battery twice — once from the
+  # merge target's `gate.sh`, once from main's — and compares. **Until
+  # this line, the only thing distinguishing the two reports was the leg
+  # count**, which differs solely when a delivery changes M. A delivery
+  # that does not — this one, and most — produced two byte-identical
+  # reports, so a procedure believed to be comparing two harnesses could
+  # be reading one twice with nothing able to say so. That is the
+  # working-directory dependence #3200's near-miss exposed.
+  #
+  # PATH AND CONTENT HASH, not path alone: two worktrees can hold the
+  # same path, and one path can hold different bytes between checkouts.
+  # The hash is what makes the comparison decidable rather than
+  # circumstantial, and it discriminates with M UNCHANGED — the property
+  # #3202 folded, which this delivery demonstrates at its own gate
+  # because it adds no leg.
+  local harness_path harness_hash
+  harness_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  harness_hash="$(sha256sum "${BASH_SOURCE[0]}" 2>/dev/null | cut -c1-12)"
+  echo "harness:  ${harness_path}  (sha256 ${harness_hash:-unavailable})"
   echo "════════════════════════════════════════════════════════════════"
   echo
 
