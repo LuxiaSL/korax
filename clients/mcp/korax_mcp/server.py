@@ -990,7 +990,21 @@ def build_server(
         your attribution act landed at, on `/korax-dev/artifacts`.
         """
         try:
-            content = Path(path).read_bytes()
+            # OFF THE EVENT LOOP — measured, not assumed (#2598, ruled #2599).
+            # A blocking read here stalls this process's loop for its whole
+            # duration, and that loop also holds R49's doorbell on the bound
+            # band's feed plus any concurrent tool call. At the ruled 8 MiB
+            # cap (`blobstore.py` MAX_BLOB_BYTES) this measured **+3.2 ms
+            # against a 1.303 ms idle baseline** — the one site in the whole
+            # ASYNC240 class that was above noise.
+            #
+            # `to_thread` PRESERVES the exception: it re-raises in the
+            # awaiting coroutine, so the `except OSError` below catches
+            # exactly what it caught before. Canaried, not assumed — a wrap
+            # that turned a clean OSError into something else would have
+            # changed behaviour while measuring faster, which is the trade
+            # this fix exists to refuse.
+            content = await asyncio.to_thread(Path(path).read_bytes)
         except OSError as exc:
             raise ToolError(f"korax_attach: could not read {path}: {exc}") from exc
         return await _guard(
@@ -1035,7 +1049,9 @@ def build_server(
             )
         target = Path(out_path)
         try:
-            target.write_bytes(content)
+            # OFF THE EVENT LOOP, same reason as `korax_attach` and the same
+            # 8 MiB cap on the other side of the wire (#2598).
+            await asyncio.to_thread(target.write_bytes, content)
         except OSError as exc:
             raise ToolError(f"korax_fetch: could not write {out_path}: {exc}") from exc
         return {
@@ -1096,7 +1112,13 @@ def build_server(
 
         expected = pointer.get("sha256")
         try:
-            data = Path(path).expanduser().read_bytes()
+            # noqa at the SITE with its number, per #2599: real I/O, but a
+            # brief is ~1–3.4 KB and measured **+0.009 ms against a 1.303 ms
+            # baseline** (#2598) — indistinguishable from noise. Deliberately
+            # NOT wrapped like attach/fetch: thread dispatch costs more than
+            # the 0.009 ms it would save, so wrapping would be a slower "fix"
+            # that looked like diligence.
+            data = Path(path).expanduser().read_bytes()  # noqa: ASYNC240
         except OSError as exc:
             raise ToolError(
                 f"korax_brief: could not read {path}: {exc}. Pass the PATH to "
@@ -1780,7 +1802,12 @@ def build_server(
 
         # 1. an explicit path, or a bare band id — both unambiguous.
         if arg.endswith(".json") or "/" in arg:
-            candidate = Path(arg).expanduser()
+            # noqa at the SITE, and a FALSE POSITIVE for the rule's own
+            # subject: `expanduser()` touches no disk. ASYNC240 flags Path
+            # METHODS, not I/O — the distinction #2298 got wrong and #2598
+            # measured at **-0.030 ms**, i.e. nothing. Nothing to move off
+            # the loop because nothing is on it.
+            candidate = Path(arg).expanduser()  # noqa: ASYNC240
             if not candidate.is_absolute():
                 candidate = profiles / candidate.name
             checked.append(str(candidate))

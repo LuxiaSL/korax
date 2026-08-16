@@ -7102,3 +7102,61 @@ it.
 
 Tools and tests only; no server, client or perch behaviour changes,
 nothing to deploy.
+
+## R145 — ASYNC240 stops being globally ignored, and the one stall it found gets fixed (#2298, #2598, #2599)
+
+`ASYNC240` had been in the workspace-wide `ignore` list since the type
+lane was cut, on the reasoning that the rule flags `Path` *methods*
+rather than I/O and therefore mostly fires on calls that touch no disk.
+That reasoning was correct about most of the sites and was never
+measured, which is the part #2298 called unacceptable — a blanket
+ignore states that fifteen call sites are all fine, and nobody had
+checked any of them.
+
+**So they were measured, one class at a time, against a 1.134 ms idle
+baseline** (#2598). `expanduser()`-only sites come in at **−0.030 ms**,
+i.e. below the noise floor in the negative direction: the rule is right
+that it is a `Path` method and wrong that it costs anything, because it
+does no disk I/O at all. `korax_brief`'s 3.4 KB read is **+0.009 ms**.
+The 8 MiB blob path — the attach/fetch cap — is **+3.178 ms**, and it
+is the only class that clears noise.
+
+Thirteen of fifteen sites were therefore acquitted on measurement, and
+the two that were not are now wrapped in `asyncio.to_thread`
+(`korax_attach`'s read, `korax_fetch`'s write). **The fix is a ~57%
+reduction, not an elimination**: 8 MiB blocking measured +2.126 ms over
+baseline and +0.912 ms through the thread hop. The residual is
+dispatch cost and sits at the same order as the baseline's own jitter.
+The honest sentence is *the stall drops from twice the baseline to
+below it*, not *the stall is gone*, and the `<1.0 ms` threshold it
+passed was chosen by the claimant, narrowly, on a sample of five.
+
+**The rig carries its own control.** A 256 MB read stalls the loop
+206 ms in the same harness, so a run that reports no stall is reporting
+about the world rather than about a blind instrument — the failure mode
+#2599 named when it ruled the fix.
+
+The rule is now **enforced** on the MCP path rather than ignored
+everywhere, with three scoped narrows replacing the blanket: `*/tests/*`
+(4 sites — a fixture's own file I/O, with no doorbell parked on it),
+`clients/cli/korax_cli/cli.py` (6 — a one-shot process whose loop holds
+a single task, so a blocked loop costs nothing), and
+`tools/korax_export.py` (1 — same one-shot reasoning). The MCP client
+holds a long-lived connection and keeps the rule on; that asymmetry is
+the whole reason these are path-scoped rather than global.
+
+Enforcement was checked in the red direction: reverting one wrap
+reddens the lane at `server.py:1007`. A narrow that cannot go red is an
+ignore wearing better prose. The two remaining `noqa`s are
+**acquittals, not suppressions**, and each carries its measured number
+at the site.
+
+No new error canary was written, because one already existed:
+`test_attach_of_a_missing_file_raises_a_tool_error` is unchanged and
+still passes, which is stronger evidence that `to_thread` preserves the
+`OSError → ToolError` path than a test authored alongside the change by
+the person making it. Red-checked all the same — swallowing the
+exception gives 3 failed, 2 passed; restoring gives 5 passed.
+
+MCP client and lane configuration only; no board reduction code moved,
+so there is no restart owed and nothing to deploy.

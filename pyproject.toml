@@ -75,10 +75,26 @@ select = [
                # this lane's subject matter
 ]
 
-# ── NARROWS: 7 ruff codes across 3 scopes, each with its count and reason ──
-#   global (3):        ASYNC240 (11 sites), E741 (4), E731 (3)
-#   */tests/* (3):     PLW1510 (12), DTZ007 (4), F811 (fixture protocol)
-#   cli.py (1):        UP031 (1, a false positive on argparse's own %-format)
+# ── NARROWS: 8 ruff codes across 4 scopes, each with its count and reason ──
+#   global (2):        E741 (4), E731 (3)
+#   */tests/* (4):     PLW1510 (12), DTZ007 (4), F811, ASYNC240 (4)
+#   cli.py (2):        UP031 (1), ASYNC240 (6)
+#   tools/ (1):        ASYNC240 (1)
+#
+# ASYNC240 IS NO LONGER GLOBALLY IGNORED — it is ENFORCED on the MCP blob
+# path, which is the only place the measurement found a real stall.
+# #2598 measured every class against a 1.303 ms idle baseline:
+#
+#   expanduser() only (NO disk I/O)   -0.030 ms   <- the rule flags Path
+#   brief 3.4 KB (korax_brief)        +0.009 ms      METHODS, not I/O
+#   blob 8 MiB (attach/fetch CAP)     +3.178 ms   <- the only one above noise
+#   256 MB slow control             +214.3   ms   <- proves the rig can see
+#
+# The 3.2 ms is FIXED at its two sites (`to_thread`, ruled #2599) rather
+# than accepted, so the code now enforces where it earns its keep. The
+# narrows below are the measured-zero classes, scoped rather than blanket:
+# a global ignore covering four sites that do no I/O at all was the state
+# #2298 called unacceptable, and it is now decided rather than deferred.
 # mypy adds 2 inline coded ignores (validate.py, wire.py) and 2 module
 # overrides (rfc8785, mcp.*) — all four stated at their sites.
 #
@@ -86,15 +102,6 @@ select = [
 # below is a specific code with a specific justification; an exclusion
 # that swallowed a package would be the lane lying about its own coverage.
 ignore = [
-    # 11 sites. REAL, and NOT dismissed: blocking `Path` I/O inside async
-    # functions (MCP tool handlers, CLI commands, the export tool). Fixing
-    # means introducing `anyio.Path` or a thread offload, which is a
-    # structural change — and the brief routes any checker finding whose
-    # fix would change behavior to the board as its own item rather than
-    # smuggling it inside the lane. Filed as an ISSUE; this narrow is what
-    # keeps the lane honest-green while that debt is visible on the log
-    # rather than hidden in a config.
-    "ASYNC240",
     # 4 sites. Ambiguous single-character names (`l`, `I`). Style, and the
     # sites are short comprehensions where the name is local and obvious.
     "E741",
@@ -118,12 +125,30 @@ ignore = [
     # A test may shadow a fixture name by design — that IS the pytest
     # fixture protocol, and the checker cannot tell it from a redefinition.
     "F811",
+    # 4 sites. A test rig's own file I/O, not a served path — no doorbell
+    # and no concurrent tool call is waiting on a fixture's `read_text`.
+    # Kept ENFORCED for non-test code, which is where #2598 found the
+    # 3.2 ms that got fixed.
+    "ASYNC240",
 ]
 "clients/cli/korax_cli/cli.py" = [
     # 1 site, and a genuine FALSE POSITIVE: the `%(url)s` in `EPILOG` is
     # argparse's own interpolation, not Python's. "Fixing" it to an f-string
     # would break the help text this lane is not here to touch.
     "UP031",
+    # 6 sites. The CLI is a ONE-SHOT process: a blocked loop with a single
+    # task on it costs nothing, because there is no doorbell and no
+    # concurrent call to stall. Four of the six are `Path(...).expanduser()`
+    # and do no disk I/O at all — measured at -0.030 ms, i.e. zero (#2598).
+    # The MCP client, which holds a long-lived connection, keeps this
+    # ENFORCED, and that asymmetry is the whole reason this is scoped here
+    # rather than globally.
+    "ASYNC240",
+]
+"tools/korax_export.py" = [
+    # 1 site. A one-shot export tool writing its own output page; same
+    # one-shot reasoning as the CLI above, and nothing is parked on it.
+    "ASYNC240",
 ]
 
 # ---------------------------------------------------------------------------
