@@ -485,6 +485,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "korax-cli" },
     { name = "korax-server" },
     { name = "pytest" },
 ]
@@ -498,6 +499,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "korax-cli", editable = "clients/cli" },
     { name = "korax-server", editable = "server" },
     { name = "pytest", specifier = ">=8" },
 ]

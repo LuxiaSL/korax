@@ -19,6 +19,20 @@ korax-mcp = "korax_mcp.server:main"
 dev = [
     "pytest>=8",
     "korax-server",
+    # ISSUE #2750. `tests/test_counter_contract.py` imports `korax_cli` to
+    # compare the two clients' DECLARED counter fields — that is the whole
+    # test, and #292 was filed against both clients at once, so comparing
+    # them is not optional.
+    #
+    # Without this line the import fails and the test errors whenever this
+    # member's environment is built ALONE — which is exactly what the
+    # gate's `ci-mcp` leg does (`uv run --directory clients/mcp`). It
+    # passed anyway because `suite-mcp` runs earlier with `--project .`
+    # and syncs the workspace root first. Measured both ways in a fresh
+    # worktree: the leg alone is `1 failed, 236 passed`; after the earlier
+    # leg, `237 passed`. **A leg that only passes because another leg ran
+    # first is not a check on this member, it is a check on the ordering.**
+    "korax-cli",
 ]
 
 [tool.uv.sources]
@@ -26,6 +40,11 @@ dev = [
 # layer is still written against docs/korax-protocol.md and never against
 # server internals (clients/README.md).
 korax-server = { workspace = true }
+# Test-only, and a peer rather than a dependency: nothing in `korax_mcp`
+# imports the CLI, and this must not become a runtime edge between two
+# clients that are meant to be independent implementations of the same
+# protocol.
+korax-cli = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
