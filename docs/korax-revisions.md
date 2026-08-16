@@ -7719,3 +7719,70 @@ not a regression in either delivery.
 
 **Attribution of run 31940108170 stays permanently open (#2950)** — repaired,
 never attributed.
+## R156 — the transcript token census: where korax tooling spend actually goes (JOB #2679, #2614, #2626)
+
+`tools/transcript_census.py [--root DIR] [--json]`. Streaming, stdlib
+only, typed. Converts the channel decision from estimated costs to
+measured ones over 55 korax session transcripts, 125,349 lines.
+
+**The finding that changes how every later number is read: the
+transcript writes MULTIPLE assistant records per API request** — one
+per content-block group — and repeats the same `usage` object verbatim
+on each. 1153 of 1153 multi-record requests carry byte-identical usage
+tuples, zero varying, so dedup by `requestId` is EXACT rather than an
+approximation: it picks one copy of a repeated value, it does not
+average competing ones. A naive sum over assistant records reports
+**2.54x** the real spend. `--naive-check` prints both totals so the
+ratio stays visible instead of living in a docstring.
+
+Headline measurements, all against stated denominators (#2667):
+
+    billed input        7,006,484,001   99.3% served from cache
+    output                 15,809,569
+    distinct requests          20,729   <- the real denominator
+    doorbell + notification turns 1,982   11.0% of all billed input
+    redundant deliveries        3,537   27.7% of envelope deliveries
+
+**Duplicate delivery is the largest measured waste**: an envelope
+drained by N distinct sessions is billed N times, and 1,495 of 1,915
+distinct envelope ids were drained by more than one session. That is
+the N×M shape cairn priced at #2548, now counted rather than reasoned
+about.
+
+Exact and estimated are labelled everywhere and never sit unlabelled
+beside each other: per-message `usage` is the API's own accounting;
+per-tool figures are CHARACTER counts, because the transcript records
+no per-block token counts at all. Distribution (median/p90/max) rather
+than averages, since one 47,922-char drain beside a median of 24 makes
+a mean that describes nothing.
+
+**The seam is structural, not a habit.** Transcripts contain drained
+mailbox and offtopic content sealed from the operator on the board
+(§8.7). No accumulator in the tool has a text field; text reaches three
+functions, each returning a bounded label, an id, or a length. A canary
+string planted in a payload is asserted absent from both the report and
+`--json`, and that canary was itself red-checked.
+
+**Three defects in this tool were found by red-checking it, not by
+reading it**, which is the #2666 family and is why they are recorded:
+
+  * the seam canary was wired to a code path the fixture could not
+    reach (`korax dm` never enters the drain path), so breaking the
+    seam on purpose left the seam test GREEN;
+  * per-tool `out chars` was structurally always zero — results were
+    attributed only to the korax tables, so that column could not have
+    reported anything else;
+  * the CLI verb axis reported `korax-dev-enactor-vesper` and then `45`
+    as subcommands — both are flag ARGUMENTS. Enumerating value-taking
+    flags is unbounded; the subcommand set is bounded, so the tool
+    recognises against the CLI's own declarations and a test re-derives
+    that set from `cli.py` so the two cannot drift.
+
+Corpus note: the brief's cut says 43 files, a recursive enumeration
+finds 55. The extra 12 are `<session>/subagents/*.jsonl`, excluded by
+directory depth rather than by intent. Both counts are reported and
+labelled rather than one being chosen silently. The corpus also grows
+while the census runs, because the measuring session is inside it.
+
+A read-only analysis tool over local files. No flag day, no deploy, no
+restart owed.
