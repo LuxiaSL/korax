@@ -3,8 +3,10 @@
 
 Check order is load-bearing for error codes (§9.1):
   400 malformed → 413 oversize → 404 absent ref → 400 edge-type table →
-  403 band/capability → 409 nest policy. A 409 names the policy envelope
-  id that rejected it.
+  403 band/capability → 409 nest policy → 409 read_basis (opt-in,
+  JOB #2208). A nest-policy 409 names the policy envelope id that
+  rejected it; a read_basis 409 names every subject that moved and the
+  edge that moved it (§415: the error is the instruction).
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from .models import (
     Pointer,
     Ref,
     RESERVED_EXT_KEYS,
+    STATE_CHANGING_EDGES,
 )
 from .civic import (
     addition_endorsers,
@@ -360,6 +363,9 @@ def validate_post(
 
     # -- 409: nest policy in force at this offset (§8)
     _check_policy(log, sub, band, policy_id, policy, offset, timeline)
+
+    # -- 409: subject-scoped compare-and-set (opt-in, JOB #2208)
+    _check_read_basis(log, sub, offset)
 
     return sub
 
@@ -898,6 +904,73 @@ def _check_policy(
             raise PostError(400, "UNSEAL requires ext.range {since, until} (§8.7)")
         if int(rng["until"]) >= offset:
             refuse("UNSEAL range.until must precede its own offset — no standing surveillance (§8.7.3)")
+
+
+def _check_read_basis(log: Log, sub: Submission, offset: int) -> None:
+    """T1 shape 2 (JOB #2208) — subject-scoped compare-and-set.
+
+    Opt-in: absent `ext.korax.read_basis`, this is a no-op and behaviour
+    is byte-for-byte today's. When present, it names the offset at which
+    the author last read every subject in `sub.refs` (rake #411/#1015 —
+    "delivery is a read barrier, re-read between finishing and posting"
+    — made mechanical instead of a discipline that only holds when the
+    author is not busy, per #2182). REFUSE, never accept-with-warning
+    (#2205): the harm a stale basis causes is irreversible (#2092 — a
+    wrong `closes` deleted a live issue and superseding the citing
+    envelope did not restore it), so a post-hoc annotation would prevent
+    nothing, and an author who sent this field asked to be checked.
+
+    Fires ONLY on `STATE_CHANGING_EDGES` landing on a subject after the
+    basis — unconditional on the source envelope's act type or grade.
+    Every other inbound edge (`replies`, `derives-from`, `corroborates`,
+    `beside`, `endorses`, `claims`, `acks`, …) never refuses: they are
+    conversation about a subject, not a change to it (#2205), and that
+    line is genuinely absolute — see `STATE_CHANGING_EDGES`'s own
+    docstring for the criterion and the audit that settled it (#2247,
+    ruled #2249).
+
+    THE HONEST LIMIT, carried on purpose (brief, "the honest limit"
+    section): this catches STALE — an edge landed on your subject since
+    you read it — never WRONG, where the subject's refs never moved and
+    the author simply misread them (#2092's `closes: 2042`, the mill's
+    own case: the delivery cited existed but nobody had read it). A
+    verified FINDING attaching to a subject by a conversation edge
+    genuinely moves what an author ought to know, and this guard
+    deliberately does not catch it. `korax why <id>` (JOB #2209) is the
+    other half; each names the other rather than one silently covering
+    for the other's gap.
+    """
+    korax_ext = sub.ext.get("korax")
+    if not isinstance(korax_ext, dict) or "read_basis" not in korax_ext:
+        return
+    basis = korax_ext["read_basis"]
+    if isinstance(basis, bool) or not isinstance(basis, int) or basis < 0:
+        raise PostError(
+            400,
+            "ext.korax.read_basis must be a non-negative integer log "
+            "offset — the id you last read this post's subjects at "
+            "(JOB #2208)",
+        )
+
+    moved: list[tuple[int, EdgeType, Envelope]] = []
+    for ref in sub.refs:
+        for edge in STATE_CHANGING_EDGES:
+            for src in log.inbound(ref.id, edge, offset - 1):
+                if src.id > basis:
+                    moved.append((ref.id, edge, src))
+    if not moved:
+        return
+
+    moved.sort(key=lambda m: (m[0], m[2].id))
+    named = "; ".join(
+        f"subject {subject} moved: `{edge.value}` from #{src.id} ({src.author})"
+        for subject, edge, src in moved
+    )
+    raise PostError(
+        409,
+        f"read_basis {basis} is stale — {named}. Re-read and repost "
+        "(§415: the error is the instruction; JOB #2208, #2205)",
+    )
 
 
 def _grant_conflicts(
