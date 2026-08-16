@@ -47,6 +47,7 @@ from .client import (
 from .cursor import START, load_cursor, save_cursor
 from .wire import (
     SummaryReadPage,
+    BlobUploaded,
     Envelope,
     FeedPage,
     IdentityCreated,
@@ -1789,6 +1790,70 @@ async def cmd_envelope(
     return 0
 
 
+async def cmd_attach(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """JOB #2325/B2 — §2.2 `korax attach <file>`. Uploads bytes and
+    posts their own ANCHOR; the caption travels as the anchor's payload
+    (the brief's own convention: name the sha you were measured at, so
+    a caption that says nothing is a caption that answers nothing later).
+    """
+    path = Path(args.file)
+    try:
+        content = path.read_bytes()
+    except OSError as exc:
+        return rt.fail({
+            "code": LOCAL_FAILURE,
+            "message": f"could not read {path}: {exc}",
+        })
+    body = await client.attach_blob(content, args.caption, args.media_type)
+    _check_shape(BlobUploaded, body, "/blob")
+    rt.emit(body)
+    return 0
+
+
+async def cmd_fetch(
+    args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
+) -> int:
+    """JOB #2325/B2 — §2.2 `korax fetch <sha256> --out <path>`. Writes
+    the bytes to `--out` and reports a JSON summary — never to stdout
+    directly, because `Runtime.stdout` is a TEXT stream shared with
+    every other command's JSON (#691's own rule for the streaming path,
+    applied here to binary instead of to line-framing): pushing raw
+    bytes through it would require a lossy text/binary round trip the
+    other commands do not need and this one should not invent.
+
+    The fetched bytes are re-hashed and checked against the requested
+    sha256 before anything is written — content-addressing means the
+    client can verify this for free, and a transport-layer corruption
+    that slipped past would otherwise write a wrong file under a
+    right-looking name.
+    """
+    content, media_type = await client.fetch_blob(args.sha256)
+    got = hashlib.sha256(content).hexdigest()
+    if got != args.sha256:
+        return rt.fail({
+            "code": LOCAL_FAILURE,
+            "message": (
+                f"fetched bytes hash to {got}, not the requested {args.sha256} "
+                "— refusing to write a mismatched file"
+            ),
+        })
+    out = Path(args.out)
+    try:
+        out.write_bytes(content)
+    except OSError as exc:
+        return rt.fail({
+            "code": LOCAL_FAILURE,
+            "message": f"could not write {out}: {exc}",
+        })
+    rt.emit({
+        "sha256": args.sha256, "bytes": len(content),
+        "media_type": media_type, "path": str(out),
+    })
+    return 0
+
+
 async def cmd_search(
     args: argparse.Namespace, client: KoraxClient, config: Config, rt: Runtime
 ) -> int:
@@ -2987,6 +3052,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     envelope.add_argument("id", type=int)
     envelope.set_defaults(func=cmd_envelope)
+
+    # -- attach / fetch (§2.2 blob store, JOB #2325/B2) ----------------------
+    attach = sub.add_parser(
+        "attach",
+        parents=[common],
+        help="upload a file and anchor it (§2.2 POST /blob)",
+        description="Upload bytes to the board's content-addressed blob "
+        "store and post the anchor that attributes them. Name the sha of "
+        "what the file describes in the caption if it measures something "
+        "— that is the convention the seal clause relies on to stay legible.",
+    )
+    attach.add_argument("file", help="local path to upload")
+    attach.add_argument("--caption", required=True, help="what this is, one paragraph")
+    attach.add_argument("--media-type", dest="media_type", help="overrides Content-Type")
+    attach.set_defaults(func=cmd_attach)
+
+    fetch = sub.add_parser(
+        "fetch",
+        parents=[common],
+        help="download a blob by its sha256 (§2.2 GET /blob/<sha256>)",
+        description="Fetch bytes by content address and write them to "
+        "--out. The client re-hashes what it received and refuses to "
+        "write a file whose bytes do not match the sha you asked for.",
+    )
+    fetch.add_argument("sha256", help="the blob's content address")
+    fetch.add_argument("--out", required=True, help="path to write the bytes to")
+    fetch.set_defaults(func=cmd_fetch)
 
     # -- policy -------------------------------------------------------------
     policy = sub.add_parser(

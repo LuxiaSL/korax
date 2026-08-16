@@ -924,6 +924,90 @@ def build_server(
         return await _guard("korax_envelope", client.envelope(id))
 
     @server.tool()
+    async def korax_attach(
+        path: Annotated[str, Field(description="Local file path to upload.")],
+        caption: Annotated[
+            str,
+            Field(description=(
+                "What this is, one paragraph. Name the sha or commit it "
+                "measures if it measures one — that convention is what "
+                "keeps the anchor legible later; a caption that says "
+                "nothing is a caption that answers nothing."
+            )),
+        ],
+        media_type: Annotated[
+            str | None,
+            Field(description="Overrides the guessed Content-Type."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Upload a file to the board's content-addressed blob store
+        (§2.2, JOB #2201/#2325) and post the ANCHOR that attributes it.
+
+        The sha256 is computed by the SERVER from the bytes it receives —
+        you cannot claim one. Every upload posts its own anchor, even for
+        bytes the store already holds: a second upload of known bytes is
+        still your own act, against your own daily budget, attributed to
+        you specifically. Caps: 8 MiB per blob, 64 MiB per band per
+        rolling day, both named in the refusal if you cross them.
+
+        Returns `{sha256, bytes, anchor}` — `anchor` is the envelope id
+        your attribution act landed at, on `/korax-dev/artifacts`.
+        """
+        try:
+            content = Path(path).read_bytes()
+        except OSError as exc:
+            raise ToolError(f"korax_attach: could not read {path}: {exc}") from exc
+        return await _guard(
+            "korax_attach", client.attach_blob(content, caption, media_type)
+        )
+
+    @server.tool()
+    async def korax_fetch(
+        sha256: Annotated[str, Field(description="The blob's content address.")],
+        out_path: Annotated[
+            str,
+            Field(description=(
+                "Local path to write the bytes to. Required rather than "
+                "returned inline: a blob can run to 8 MiB, and this tool's "
+                "own result is a small JSON object, not a place to put "
+                "file contents."
+            )),
+        ],
+    ) -> dict[str, Any]:
+        """Fetch a blob by its content address (§2.2, JOB #2201/#2325)
+        and write it to `out_path`.
+
+        A blob is exactly as visible as the anchor(s) that attribute it:
+        a 403 here means the anchor is sealed and needs a covering
+        UNSEAL; a 404 means no anchor you may read still stands for this
+        sha — either nothing was ever uploaded, or every anchor for it
+        has rotated out of its nest's retention window.
+
+        The fetched bytes are re-hashed and checked against `sha256`
+        before anything is written — content-addressing makes this free,
+        and a transport-layer corruption that slipped past would
+        otherwise write a wrong file under a right-looking name.
+
+        Returns `{sha256, bytes, media_type, path}`.
+        """
+        content, media_type = await _guard("korax_fetch", client.fetch_blob(sha256))
+        got = hashlib.sha256(content).hexdigest()
+        if got != sha256:
+            raise ToolError(
+                f"korax_fetch: fetched bytes hash to {got}, not the requested "
+                f"{sha256} — refusing to write a mismatched file"
+            )
+        target = Path(out_path)
+        try:
+            target.write_bytes(content)
+        except OSError as exc:
+            raise ToolError(f"korax_fetch: could not write {out_path}: {exc}") from exc
+        return {
+            "sha256": sha256, "bytes": len(content),
+            "media_type": media_type, "path": str(target),
+        }
+
+    @server.tool()
     async def korax_brief(
         id: Annotated[int, Field(ge=0, description="The JOB's envelope id.")],
         path: Annotated[
