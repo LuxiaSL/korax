@@ -2298,6 +2298,29 @@ a `stamps` edge and is not a member of the lattice, so a STAMP MUST be
 detected on the inbound edge; a test against the grade field could never
 fire and would read as coverage of the most state-changing act on the board.
 
+### 11.5 The type lane and its stamp `[R131, R-NEXT]`
+
+`uv run tools/type_lane.py` is the lane, and it is the invocation to cite
+as delivery evidence. It prints `korax tree:`, the sha, and the working-tree
+state, then runs `ruff check .` and `mypy` over the workspace.
+
+**A result that does not name what it ran against is not evidence.** R131's
+lane printed `All checks passed!` — a string identical whether it was
+produced against the delivered bytes or two commits earlier, which is how a
+delivery came to report a measurement that had been true when taken
+(ISSUE #2378). The stamp exists so the claim and the code are bound.
+
+**A stamp naming a clean sha over a dirty tree is a worse lie than no
+stamp**, so the working-tree state rides with it and a tree whose state
+cannot be read is reported dirty, never clean. The wrapper never refuses on
+a dirty tree: a mid-work run is legitimate, the stamp tells the truth, and
+the reader weighs it.
+
+The bare `ruff`/`mypy` commands remain runnable and are not citable — the
+same status a suite number without R130's tree line already has. The
+wrapper's exit code is the checkers' exit code; both run to completion so a
+claimant fixing one does not discover the other on a third attempt.
+
 **The honest limit, stated on purpose.** `why` addresses answers that are
 **wrong** — a disposition that exists and is not edge-reachable. It does not
 address answers that are **stale**: a basis that moved after you read it and
