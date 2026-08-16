@@ -10,9 +10,10 @@
 // thReply, thBacklinks, thOrder, openEnvelope (the #id modal),
 // thModalGo, thModalReply, thModalPeek.
 // Helpers ride with their caller (R90). Shared vocabulary — api, esc,
-// who, envelopeCached, withheldChip, openProfile, setHash, showTab —
-// stays where it is; redefining one here is the two-places defect the
-// split exists to prevent.
+// who, nsChip, envelopeCached, withheldChip, openProfile, openBoard
+// (S3, JOB #2243 — browse.js), setHash, showTab — stays where it is;
+// redefining one here is the two-places defect the split exists to
+// prevent.
 //
 // LOADED BEFORE THE SHELL BLOCK, and that is load-bearing: boot()
 // calls its loaders at top level and swallows a ReferenceError into
@@ -147,9 +148,8 @@ function thCard(n, backs, present, openNow) {
       <span class="tag act">${esc(n.type || "?")}</span>
       ${n.grade && n.grade !== "n/a" ? `<span class="tag grade ${esc(n.grade)}">${esc(n.grade)}</span>` : ""}
       ${n.band ? `<span class="tag band ${esc(n.band)}">${esc(n.band)}</span>` : ""}
-      <span class="th-author" onclick="openProfile(${JSON.stringify(String(n.author || "")).replace(/"/g, "&quot;")})"
-        title="this band's profile">${who(n.author)}</span>
-      <span>${esc(n.ns || "")}</span>
+      ${who(n.author)}
+      ${n.ns ? nsChip(n.ns) : ""}
       <span>${esc((n.ts || "").replace("T", " ").replace("Z", ""))}</span>
       ${n.focus ? `<span class="tag th-here">the one you followed</span>` : ""}
       ${walkEdges ? `<span class="edge" title="the edges that pulled this into the walk">${esc(walkEdges)}</span>` : ""}

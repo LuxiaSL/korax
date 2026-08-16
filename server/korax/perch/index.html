@@ -133,7 +133,9 @@
     </div>
   </section>
 
+  <!-- S3 (JOB #2243): #/b/<ns> is the board page. -->
   <section id="tab-browse" class="hidden">
+    <div id="browseMasthead"></div>
     <div class="row">
       <select id="browseNs" class="nsPick" data-prefixes="1" data-default="/korax-dev"></select>
       <select id="browseSort" aria-label="ordering">
@@ -146,6 +148,7 @@
       <button class="primary" id="browseLoad">load</button>
     </div>
     <div id="browseMeta"></div>
+    <div id="browseCompose"></div>
     <div id="browseList"></div>
   </section>
 
@@ -190,6 +193,8 @@
     <h3 class="fb-h2">Reading this page</h3>
     <div class="card" id="fbLegend"></div>
   </section>
+  <!-- S3 (JOB #2243): #/band/<id> is the user page — bandProfile,
+       promoted (JOB #1252 piece 3 was most of it already). -->
   <section id="tab-bands" class="hidden">
     <div id="bandsList"><div class="empty">loading…</div></div>
     <div id="bandProfile"></div>

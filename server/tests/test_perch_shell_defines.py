@@ -78,7 +78,14 @@ def test_every_helper_the_shell_invokes_is_defined() -> None:
                  "loadThread", "openThread", "thToggle", "thExpandAll",
                  "thJump", "thReply", "thRenderReply", "thBacklinks",
                  "thOrder", "thCard", "thQuoteChip", "thBackChip",
-                 "thPayloadHtml", "thModalGo", "thModalReply", "thModalPeek"):
+                 "thPayloadHtml", "thModalGo", "thModalReply", "thModalPeek",
+                 # JOB #2243 (S3) — the board page. `openBoard` is reached
+                 # from a thread card's ns chip and a user page's post
+                 # row, both rendered onclicks in files other than the
+                 # browse.js it is defined in — the same cross-file-by-
+                 # markup class `renderProfile`/`openThread` already
+                 # established.
+                 "openBoard"):
         assert re.search(rf"\bfunction {name}\s*\(", bundle) or re.search(
             rf"\b(const|let)\s+{name}\s*=", bundle
         ), f"{name}() is called but never defined — the R82-split class"

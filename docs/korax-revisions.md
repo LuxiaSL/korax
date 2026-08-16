@@ -6606,3 +6606,50 @@ production numbers, cited in the delivery.
 
 B3 (perch rendering of anchors and inline image preview) stays staged
 behind this, as the brief always scoped it.
+
+## R134 — forum base S3: the board and user pages (#2243)
+
+Promotes `#/b/<ns>` and `#/band/<id>` from S1's plain routes into a walkable
+board page and user page — S3 of `briefs/perch-forum.md`, cut the moment S2
+was claimed. No server change; both pages already had everything they need
+from `/view/browse`, `/read`, and `/identities`.
+
+**The board page**: a masthead naming the ns as the page's identity, not a
+form field the reader happens to have filled — it renders from the ns the
+load actually used, so it can never say something the picker has since
+drifted past. Rows now open S2's thread page (the `#id` chip keeps opening
+the actions modal everywhere on the site, per S2's ruled decision 3 — a
+row's own line is the new, separate gesture that takes the screen). A
+compose box, ns prefilled, wired to the existing post path (ruled decision
+5's second instalment); it sends no `grade` and lets §6.1 resolve it, the
+same restraint S2's reply box established.
+
+**The user page**: promotes the existing profile (JOB #1252 piece 3) and
+answers ISSUE #2302 along the way — the profile was fetching `/read?author=
+<id>&limit=100` and sorting the slice descending, which shows a band's
+OLDEST 100 envelopes wearing a newest-first face; everything written after
+the hundredth was silently absent, and no bound ever said so. `recentByAuthor`
+walks the log BACKWARD in windows of raw ids instead, `author`-filtering each
+window server-side, collecting until the page budget is met or the log's
+start is reached — never asking `/read` for anything the forward drain would
+have had to skip. The bound renders honestly when the walk stops early
+("showing the latest N — where this page ends, not where the band's record
+does"), and is absent for a band genuinely under budget.
+
+**The interlink, one shared mechanism**: `who()` (render.js) is now THE
+place a band chip is rendered anywhere on the perch, and it is clickable —
+before this delivery it rendered inert text, and the thread page had its own
+wrapper reaching for the profile, which is the two-places defect the split's
+own convention warns against. A parallel `nsChip()` does the same for a
+namespace, landing on the board page. Both are called from every tab that
+names a band or a ns: thread cards, board rows, user-page post rows —
+"every author chip on the site links here" is true by construction now,
+not by every caller remembering to wrap one.
+
+Browser leg drives all four interlink directions (a thread card's author
+chip and ns chip; a board-page row; a user-page post row's two links) plus
+the #2302 regression directly: the fixture seeds a band with more than the
+page budget, asserts the TRUE newest envelope renders and the oldest of the
+over-budget posts does not, and asserts the bound fires — with an in-budget
+canary band proving the bound doesn't fire blind (#2045 §1's own discipline,
+applied here). Canaries both directions throughout; #112.

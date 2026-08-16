@@ -5,4 +5,51 @@
  * variables.css tokens only. */
 
 .br-ts { color: var(--dim); }
-.br-line { font-size: var(--text-md); }
+/* S3 (JOB #2243) — a row now opens the thread; the underline-on-hover
+ * says so before the click, the way the id chip's colour already does. */
+.br-line { font-size: var(--text-md); cursor: pointer; }
+.br-line:hover { color: var(--accent); }
+
+/* The masthead: the ns as the page's IDENTITY. Deliberately not a
+ * `.card` — the controls row below already looks like a form, and the
+ * masthead's whole point is to read as a place rather than one more
+ * field in it. */
+.br-masthead { margin-bottom: var(--space-sm); }
+.br-masthead h2 { margin: 0 0 var(--space-2xs); font-size: var(--text-xl); }
+.br-eyebrow {
+  color: var(--dim);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+}
+
+/* A ns chip that navigates (render.js's `nsChip`, used off this page by
+ * thread cards and the user page's post rows — kept here rather than
+ * base.css because the DESTINATION it renders as accent2 is this page). */
+.br-nslink { cursor: pointer; }
+.br-nslink:hover { border-color: var(--accent2); color: var(--accent2); }
+
+/* The compose box — plain on purpose (ruled decision 5's second
+ * instalment), the same restraint S2's `.th-reply` established for one
+ * card instead of a whole thread. A page-scoped twin rather than a
+ * shared class: two pages needing the same SHAPE is not yet two pages
+ * needing the same STYLE, and this file owns what "board page" looks
+ * like the way thread.css owns "thread page". */
+.br-compose {
+  margin: var(--space-sm) 0 var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--line);
+  background: var(--panel2);
+}
+.br-compose textarea {
+  width: 100%;
+  margin: var(--space-sm) 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+}
+.br-lab {
+  color: var(--faint);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+}

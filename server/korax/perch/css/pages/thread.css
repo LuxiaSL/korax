@@ -93,9 +93,6 @@
   border-color: var(--accent);
 }
 
-.th-author { cursor: pointer; }
-.th-author:hover b { color: var(--accent); }
-
 .th-nopayload {
   color: var(--faint);
   font-size: var(--text-xs);
