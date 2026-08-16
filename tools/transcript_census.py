@@ -191,6 +191,30 @@ class Census:
     # envelope id -> number of DISTINCT sessions that drained it
     envelope_sessions: dict[int, set[str]] = field(default_factory=lambda: defaultdict(set))
 
+    # ISSUE #2751 — the byte-weighted view of the same duplication.
+    #
+    # `(envelope id, session) -> largest delivered size for that pair`. Largest
+    # rather than first or sum: a session that drained an id as a summary and
+    # later in full needed the full one, and that is the delivery a
+    # de-duplicating design would have to preserve for it.
+    #
+    # Keyed on (id, session) and not on delivery, so this stays comparable to
+    # the count above — which dedupes by session, so intra-session re-drains
+    # are not redundancy in either figure.
+    envelope_bytes: dict[tuple[int, str], int] = field(default_factory=dict)
+    #: Drain results whose body could not be read structurally. These are
+    #: EXCLUDED from the weighted figure and reported, never estimated — an
+    #: apportioned byte weight would be a second unit error wearing the first
+    #: one's fix (#2751's own caveat, #2752 made it binding).
+    weight_unreadable_results: int = 0
+    weight_readable_results: int = 0
+    #: Sizes of the two populations. Without this the exclusion above is an
+    #: unbounded bias: if the unreadable results are systematically the big
+    #: ones, a weighted figure computed on what is left describes a different
+    #: corpus and says so nowhere.
+    weight_unreadable_chars: int = 0
+    weight_readable_chars: int = 0
+
     large_results: int = 0
     large_result_chars: int = 0
 
@@ -669,6 +693,72 @@ def _record_result(
         census.envelope_deliveries += len(ids)
         for eid in ids:
             census.envelope_sessions[eid].add(session)
+        _record_envelope_bytes(census, raw, session, out_chars)
+
+
+def _envelope_records(node: Any) -> Iterator[dict[str, Any]]:
+    """Yield every envelope-shaped dict anywhere in a parsed result.
+
+    Recursive because the shape differs by surface and by verb: `/read` puts
+    them under `envelopes`, reductions nest them under `output`, and a single
+    `korax envelope` call returns one bare. Recognising them by SHAPE rather
+    than by key name is why this does not need a list of surfaces to keep
+    current — and the same reason it cannot be fooled by a payload that
+    happens to contain the word `envelopes` (#2762's family: a reader keyed
+    on a name goes quiet when the name changes).
+    """
+    if isinstance(node, dict):
+        if "id" in node and "ts" in node and ("proto" in node or "type" in node):
+            yield node
+            return
+        for value in node.values():
+            yield from _envelope_records(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _envelope_records(item)
+
+
+def _record_envelope_bytes(
+    census: Census, raw: str, session: str, out_chars: int
+) -> None:
+    """Measure what each envelope in this result ACTUALLY cost to deliver.
+
+    **The size is the envelope record's own JSON serialisation, not a share
+    of the result.** Apportioning `out_chars` across the ids would make every
+    envelope in a page the same size, which is precisely the assumption
+    #2751 exists to remove: this board's envelopes span a 24-char median to a
+    47,922-char tail, and WHICH ids are duplicated decides the answer.
+
+    **This is what makes the summary/full distinction fall out rather than
+    need special-casing.** A `summary=true` record genuinely has no `payload`
+    — it carries `payload_bytes` instead — so it serialises smaller, and the
+    same envelope delivered both ways is correctly two different weights.
+    `size_of(envelope) x (N-1)` would inflate every summary duplicate into a
+    full-body cost.
+
+    **Known systematic bound, stated rather than buried:** re-serialisation
+    is not byte-identical to the wire (indentation and key order differ), so
+    these are envelope-intrinsic sizes, not transport bytes. That offset
+    applies equally to every delivery and so cancels in the RATIO this
+    exists to compute; it would not cancel in an absolute transport figure,
+    and nobody should quote it as one.
+    """
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        census.weight_unreadable_results += 1
+        census.weight_unreadable_chars += out_chars
+        return
+    census.weight_readable_results += 1
+    census.weight_readable_chars += out_chars
+    for env in _envelope_records(parsed):
+        eid = env.get("id")
+        if not isinstance(eid, int):
+            continue
+        size = len(json.dumps(env, ensure_ascii=False))
+        key = (eid, session)
+        if size > census.envelope_bytes.get(key, 0):
+            census.envelope_bytes[key] = size
 
 
 def run(root: Path) -> Census:
@@ -796,6 +886,38 @@ def report(census: Census, root: Path, naive_check: bool) -> None:
     out("    counted as N-1 redundant deliveries.")
     out(f"    {redundant:,} of {census.envelope_deliveries:,} deliveries "
         f"= {_pct(redundant, census.envelope_deliveries)}")
+
+    # ISSUE #2751 — the same duplication, weighted by what it actually cost.
+    by_id: dict[int, list[int]] = defaultdict(list)
+    for (eid, _session), size in census.envelope_bytes.items():
+        by_id[eid].append(size)
+    weighted_total = sum(sum(v) for v in by_id.values())
+    # Savings from de-duplicating: every delivery of an id except the one that
+    # has to survive. Keeping the LARGEST is the conservative choice — a
+    # session that needed the body must still get it — so this is a LOWER
+    # bound on what removal is worth, and the max/min pair below is the range
+    # rather than a single number pretending to be exact.
+    weighted_redundant = sum(sum(v) - max(v) for v in by_id.values() if len(v) > 1)
+    weighted_redundant_hi = sum(sum(v) - min(v) for v in by_id.values() if len(v) > 1)
+    out("  duplicate drains, BYTE-WEIGHTED (#2751): the same ids, weighted by")
+    out("    each delivery's own serialised size instead of counted as 1 each.")
+    out(f"    {weighted_redundant:,} of {weighted_total:,} envelope chars "
+        f"= {_pct(weighted_redundant, weighted_total)}"
+        f"   (keeping the largest delivery of each id)")
+    out(f"    upper bound if the SMALLEST is kept instead: "
+        f"{weighted_redundant_hi:,} = {_pct(weighted_redundant_hi, weighted_total)}")
+    rd_n, un_n = census.weight_readable_results, census.weight_unreadable_results
+    rd_c, un_c = census.weight_readable_chars, census.weight_unreadable_chars
+    out(f"    measured on {rd_n:,} structurally readable drain results; "
+        f"{un_n:,} EXCLUDED as unreadable "
+        f"({_pct(un_n, rd_n + un_n)} of drain results)")
+    out(f"    EXCLUSION BIAS CHECK — mean result size, readable "
+        f"{(rd_c // rd_n) if rd_n else 0:,} chars vs excluded "
+        f"{(un_c // un_n) if un_n else 0:,} chars; excluded hold "
+        f"{_pct(un_c, rd_c + un_c)} of drain chars")
+    out("    (excluded, never apportioned: an estimated byte weight would be a")
+    out("     second unit error wearing the first one's fix — #2751's caveat,")
+    out("     made binding at #2752.)")
     out("  doorbell-only turn cost: billed input on turns whose triggering")
     out("    user record was a doorbell or task-notification.")
     out(f"    {db.billed_input_total:,} of {e.billed_input_total:,} billed input "

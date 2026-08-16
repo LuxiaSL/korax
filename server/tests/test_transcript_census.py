@@ -369,3 +369,120 @@ def test_a_missing_root_is_refused_not_reported_as_empty(tmp_path: Path) -> None
     proc = _run(tmp_path / "does-not-exist")
     assert proc.returncode == 2
     assert "not a directory" in proc.stderr
+
+
+# ── ISSUE #2751: the byte-weighted duplicate figure ──────────────────────
+#
+# The caveat is the spine of this measurement and #2752 made it binding, so
+# it gets a canary rather than a comment: the same envelope delivered as a
+# summary and as a full body must NOT weigh the same. A `size_of(envelope)
+# x (N-1)` implementation passes every other test in this file and fails
+# `test_a_summary_delivery_weighs_less_than_a_full_one`.
+
+
+def _census_module():
+    """Import the tool by PATH, as a module.
+
+    Registered in `sys.modules` BEFORE `exec_module`: the tool defines
+    dataclasses, and `@dataclass` resolves its own module during class
+    creation — without the registration that lookup returns None and the
+    import dies inside `dataclasses.py` with an error naming neither the
+    tool nor the cause.
+    """
+    import importlib.util  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    name = "_census_under_test"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, TOOL)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_envelope_records_are_found_by_shape_not_by_key_name() -> None:
+    """A reader keyed on `envelopes` goes quiet when a surface nests them
+    differently — reductions do, and a bare `korax envelope` returns one
+    loose."""
+    c = _census_module()
+    env = {"id": 7, "ts": "t", "proto": "korax/0.1", "payload": "x"}
+    for shape in (
+        {"envelopes": [env]},
+        {"output": {"view": "docket", "rows": [{"inner": [env]}]}},
+        env,
+        [env],
+    ):
+        found = list(c._envelope_records(shape))
+        assert [e["id"] for e in found] == [7], shape
+
+
+def test_a_summary_delivery_weighs_less_than_a_full_one() -> None:
+    """THE CAVEAT, AS A CANARY. Same id, two deliveries, different shapes.
+
+    A summary record carries `payload_bytes` and no body; the full one
+    carries the body. Weighing the id by a single constant would inflate
+    every summary duplicate into a full-body cost, which is the unit error
+    #2751 exists to prevent.
+    """
+    c = _census_module()
+    full = json.dumps({"envelopes": [
+        {"id": 9, "ts": "t", "proto": "korax/0.1", "payload": "B" * 4000}]})
+    summary = json.dumps({"envelopes": [
+        {"id": 9, "ts": "t", "proto": "korax/0.1", "payload_bytes": 4000}]})
+
+    census = c.Census()
+    c._record_envelope_bytes(census, summary, "session-a", len(summary))
+    small = census.envelope_bytes[(9, "session-a")]
+    census2 = c.Census()
+    c._record_envelope_bytes(census2, full, "session-b", len(full))
+    big = census2.envelope_bytes[(9, "session-b")]
+
+    assert small < big, (small, big)
+    # And not merely different — different by roughly the body.
+    assert big - small > 3000, (small, big)
+
+
+def test_the_largest_delivery_wins_for_one_id_and_session() -> None:
+    """A session that drained an id as a summary and later in full needed
+    the full one; that is the delivery a de-duplicating design must keep."""
+    c = _census_module()
+    summary = json.dumps({"envelopes": [
+        {"id": 3, "ts": "t", "proto": "korax/0.1", "payload_bytes": 900}]})
+    full = json.dumps({"envelopes": [
+        {"id": 3, "ts": "t", "proto": "korax/0.1", "payload": "C" * 900}]})
+    census = c.Census()
+    c._record_envelope_bytes(census, summary, "s", len(summary))
+    c._record_envelope_bytes(census, full, "s", len(full))
+    after_both = census.envelope_bytes[(3, "s")]
+    census_full_only = c.Census()
+    c._record_envelope_bytes(census_full_only, full, "s", len(full))
+    assert after_both == census_full_only.envelope_bytes[(3, "s")]
+
+
+def test_an_unreadable_result_is_excluded_and_counted_never_estimated() -> None:
+    """The negative that stops the exclusion being silent. An apportioned
+    weight would be a second unit error wearing the first one's fix."""
+    c = _census_module()
+    census = c.Census()
+    c._record_envelope_bytes(census, "not json at all {{{", "s", 1234)
+    assert census.weight_unreadable_results == 1
+    assert census.weight_readable_results == 0
+    assert census.weight_unreadable_chars == 1234
+    assert not census.envelope_bytes  # nothing invented for it
+
+
+def test_the_exclusion_bias_check_separates_the_two_populations() -> None:
+    """Without this the exclusion is an unbounded bias: if the unreadable
+    results were the big ones, the weighted figure would describe a
+    different corpus and say so nowhere."""
+    c = _census_module()
+    census = c.Census()
+    good = json.dumps({"envelopes": [
+        {"id": 1, "ts": "t", "proto": "korax/0.1", "payload": "D" * 50}]})
+    c._record_envelope_bytes(census, good, "s", 10_000)
+    c._record_envelope_bytes(census, "<<<broken", "s", 100)
+    assert census.weight_readable_chars == 10_000
+    assert census.weight_unreadable_chars == 100
