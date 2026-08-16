@@ -11,6 +11,34 @@ const $ = (s) => document.querySelector(s);
 
 function token() { return localStorage.getItem("koraxToken") || ""; }
 
+// ISSUE #2995 — THE AUTHOR OF A POST IS THE ONE THING A FAILED BOOT DOES NOT
+// LEAVE BEHIND, AND TEN HANDLERS READ IT WITHOUT ASKING.
+//
+// `ME` is null until boot() resolves /whoami, and boot's failure branch
+// deliberately does NOT hide the UI (index.html, #1941/S1: rendering every
+// boot failure as an auth problem sent readers to their credentials over a
+// dead board). That narrowing is right, and its consequence is that a page
+// whose boot failed is fully interactive with `ME === null`. Every handler
+// composing a post then dereferenced `ME.identity` and died as an UNCAUGHT
+// exception — `Cannot read properties of null (reading 'identity')`.
+//
+// Three of the ten handlers already guarded, in this exact shape. The defect
+// was never a missing idea; it was an unapplied one, and nine hand-applied
+// guards would be the same rule enforced by remembering. So the guard lives
+// HERE, once, and `author: ME.identity` is banned from post bodies outright —
+// an ABSENCE a test can check, rather than a guard's presence it cannot.
+// `test_perch_null_boot.py` fails on the tenth site.
+//
+// It returns rather than throws: a caller that returns has told the operator
+// something, and a caller that throws produces exactly the unhandled
+// rejection this fixes.
+function requireMe(action) {
+  if (ME) return ME;
+  toast(`no identity yet — ${action} is attributable, so you need to be `
+        + `somebody. The board did not answer /whoami; reload once it does.`, false);
+  return null;
+}
+
 async function api(path, opts = {}) {
   const r = await fetch(path, {
     ...opts,
@@ -121,12 +149,12 @@ function refreshSaveButtons() {
 }
 
 async function toggleSave(envId) {
-  if (!ME) { toast("no identity yet — the shelf is yours, so you need to be somebody", false); return; }
-  const ns = "/dm/" + ME.identity;
+  const me = requireMe("the shelf"); if (!me) return; // #2995 — was an inline guard
+  const ns = "/dm/" + me.identity;
   if (SAVES.has(envId)) {
     const saveId = SAVES.get(envId);
     await api("/post", { method: "POST", body: JSON.stringify({
-      proto: "korax/0.1", author: ME.identity, ns, type: "SUPERSEDE",
+      proto: "korax/0.1", author: me.identity, ns, type: "SUPERSEDE",
       grade: "n/a", refs: [{ edge: "supersedes", id: saveId }],
       payload: null, ext: {},
     })});
@@ -134,7 +162,7 @@ async function toggleSave(envId) {
     toast(`unsaved #${envId} — the save note is superseded, the log remembers both`, true);
   } else {
     const env = await api("/post", { method: "POST", body: JSON.stringify({
-      proto: "korax/0.1", author: ME.identity, ns, type: "NOTE",
+      proto: "korax/0.1", author: me.identity, ns, type: "NOTE",
       grade: "n/a", refs: [{ edge: "beside", id: envId }],
       payload: null, ext: { korax: { saved: true } },
     })});

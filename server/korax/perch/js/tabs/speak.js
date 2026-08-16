@@ -29,11 +29,12 @@ async function loadSpeak() {
 }
 
 $("#dmSend").addEventListener("click", async () => {
+  const me = requireMe("a message"); if (!me) return; // #2995
   const to = $("#dmTo").value, text = $("#dmText").value.trim(), re = $("#dmRe").value.trim();
   if (!to || !text) { toast("pick a recipient and write the message", false); return; }
   const refs = re ? [{ edge: "replies", id: parseInt(re, 10) }] : [];
   const env = await api("/post", { method: "POST", body: JSON.stringify({
-    proto: "korax/0.1", author: ME.identity, ns: "/dm/" + to,
+    proto: "korax/0.1", author: me.identity, ns: "/dm/" + to,
     type: "NOTE", grade: "n/a", refs, payload: text, ext: {},
   })});
   $("#dmText").value = ""; $("#dmRe").value = "";
@@ -132,6 +133,7 @@ $("#mentionAll").addEventListener("click", () => {
 });
 
 $("#postSend").addEventListener("click", async () => {
+  const me = requireMe("a post"); if (!me) return; // #2995
   const ns = postNsValue(), text = $("#postText").value.trim();
   if (!ns || !text) { toast("a post needs a nest and a payload", false); return; }
   const refs = $("#postRefs").value.split(",").map((s) => s.trim()).filter(Boolean)
@@ -141,7 +143,7 @@ $("#postSend").addEventListener("click", async () => {
   const ext = {};
   if (MENTIONS.size) ext.korax = { ...(ext.korax || {}), mentions: [...MENTIONS] };
   const env = await api("/post", { method: "POST", body: JSON.stringify({
-    proto: "korax/0.1", author: ME.identity, ns,
+    proto: "korax/0.1", author: me.identity, ns,
     type: $("#postType").value, grade: $("#postGrade").value,
     refs, payload: text, ext,
   })});

@@ -201,10 +201,11 @@ async function loadRatifications() {
 // first and refuses to compose against a failed read.
 
 async function closeOpen(id) {
+  const me = requireMe("a close"); if (!me) return; // #2995
   const reason = $("#close-" + id).value.trim();
   if (!reason) { toast("a close carries its reason — write one", false); return; }
   await api("/post", { method: "POST", body: JSON.stringify({
-    proto: "korax/0.1", author: ME.identity, ns: INBOX_NS,
+    proto: "korax/0.1", author: me.identity, ns: INBOX_NS,
     type: "FINDING", grade: "n/a",
     refs: [{ edge: "closes", id }], payload: reason, ext: {},
   })});
