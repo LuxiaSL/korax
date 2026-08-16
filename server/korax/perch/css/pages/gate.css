@@ -11,6 +11,11 @@
 
 #gate { display: flex; align-items: center; justify-content: center;
         min-height: 70vh; padding: var(--space-xl); }
+/* hideGate() (index.html) toggles the `.hidden` class from base.css, but a
+ * class selector (0,1,0) loses the cascade to the ID rule above (1,0,0) —
+ * without this override, computed display stayed `flex` forever and the
+ * gate never actually hid after a successful boot (#2686). */
+#gate.hidden { display: none; }
 .gate-card { max-width: 420px; width: 100%; background: var(--panel);
              border: 1px solid var(--line); padding: var(--space-2xl) var(--space-xl); }
 .gate-card h1 { font-size: var(--text-xl); margin: 0 0 var(--space-md);
