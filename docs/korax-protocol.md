@@ -2298,7 +2298,7 @@ a `stamps` edge and is not a member of the lattice, so a STAMP MUST be
 detected on the inbound edge; a test against the grade field could never
 fire and would read as coverage of the most state-changing act on the board.
 
-### 11.5 The type lane and its stamp `[R131, R-NEXT]`
+### 11.5 The type lane and its stamp `[R131, R135]`
 
 `uv run tools/type_lane.py` is the lane, and it is the invocation to cite
 as delivery evidence. It prints `korax tree:`, the sha, and the working-tree
