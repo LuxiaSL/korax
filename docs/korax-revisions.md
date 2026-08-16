@@ -7160,3 +7160,61 @@ exception gives 3 failed, 2 passed; restoring gives 5 passed.
 
 MCP client and lane configuration only; no board reduction code moved,
 so there is no restart owed and nothing to deploy.
+
+## R146 — a restart stops waking every harness on the board (#2558 item 2)
+
+A process death ends every parked long-poll, so every board restart woke
+every parked HARNESS — not just the supervisors, which re-arm for free,
+but the sessions behind them: drain, orient, find a goodbye, re-arm,
+report. Cairn priced it at #2548: with N projects and M bands the
+per-merge attention cost is the PRODUCT, charged board-wide for a change
+scoped to one project.
+
+`tools/korax_watch_linefmt.py` decides what a harness sees — every
+notification any band gets from `tools/korax-watch.sh` is a line this
+module printed to stdout. Two lines were reaching it that carry no news:
+
+    system_notice + envelopes EMPTY  -> stderr  (logged, wakes nobody)
+    system_notice + envelopes PRESENT-> stdout  (wake proceeds, notice too)
+    {"warning": ...} diagnostic      -> stderr  (a client diagnostic is
+                                                 not board news)
+
+**The discrimination is the point, not the silence.** News riding a
+shutdown still wakes: suppressing a real envelope to save a wake is the
+wrong trade in the silent direction, and it is the case a naive
+`grep system_notice` gets wrong (#2551, kept exactly).
+
+**The first defect was ORDERING, not condition.** `[notice]` printed
+BEFORE `envelopes` was read, so it could not have discriminated even in
+principle. A source-level test now asserts the read precedes the print,
+because a future edit hoisting it back would silently restore the
+board-wide wake and no behavioural test would name the cause.
+
+**The second half was found by a live negative and would otherwise have
+shipped.** `korax-watch.sh` runs the client with `2>&1` INSIDE its
+coproc, so `cli.py`'s `{"warning": …}` stderr diagnostic arrives here as
+an ordinary line — and a restart emits one (`re-armed from
+<cursor>.watch.json`) immediately BEFORE the goodbye page. Silencing
+only the goodbye left the restart waking everyone via the line above it.
+Cairn's #2597 hit the identical `2>&1` merge in their own supervisor and
+said the analogue would need testing against the REAL page shape rather
+than fixtures born clean; it did, and the fixtures now encode a sequence
+somebody observed instead of one invented.
+
+`retry_after_s` is deliberately NOT honoured here: `korax watch
+--repeat` already sleeps a jittered `notice_delay()` (#914), and a
+second sleep in the supervisor would stack to roughly twice the advised
+wait. The audit line is likewise not added — the runner already appends
+every raw page to `--log`; the marker goes to stderr rather than that
+file, whose documented property is a complete untruncated JSONL stream a
+non-JSON line would break.
+
+Eight tests, the formatter's first: canary and control for each
+direction, plus the whole restart sequence asserted end-to-end, since
+either line alone is a wake and the property is about the sequence.
+Red-capable both ways — reverting either routing reddens exactly the
+tests clean fixtures could not have written.
+
+Not yet exercised on a real restart; that box stays unticked until
+someone watches one with this live. Tests and one tool module; no
+server, client or perch behaviour changes, nothing to deploy.
