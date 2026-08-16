@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import signal
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -23,6 +24,14 @@ from pydantic import BaseModel
 
 from . import PROTO
 from .access import filter_log, verdict
+from .blobstore import (
+    ARTIFACTS_NS,
+    MAX_BLOB_BYTES,
+    MAX_DAILY_BYTES,
+    blob_uri,
+    daily_usage,
+    readable_anchor,
+)
 from .board import Board
 from .civic import onboard as onboard_reduction, required as required_reduction
 from .feed import (
@@ -537,6 +546,80 @@ def create_app(board: Board) -> FastAPI:
         env = board.append(who, raw)
         await board.notify()
         return dump(env)
+
+    @app.post("/blob")
+    async def post_blob(
+        request: Request,
+        caption: str = Query(..., min_length=1),
+        media_type: str | None = Query(default=None),
+        who: str = Depends(requester),
+    ) -> dict[str, Any]:
+        """JOB #2201/B1 — §2.2 blob store. Body is the raw bytes, never
+        JSON: caption and media_type ride as query params because the
+        payload IS the file. The server computes the sha256 itself and
+        returns it — a client-stated sha is a claim, and this is the one
+        place checking is free (slate's #1937)."""
+        if board.shutting_down:
+            raise HTTPException(
+                503,
+                "the board is restarting and is not accepting posts; retry "
+                f"after {(board.system_notice or {}).get('retry_after_s')}s "
+                "(§11)",
+            )
+        body = await request.body()
+        if not body:
+            raise HTTPException(400, "empty body")
+        if len(body) > MAX_BLOB_BYTES:
+            raise HTTPException(
+                413, f"blob is {len(body)} bytes, exceeds the {MAX_BLOB_BYTES}-byte cap"
+            )
+        used = daily_usage(board.log, board.head, who)
+        if used + len(body) > MAX_DAILY_BYTES:
+            raise HTTPException(
+                413,
+                f"band daily budget exceeded: {used} already anchored in the "
+                f"trailing 24h + {len(body)} > {MAX_DAILY_BYTES} bytes",
+            )
+        sha256 = hashlib.sha256(body).hexdigest()
+        board.store.put_blob(sha256, body)
+        mt = media_type or request.headers.get("content-type") or "application/octet-stream"
+        env = board.append(who, {
+            "proto": PROTO, "author": who, "ns": ARTIFACTS_NS, "type": "NOTE",
+            "grade": "n/a", "refs": [], "payload": caption,
+            "pointer": {
+                "uri": blob_uri(sha256), "sha256": sha256,
+                "bytes": len(body), "media_type": mt,
+            },
+        })
+        await board.notify()
+        return {"sha256": sha256, "bytes": len(body), "anchor": env.id}
+
+    @app.get("/blob/{sha256}")
+    def get_blob(sha256: str, who: str = Depends(requester)) -> Response:
+        """Authenticated like every data endpoint, by construction: `who`
+        resolves from the SAME `requester` dependency `/post` and
+        `/envelope/{id}` use, which reads only the `Authorization` header
+        — a token in the query string is inert here, never a fallback
+        (#1948's amendment: refused at review, not merely discouraged).
+
+        Visibility and retention are the anchor's questions, answered by
+        `readable_anchor` against the log — this route makes none of
+        those calls itself, matching `/envelope/{id}`'s split between
+        wire shape and access rule."""
+        if not re.fullmatch(r"[0-9a-f]{64}", sha256):
+            raise HTTPException(400, "sha256 must be 64 lowercase hex characters")
+        content = board.store.get_blob(sha256)
+        if content is None:
+            raise HTTPException(404, "no such blob")
+        anchor, sealed = readable_anchor(board.log, board.timeline, board.head, who, sha256)
+        if anchor is None:
+            if sealed:
+                raise HTTPException(
+                    403, "sealed at post time; a covering UNSEAL is required (§8.7)"
+                )
+            raise HTTPException(404, "no such blob")  # unreadable/retired is absence
+        mt = anchor.pointer.media_type if anchor.pointer is not None else None
+        return Response(content=content, media_type=mt or "application/octet-stream")
 
     @app.post("/invite")
     def invite(body: InviteRequest, who: str = Depends(requester)) -> dict[str, Any]:

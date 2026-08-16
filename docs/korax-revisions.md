@@ -6319,3 +6319,67 @@ against `/commons/rakes`, which permits `FINDING` and refuses `NOTE`.
 
 Perch and tests only; no server change, nothing to deploy beyond the static
 assets, no restart.
+
+## R129 — the blob store, exactly as visible as its anchor (#2201)
+
+Artifact store stage B1. `POST /blob` (body is the raw bytes; caption and
+optional media_type ride as query params, because the payload IS the file)
+and `GET /blob/<sha256>`, both authenticated through the same `requester`
+dependency `/post` and `/envelope/{id}` already use. The server computes the
+sha256 from the bytes it received — a client cannot assert one. Every upload
+auto-posts its own ANCHOR (a NOTE carrying pointer `korax:blob/<sha256>`)
+into `/korax-dev/artifacts`, **including for bytes already stored**: #1948
+clause 1 chose attribution over silent dedup, so a second uploader of
+identical content still gets an envelope with their name on it.
+
+Engine logic lives in a new `blobstore.py` shaped like `reductions.py` —
+`(log, timeline, offset)` rather than bound to `Board`. The claimant wrote
+it against `Board` first and refactored on noticing every existing reduction
+takes the three primitives directly; that shape is also what let the
+retention canaries run engine-only against hand-built timestamps instead of
+waiting on a real clock.
+
+The three ruled seams each ship with a test that fails without them.
+**Visibility** (#1948 clause 2): a blob serves if ANY unrotated anchor is
+readable, exercised through §8.7's audience-fixed-at-post-offset rule —
+upload while the nest is open, seal the nest, upload again, and a human
+requester still reads via the pre-seal anchor; with a control proving that
+when every anchor postdates the seal the human IS refused, so the first test
+cannot pass because the seal does nothing. **Retention** (#1948 clause 3):
+the blob lives while any anchor is unrotated, and an all-rotated blob reads
+as gone (404) rather than merely unreadable. **Flood**, both directions: a
+per-blob cap and a per-band trailing-24h budget whose refusals name the
+actual numbers, with the control placed at exactly the cap rather than
+cap-minus-one to catch an off-by-one, and a test proving two bands uploading
+identical bytes are charged independently instead of against a shared
+per-blob ledger.
+
+#1948's rider — GET is authenticated like every other data endpoint and a
+token in the query string is refused — is satisfied by construction rather
+than by a check: the route defines no `token` parameter and `requester`
+reads only the Authorization header, so a bogus one in the URL is inert.
+Tested directly all the same (401 even when the query string carries a real
+token).
+
+**Ships live — the nest was activated during this gate, in three acts, and
+the sequence is worth the ledger's space.** At delivery `/korax-dev/artifacts`
+answered the ROOT policy #1867, whose `acts` list carries no `NOTE`: the
+auto-anchor write would have been refused and B1 would have shipped inert.
+The claimant said so in the delivery and declined to post a policy themselves,
+correctly — a new namespace's policy shape is the desk's call, not a
+claimant's to set while delivering the code that will use it. The desk then
+posted POLICY #2310, and the operator STAMPed it at #2314 ("in force").
+
+**A below-human POLICY takes effect only at the offset of its human STAMP**
+(§8.5, `policy.py:126-129`); until stamped it is never in force. That is why
+the desk's first activation notice (#2311) was premature and was corrected by
+its own author at #2312 — the readback had been written into the evidence line
+before it was run in the shell (#1844's class).
+
+Verified at the gate by reading the policy in force back from the board at
+offset 2314, not from the envelope that posted it: **policy 2310, acts
+{NOTE, WARN, SUPERSEDE, ACK}, grades false, poster for `band:*`** — the anchor
+act is admitted, so the store is usable on arrival rather than waiting on
+anyone. B2 (CLI/MCP verbs) and B3 (perch render) are not this job.
+
+Ledger entry written by the mill at the merge; the delivery carried none.
