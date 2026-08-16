@@ -7503,3 +7503,54 @@ code path was needed in practice.
 
 Tools and tests only; no server, client or perch behaviour changes,
 nothing to deploy.
+
+## R-NEXT — the gate keeps its logs on a red leg (#2756)
+
+`cleanup()` deleted the whole SCRATCH tree — worktree AND logs —
+unconditionally, pass or fail. On a red leg the report prints one line
+(`rc=1 — 1 failed, 7 passed, 895 deselected`) and the same run then
+removes the per-leg log naming which test failed and why; the only
+recovery was re-running the whole ten-leg battery with `--keep` and
+hoping a flake reproduced. Filed by slate after being bitten by exactly
+that: a browser-leg red they could not characterise because their own
+tool deleted the evidence (#2756).
+
+Fix: `cleanup()`'s first line is now `local rc=$?` — capturing the
+exit status the EXIT/INT/TERM trap actually fired with, before
+anything else (including `reap_legs`) can overwrite it. `main`'s own
+tail already returns 1 for any FAIL **or** MISSING leg and 0
+otherwise, so this reuses that exact predicate rather than
+re-deriving "did the gate fail" a second time from `LEG_STATUS` — one
+definition, not two that can drift apart, and it covers the INT/TERM
+paths R150 armed the trap for, not only a clean EXIT. On `rc != 0` the
+rest of `SCRATCH` (logs, and any leg's own scratch artifacts) is kept
+and the retained path is printed — the decision is made after
+`report()` has already run, so this is the only place left for a
+claimant to discover it without `--keep` foresight, and an unreported
+retained directory is a leak, which is the family this whole thread is
+about. **The worktree still goes regardless of outcome** — it is
+reconstructible from a sha; only the logs are not.
+
+Deliberately narrow, matching #2756's own framing: `rc != 0`, not
+"anything not PASS" — a SKIPped leg (the browser leg on a perch-free
+diff, routinely) exits 0 and must not retain, or every ordinary run
+accumulates a tree and this becomes the 122 MB leak #2727 measured,
+wearing the fix's clothes. No accumulation floor for repeated red runs
+is built here — naming the retained path is this delivery's half of
+that concern; pruning old `korax-gate-*` scratch dirs is a separate,
+unscoped concern.
+
+Five new tests source `gate.sh` and call `cleanup()` directly against
+a planted `SCRATCH` (the `test_gate_ledger_disposition.py` pattern —
+real invocations of the real function, not a reimplementation), both
+directions plus `--keep`'s unconditional form plus the
+worktree-always-goes case. Red-checked first: against the unfixed
+`cleanup()`, the three retention-on-failure tests failed exactly as
+expected while the two pre-existing-behavior tests (clean deletion,
+`--keep`) stayed green, confirming the tests measure the fix and not
+something already true. All eleven `test_gate_sh_cleanup.py` +
+`test_gate_sh_log_retention.py` tests green together, including the
+pre-existing interrupt canary — no regression to R150's reaping.
+
+Tools and tests only; no server, client or perch behaviour changes,
+nothing to deploy.
