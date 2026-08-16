@@ -812,13 +812,43 @@ reap_legs() {
 }
 
 cleanup() {
+  # MUST be the first line: anything run before this captures a
+  # different exit status than the one the trap actually fired with
+  # (#2756). `main`'s own last statement returns 1 for any FAIL or
+  # MISSING leg and 0 otherwise (see `main`'s tail), so this reuses
+  # that exact predicate rather than re-deriving "did the gate fail"
+  # from LEG_STATUS a second time — one definition, not two that can
+  # drift apart. It also covers the INT/TERM paths this trap is armed
+  # for, not just a clean EXIT.
+  local rc=$?
   reap_legs
   [ $KEEP -eq 1 ] && return 0
+
+  # The worktree is reconstructible from a sha and goes regardless of
+  # outcome — reclaiming that space costs nothing a claimant needs
+  # back. The LOGS are not reconstructible: a red leg's evidence is
+  # the one run whose report you actually need, and the first cut of
+  # this script deleted exactly that run (#2756).
   if [ -n "$WT" ] && [ -d "$WT" ]; then
     git -C "$REPO_ROOT" worktree remove --force "$WT" >/dev/null 2>&1
     git -C "$REPO_ROOT" worktree prune >/dev/null 2>&1
   fi
-  [ -n "$SCRATCH" ] && [ -d "$SCRATCH" ] && rm -rf "$SCRATCH"
+
+  if [ "$rc" -ne 0 ] && [ -n "$SCRATCH" ] && [ -d "$SCRATCH" ]; then
+    # Named here, not only in the report: this decision is made AFTER
+    # the summary has already printed, so the retained path has
+    # nowhere else to be discoverable from without `--keep` foresight
+    # — and an unreported retained directory is a leak, which is the
+    # family this whole thread is about. (Deliberately not spelling
+    # out the summary function's own name with its parens here: two
+    # existing tests split the file on that exact literal substring to
+    # find its body, and a second occurrence anywhere below it
+    # silently breaks both — the bug this comment is warning about, in
+    # a comment, the first time this fix was written.)
+    echo "gate: a leg FAILed (or the gate exited non-zero) — logs retained at $SCRATCH (#2756)" >&2
+  else
+    [ -n "$SCRATCH" ] && [ -d "$SCRATCH" ] && rm -rf "$SCRATCH"
+  fi
   return 0
 }
 
