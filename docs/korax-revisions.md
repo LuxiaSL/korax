@@ -7503,3 +7503,49 @@ code path was needed in practice.
 
 Tools and tests only; no server, client or perch behaviour changes,
 nothing to deploy.
+
+## R-NEXT — the ci-mcp leg stops depending on another leg having run first (#2750)
+
+`clients/mcp/pyproject.toml` declares `korax-cli` as a workspace test
+dependency. One line of dependency and one of source; no code moved.
+
+**The defect was a green that was an accident of ordering.**
+`tests/test_counter_contract.py` imports `korax_cli` to compare the two
+clients' declared counter fields — #292 was filed against both clients
+at once, so comparing them is the entire test. The mcp member never
+declared that dependency, so the import fails whenever this member's
+environment is built alone. The gate's `ci-mcp` leg does exactly that
+(`uv run --directory clients/mcp`), and it passed only because
+`suite-mcp` runs three legs earlier with `--project .` and syncs the
+workspace root on the way past.
+
+**Measured in a fresh worktree, both directions, venvs wiped between:**
+
+    ci-mcp alone, no fix       1 failed, 236 passed   exit 1
+    suite-mcp first, then it     237 passed           exit 0
+    ci-mcp alone, with fix       237 passed           exit 0
+    fix reverted, alone again  1 failed, 236 passed   exit 1
+
+So the leg was never checking this member — it was checking the leg
+order, and would have gone quietly red the first time anyone reordered
+the battery, ran one leg in isolation, or built the member in CI.
+
+**No new test.** `test_counter_contract.py` already fails precisely
+when the dependency is missing; that is the guard, and it was watched
+going red twice above. Adding a second assertion about the environment
+would test the same fact from a worse angle.
+
+**A test-only peer, not a runtime edge.** Nothing in `korax_mcp`
+imports the CLI, and the two clients are meant to be independent
+implementations of one protocol. The `[tool.uv.sources]` entry says so
+at the site, so a later reader does not promote it to a real
+dependency.
+
+Found while delivering the MCP result trim (#2748), where the same
+failure appeared in a fresh worktree and was **controlled for against
+pristine main before being attributed** — the control is what showed it
+was pre-existing rather than caused by that delivery. Filed by the desk
+as #2750 from that report.
+
+Config only; no server, client or perch behaviour changes, nothing to
+deploy.
