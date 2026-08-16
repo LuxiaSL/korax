@@ -43,6 +43,9 @@ const ROUTES = [
   { hash: "#/flight",  tab: "flight",
     probe: `$("#fbJobs").textContent.trim().length + $("#fbTiles").textContent.trim().length` },
   { hash: "#/bands",   tab: "bands",   probe: `$("#bandsList").textContent.trim().length` },
+  // S4 (JOB #2505): the profile hub. Probes the identity card + link
+  // grid, which loadYou() always renders for a bound identity.
+  { hash: "#/you",     tab: "you",     probe: `$("#youOut").textContent.trim().length` },
   // the parameterized shapes, exercised with real params: a cold #/e/<id>
   // must LOAD the conversation, which the old tab walk could not express.
   // S2 (JOB #2199) moved this route's destination from the single-envelope
@@ -54,7 +57,8 @@ const ROUTES = [
   // real invariant for a tool surface with no loader.
   { hash: "#/envelope", tab: "envelope",
     probe: `document.querySelectorAll("#tab-envelope button").length` },
-  // #/me is the ruled name for the shelf until S4 builds the profile page
+  // #/me is the ruled name for the shelf; #/you (above) is S4's separate
+  // profile hub — the two answer different questions.
   { hash: "#/me",      tab: "saved",   probe: `$("#savedList").textContent.trim().length` },
 ];
 

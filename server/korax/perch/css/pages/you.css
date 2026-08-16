@@ -1,0 +1,9 @@
+/* you.css — the profile hub's link grid (S4, JOB #2505).
+ *
+ * Four destinations that already exist elsewhere (inbox, shelf, posts,
+ * bands); this is the assembly, not new material — one small grid of the
+ * existing `.card` component, nothing new invented per card.
+ */
+
+.you-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+             gap: var(--space-md); margin-top: var(--space-md); }
