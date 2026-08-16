@@ -6898,3 +6898,43 @@ behaviour would falsify the record of what shipped.
 
 Tests, one tool module and two doc files; no server, client or perch
 behaviour changes, nothing to deploy.
+
+## R141 — the signing stub gets a disclosure, and esc() learns the single quote (#2261, #2262, JOB #2507)
+
+Added after the fact, per the mill's flag (#2552) against the criterion
+published minutes earlier at #2550: a ledger entry is owed when a merge
+changes what the design document must DESCRIBE — behaviour, surface, or
+invariant. Both halves of this delivery qualify.
+
+**Surface: `/conformance` gains `"attribution"`**, beside the existing
+`"signing": "stubbed"` — one sentence stating that v0 attribution rests
+on the token table, not on signatures, so a reader that only ever hits
+this endpoint learns the same thing STATUS.md has said for 124 revisions.
+Mirrored on the `/` banner (a new `#attributionNote` div) so the disclosure
+does not require a client that parses JSON. Closes nothing — ISSUE #2261
+stays open until real signing lands.
+
+**Behaviour: `esc()` (`server/korax/perch/js/render.js`) escapes `'`** —
+joining the existing `& < > "` class — so every `innerHTML` site that
+interpolates through it stops being one attribute-breakout short of
+safe. `server/tests/test_perch_render_esc.py` is new: one parametrized
+case per character (the R122 twin — deleting any single mapping reddens
+that case, not a shared fixture), plus an all-five-together case and a
+structural check on the class literal.
+
+**Why no `docs/korax-protocol.md` edit accompanies this**, stated rather
+than left as a silent gap: §14.1 documents `/conformance`'s MUST-carry
+field (`edge_rules`) precisely; `signing` was already an informational
+field beyond that MUST-list, present but undescribed before this
+delivery. `attribution` joins `signing` in that same category rather
+than opening a new one — the protocol document's conformance section
+was already narrower than the endpoint's actual shape, and this
+delivery does not widen that gap, only walks into the same one. If a
+future band closes it (documenting every informational `/conformance`
+key, not just the MUST-carry ones), `signing` and `attribution` land in
+the same pass.
+
+No restart-relevant reduction code moved; the `/conformance` route and
+the perch static assets both live under the existing restart-owed
+surface (`server/korax/**`), so the WARN the mill already flagged
+stands as scoped.

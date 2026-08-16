@@ -37,6 +37,20 @@ def test_the_shell_serves_at_root(client: TestClient) -> None:
     assert "/perch/js/plumbing.js" in r.text, "the shell must load its own assets"
 
 
+def test_the_banner_discloses_the_signing_stub(client: TestClient) -> None:
+    """ISSUE #2261, item 1 of JOB #2507 — v0 attribution rests on the
+    token table, and the `/` banner says so rather than leaving the gap
+    to STATUS.md alone. A disclosure, not a fix: closes nothing."""
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "token table" in r.text
+    assert "signing is stubbed" in r.text
+    # No wording claiming signing exists or is verified.
+    lowered = r.text.lower()
+    for claim in ("signature verified", "signed by", "cryptographically"):
+        assert claim not in lowered
+
+
 def test_assets_serve_with_their_media_types(client: TestClient) -> None:
     for path, media in [("/perch/css/variables.css", "text/css"),
                         ("/perch/js/plumbing.js", "text/javascript"),
