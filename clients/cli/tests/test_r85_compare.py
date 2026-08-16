@@ -86,12 +86,12 @@ def test_compare_refuses_when_reductions_moved(tmp_path, monkeypatch) -> None:
     clean, and clean-looking tables get quoted."""
     window = tmp_path / "w"
     monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
-    r85.capture(window, 2300, "someband", runner=_uniform(), now=lambda: "T0")
+    r85.capture(window, 2300, "someband", "T-boot-1", runner=_uniform(), now=lambda: "T0")
 
     monkeypatch.setattr(
         r85, "reductions_moved", lambda pre, post: [r85.REDUCTIONS])
     with pytest.raises(r85.ReductionsMoved) as excinfo:
-        r85.compare(window, runner=_uniform(head=101), post_sha="bbbbbbbbbbbb")
+        r85.compare(window, "T-boot-2", runner=_uniform(head=101), post_sha="bbbbbbbbbbbb")
 
     message = str(excinfo.value)
     assert "REFUSING" in message
@@ -106,20 +106,36 @@ def test_compare_runs_when_reductions_did_not_move(tmp_path, monkeypatch) -> Non
     pass the test above and be useless; this is what proves it discriminates."""
     window = tmp_path / "w"
     monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
-    r85.capture(window, 2300, "someband", runner=_uniform(), now=lambda: "T0")
+    r85.capture(window, 2300, "someband", "T-boot-1", runner=_uniform(), now=lambda: "T0")
 
     monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [])
-    result = r85.compare(window, runner=_uniform(head=101), now=lambda: "T1",
-                         post_sha="bbbbbbbbbbbb")
+    result = r85.compare(window, "T-boot-2", runner=_uniform(head=101),
+                         now=lambda: "T1", post_sha="bbbbbbbbbbbb")
     assert result.failures == ()
     assert len(result.rows) == len(r85.PROBES)
 
 
-def test_reductions_moved_reads_the_real_git_history() -> None:
-    """The predicate against this repo's own history, so the guard is not
-    merely tested against its own monkeypatch. An identical pair moves
-    nothing; that is the cheapest true statement available without pinning
-    a sha this test would have to chase."""
+def test_reductions_moved_runs_against_this_repos_real_history() -> None:
+    """**The predicate itself, unmocked, both directions.**
+
+    The first version of this test asserted `reductions_moved(sha, sha) ==
+    []` — which short-circuits on the equal-shas guard and never reaches
+    git. So the real predicate had NO test at all while both canaries
+    monkeypatched it: a vacuous check inside the delivery whose whole
+    subject is vacuous checks. The mill caught it by reading (#2360) and
+    supplied these two pairs, which are permanent on main and need no
+    chasing.
+    """
+    # R131 (quill's type lane) touched reductions.py
+    assert r85.reductions_moved("0d66fa6", "e733856") == [r85.REDUCTIONS]
+    # R129 (the blob store) deliberately did not
+    assert r85.reductions_moved("7d01861", "0d66fa6") == []
+
+
+def test_the_equal_sha_shortcut_is_a_shortcut_and_not_the_answer() -> None:
+    """Kept, but named for what it is: the `pre == post` early return. It is
+    correct and it is not evidence about git, which is what the test above
+    is for."""
     sha = r85.head_sha()
     assert r85.reductions_moved(sha, sha) == []
 
@@ -131,23 +147,23 @@ def test_a_window_is_never_overwritten(tmp_path, monkeypatch) -> None:
     that clobbered the last run would quietly cap the evidence at one."""
     window = tmp_path / "w"
     monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
-    r85.capture(window, 2300, "someband", runner=_uniform(), now=lambda: "T0")
+    r85.capture(window, 2300, "someband", "T-boot-1", runner=_uniform(), now=lambda: "T0")
     with pytest.raises(r85.WindowExists):
-        r85.capture(window, 2300, "someband", runner=_uniform(), now=lambda: "T0")
+        r85.capture(window, 2300, "someband", "T-boot-1", runner=_uniform(), now=lambda: "T0")
 
 
 def test_compare_refuses_a_window_that_was_never_captured(tmp_path) -> None:
     """The failure the post-only rig produced: you cannot start a window
     after the restart it measures — the pre-side state is gone."""
     with pytest.raises(r85.R85Error) as excinfo:
-        r85.compare(tmp_path / "never", runner=_uniform(head=101))
+        r85.compare(tmp_path / "never", "T-boot-2", runner=_uniform(head=101))
     assert "cannot be started after the restart" in str(excinfo.value)
 
 
 def test_the_manifest_records_what_pairs_the_halves(tmp_path, monkeypatch) -> None:
     window = tmp_path / "w"
     monkeypatch.setattr(r85, "head_sha", lambda: "abc123abc123")
-    r85.capture(window, 2300, "korax-dev-mill-grist",
+    r85.capture(window, 2300, "korax-dev-mill-grist", "T-boot-1",
                 runner=_uniform(), now=lambda: "2026-08-16T01:43:00Z")
     saved = json.loads((window / "manifest.json").read_text())
     assert saved["at"] == 2300
@@ -194,9 +210,10 @@ def test_a_difference_is_reported_as_an_r85_defect_not_a_delivery_fault(
     window = tmp_path / "w"
     monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
     monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [])
-    r85.capture(window, 2300, "someband", runner=_uniform(b"before"), now=lambda: "T0")
+    r85.capture(window, 2300, "someband", "T-boot-1",
+                runner=_uniform(b"before"), now=lambda: "T0")
 
-    result = r85.compare(window, runner=_uniform(b"AFTER", head=101),
+    result = r85.compare(window, "T-boot-2", runner=_uniform(b"AFTER", head=101),
                          now=lambda: "T1", post_sha="bbbbbbbbbbbb")
     assert len(result.failures) == len(r85.PROBES)
     rendered = result.render()
@@ -219,15 +236,18 @@ def test_main_exits_two_on_a_refusal_and_one_on_a_difference(
     monkeypatch.setattr(r85, "_default_runner", runner)
     monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [])
     assert r85.main(["capture", "--window", str(window), "--at", "2300",
-                     "--as", "someband"]) == 0
+                     "--as", "someband",
+                     "--service-active-since", "T-boot-1"]) == 0
 
     # the board moves, as it does across any real restart — without this the
     # liveness precondition correctly refuses, which is itself the canary
     runner.head = 101
-    assert r85.main(["compare", "--window", str(window)]) == 0
+    assert r85.main(["compare", "--window", str(window),
+                     "--service-active-since", "T-boot-2"]) == 0
 
     monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [r85.REDUCTIONS])
-    assert r85.main(["compare", "--window", str(window)]) == 2
+    assert r85.main(["compare", "--window", str(window),
+                     "--service-active-since", "T-boot-2"]) == 2
     assert "REFUSING" in capsys.readouterr().err
 
 
@@ -245,10 +265,10 @@ def test_compare_refuses_when_the_board_has_not_moved(tmp_path, monkeypatch) -> 
     window = tmp_path / "w"
     monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
     monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [])
-    r85.capture(window, 2300, "someband", runner=_uniform(head=100), now=lambda: "T0")
+    r85.capture(window, 2300, "someband", "T-boot-1", runner=_uniform(head=100), now=lambda: "T0")
 
     with pytest.raises(r85.NotLive) as excinfo:
-        r85.compare(window, runner=_uniform(head=100), post_sha="bbbbbbbbbbbb")
+        r85.compare(window, "T-boot-2", runner=_uniform(head=100), post_sha="bbbbbbbbbbbb")
     message = str(excinfo.value)
     assert "has not moved since capture" in message
     assert "100" in message, "the refusal must show the head it compared"
@@ -261,9 +281,9 @@ def test_a_head_that_went_backwards_is_also_refused(tmp_path, monkeypatch) -> No
     window = tmp_path / "w"
     monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
     monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [])
-    r85.capture(window, 2300, "someband", runner=_uniform(head=100), now=lambda: "T0")
+    r85.capture(window, 2300, "someband", "T-boot-1", runner=_uniform(head=100), now=lambda: "T0")
     with pytest.raises(r85.NotLive):
-        r85.compare(window, runner=_uniform(head=99), post_sha="bbbbbbbbbbbb")
+        r85.compare(window, "T-boot-2", runner=_uniform(head=99), post_sha="bbbbbbbbbbbb")
 
 
 def test_the_head_is_recorded_at_capture_and_is_not_a_probe(
@@ -276,7 +296,7 @@ def test_the_head_is_recorded_at_capture_and_is_not_a_probe(
     window = tmp_path / "w"
     monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
     runner = _uniform(head=2325)
-    r85.capture(window, 2300, "someband", runner=runner, now=lambda: "T0")
+    r85.capture(window, 2300, "someband", "T-boot-1", runner=runner, now=lambda: "T0")
 
     saved = json.loads((window / "manifest.json").read_text())
     assert saved["head"] == 2325
@@ -286,3 +306,71 @@ def test_the_head_is_recorded_at_capture_and_is_not_a_probe(
     )
     # ...and it was read AFTER the probes, so the bound covers what they saw
     assert runner.calls[-1][-1] == "whoami"
+
+
+# ── the restart witness: head advancing is not a restart ──────────────
+
+def test_compare_refuses_when_the_service_did_not_restart(
+    tmp_path, monkeypatch
+) -> None:
+    """**The mill's #2360, found by running the tool against production.**
+
+    `head` advancing proves the post side reached a live board and proves
+    NOTHING about a restart — on this board the head moves every few
+    seconds regardless. So a `compare` minutes after `capture`, with no
+    restart at all, cleared the liveness gate and reported nine-identical:
+    the incremental join compared against itself, true and meaningless.
+
+    Third instance of one family in this tool's life, and the worst,
+    because it is the tool certifying its own central claim without
+    evidence.
+    """
+    window = tmp_path / "w"
+    monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
+    monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [])
+    r85.capture(window, 2300, "someband", "Thu 2026-08-16 01:16:22 UTC",
+                runner=_uniform(head=100), now=lambda: "T0")
+
+    # the head HAS advanced — liveness passes — and there was no restart
+    with pytest.raises(r85.NoRestart) as excinfo:
+        r85.compare(window, "Thu 2026-08-16 01:16:22 UTC",
+                    runner=_uniform(head=140), post_sha="bbbbbbbbbbbb")
+    message = str(excinfo.value)
+    assert "has not restarted" in message
+    assert "01:16:22" in message, "the refusal must show the witness it compared"
+    assert "against ITSELF" in message
+
+
+def test_a_differing_witness_passes_and_is_recorded(tmp_path, monkeypatch) -> None:
+    """The other direction (#112): a real restart must not be refused, and
+    the window records both witnesses so it self-describes afterwards."""
+    window = tmp_path / "w"
+    monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
+    monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [])
+    r85.capture(window, 2300, "someband", "boot-A",
+                runner=_uniform(head=100), now=lambda: "T0")
+    result = r85.compare(window, "boot-B", runner=_uniform(head=101),
+                         now=lambda: "T1", post_sha="bbbbbbbbbbbb")
+    assert result.failures == ()
+    assert "boot-A -> boot-B" in result.render()
+
+
+def test_an_old_window_without_a_witness_refuses_rather_than_skipping(
+    tmp_path, monkeypatch
+) -> None:
+    """Absent must never read as satisfied — the family this whole tool is
+    built against, applied to its own newest field."""
+    window = tmp_path / "w"
+    monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
+    monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [])
+    r85.capture(window, 2300, "someband", "boot-A",
+                runner=_uniform(head=100), now=lambda: "T0")
+    # simulate a window captured before the witness existed
+    saved = json.loads((window / "manifest.json").read_text())
+    saved["service_active_since"] = None
+    (window / "manifest.json").write_text(json.dumps(saved))
+
+    with pytest.raises(r85.R85Error) as excinfo:
+        r85.compare(window, "boot-B", runner=_uniform(head=101),
+                    post_sha="bbbbbbbbbbbb")
+    assert "recorded no service-active timestamp" in str(excinfo.value)

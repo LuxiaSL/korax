@@ -108,6 +108,10 @@ class ReductionsMoved(R85Error):
     """The precondition failed: a difference would have two parents."""
 
 
+class NoRestart(R85Error):
+    """No restart happened across the window, so nothing was rebuilt."""
+
+
 class NotLive(R85Error):
     """The board did not move across the window, so a replay cannot be ruled out."""
 
@@ -126,6 +130,14 @@ class Manifest:
     head: int | None
     board_ts: str | None
     captured_utc: str
+    #: The service's `ActiveEnterTimestamp` (or equivalent) as the OPERATOR
+    #: read it at capture. The board exposes no process identity — no
+    #: uptime, no boot id — and `/conformance`'s `serving` block is not a
+    #: witness either, since a restart on the SAME sha leaves it unchanged
+    #: and that restart is the cleanest R85 window there is. So the witness
+    #: is supplied rather than discovered. It is still CHECKED here, never
+    #: asserted: the operator hands over two values and the tool decides.
+    service_active_since: str | None = None
 
     def write(self, window: Path) -> None:
         (window / "manifest.json").write_text(
@@ -239,6 +251,7 @@ def capture(
     window: Path,
     at: int,
     identity: str,
+    service_active_since: str,
     runner: Runner | None = None,
     now: Callable[[], str] = _now_utc,
 ) -> Manifest:
@@ -273,6 +286,7 @@ def capture(
         head=head,
         board_ts=board_ts,
         captured_utc=now(),
+        service_active_since=service_active_since,
     )
     manifest.write(window)
     return manifest
@@ -298,6 +312,7 @@ class Result:
     rows: tuple[Row, ...]
     head_now: int
     board_ts_now: str
+    service_active_since_now: str
 
     @property
     def failures(self) -> tuple[Row, ...]:
@@ -309,6 +324,8 @@ class Result:
             f"  pinned at offset {self.manifest.at}",
             f"  captured {self.manifest.captured_utc} @ {self.manifest.sha[:12]}",
             f"  compared {self.compared_utc} @ {self.post_sha[:12]}",
+            f"  service active since {self.manifest.service_active_since} -> "
+            f"{self.service_active_since_now}",
             f"  board head {self.manifest.head} -> {self.head_now} "
             f"({self.manifest.board_ts} -> {self.board_ts_now})",
             "",
@@ -335,6 +352,7 @@ class Result:
 
 def compare(
     window: Path,
+    service_active_since: str,
     runner: Runner | None = None,
     now: Callable[[], str] = _now_utc,
     post_sha: str | None = None,
@@ -358,6 +376,36 @@ def compare(
             "clean, which is why this refuses rather\n  than warns. Capture a "
             "fresh window at a restart where "
             f"{REDUCTIONS}\n  does not move."
+        )
+
+    # THE RESTART PRECONDITION (the mill's #2360, found by RUNNING the tool
+    # against production). This is the third instance of one family in this
+    # tool's short life, and the worst: `head` advancing proves the post
+    # side reached a live board, and proves NOTHING about a restart. On this
+    # board the head moves every few seconds regardless, so a `compare` run
+    # minutes after `capture` with no restart at all cleared the liveness
+    # gate and reported nine-identical — Board.append's incremental state
+    # compared against ITSELF, true and meaningless.
+    #
+    # Without a rebuild there is no rebuilt state, and the whole comparison
+    # is vacuous while looking its best.
+    if manifest.service_active_since is None:
+        raise R85Error(
+            f"window {window} recorded no service-active timestamp, so a "
+            "restart cannot be established. Recapture with "
+            "--service-active-since."
+        )
+    if service_active_since == manifest.service_active_since:
+        raise NoRestart(
+            "REFUSING to compare: the service has not restarted.\n\n"
+            f"  active since, at capture: {manifest.service_active_since}\n"
+            f"  active since, now:        {service_active_since}\n\n"
+            "  These are identical, so the same process served both halves "
+            "and\n  no state was rebuilt from sqlite. The comparison would be "
+            "the\n  incremental join against ITSELF — nine identical digests, "
+            "true\n  and meaningless. `head` advancing does not imply a "
+            "restart; on\n  this board it advances every few seconds "
+            "regardless."
         )
 
     # THE LIVENESS PRECONDITION (quill's #2332). Nine identical digests is
@@ -407,6 +455,7 @@ def compare(
         rows=tuple(rows),
         head_now=head_now,
         board_ts_now=board_ts_now,
+        service_active_since_now=service_active_since,
     )
     (window / "result.txt").write_text(result.render() + "\n", encoding="utf-8")
     return result
@@ -424,9 +473,20 @@ def build_parser() -> argparse.ArgumentParser:
                      help="log offset to pin every probe at")
     cap.add_argument("--as", dest="identity", required=True,
                      help="korax profile to run the probes as")
+    cap.add_argument("--service-active-since", required=True,
+                     help="the board service's active-since timestamp as you "
+                          "read it NOW (e.g. systemctl show -p "
+                          "ActiveEnterTimestamp). Required: the board exposes "
+                          "no restart witness, so you supply it and this tool "
+                          "checks it against the value at compare time.")
 
     cmp_ = sub.add_parser("compare", help="post-restart side; refuses if confounded")
     cmp_.add_argument("--window", required=True, type=Path)
+    cmp_.add_argument("--service-active-since", required=True,
+                      help="the service's active-since timestamp AFTER the "
+                           "restart. Must differ from the captured one, or "
+                           "the same process served both halves and nothing "
+                           "was rebuilt.")
     return ap
 
 
@@ -434,14 +494,15 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     args = build_parser().parse_args(list(argv) if argv is not None else None)
     try:
         if args.cmd == "capture":
-            manifest = capture(args.window, args.at, args.identity)
+            manifest = capture(args.window, args.at, args.identity,
+                               args.service_active_since)
             print(
                 f"captured {len(PROBES)} probes at offset {manifest.at} "
                 f"@ {manifest.sha[:12]} -> {args.window}\n"
                 "Run `compare` on the same window after the restart."
             )
             return 0
-        result = compare(args.window)
+        result = compare(args.window, args.service_active_since)
         print(result.render())
         return 1 if result.failures else 0
     except R85Error as exc:

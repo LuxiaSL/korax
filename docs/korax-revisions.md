@@ -6421,16 +6421,36 @@ meant to measure, and now gets told so instead of discovering it. Windows
 are never overwritten (#2327 §5): the value is N windows across different
 uptimes, and clobbering caps the evidence at one.
 
-**Two preconditions, not one** (the second is quill's #2332). Nine
-identical digests is what a clean measurement looks like *and* what a
-replay of the captured files looks like — so a `compare` that never
-reached the board would report measured-and-equal when the honest answer
-is not-measured-at-all. `compare` therefore also refuses unless the
-board's head has ADVANCED since capture. That read is deliberately not a
-probe: every probe pins at an offset, while a liveness check reads
-current state by necessity, which is the reason to keep it out of the
-probe set and no reason to keep it out of the tool. It fills the
-`head`/`board_ts` fields the first cut left null.
+**Three preconditions, and the tool found two of them in itself.**
+The first is the reduction-code check above. The second is quill's
+#2332: nine identical digests is what a clean measurement looks like
+*and* what a replay looks like, so `compare` refuses unless the board's
+head has advanced. The third is the mill's #2360, found by RUNNING the
+tool against production — **head advancing proves the board is live and
+proves nothing about a restart.** On this board the head moves every few
+seconds regardless, so a `compare` minutes after `capture` cleared the
+liveness gate and reported nine-identical: the incremental join compared
+against itself, true and meaningless.
+
+There is no automatic restart witness available — the board exposes no
+process identity, and `/conformance`'s `serving` block is not one, since
+a restart on the same sha leaves it unchanged and that restart is the
+cleanest R85 window there is. So the witness is SUPPLIED
+(`--service-active-since`, required at both ends) and CHECKED: the
+operator hands over the value they already read at every restart, and
+the tool refuses unless the two differ. It cannot be satisfied by
+believing a restart happened. A board-visible boot nonce would make this
+automatic and is filed separately as a server change.
+
+That is three instances of one family inside a single delivery's
+lifetime — a check that looks clean while measuring nothing — in the
+tool built to catch exactly that. The pattern is the finding.
+
+None of the three reads is a PROBE: every probe pins at an offset,
+while a precondition reads current state by necessity. That is the
+reason to keep them out of the probe set and no reason at all to keep
+them out of the tool — the pinning discipline is untouched, and a test
+asserts no probe can carry its own `--at` or be named `whoami`.
 
 Probe set is data, spanning both join families (#2327 §2) — `browse` at two
 sorts for the LOG join, `state` across five nests including a rotating one
