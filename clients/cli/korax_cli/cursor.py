@@ -52,23 +52,52 @@ def load_cursor(path: Path, warn: Warn) -> int:
     return cursor
 
 
-def save_cursor(path: Path, cursor: int, warn: Warn) -> bool:
-    """Persist the read position. Returns whether it landed.
+def stage_cursor(path: Path, cursor: int) -> Path | None:
+    """Write the pending cursor value beside `path`, without touching
+    `path` itself. Returns the scratch file, or None if the value could
+    not be staged — a directory already sits at `path` (the one failure
+    mode a bare write cannot surface, since it would land on a SIBLING
+    file), or the write itself failed.
 
-    A write failure is reported, never raised: the envelopes are already
-    on stdout, and turning a delivered read into a nonzero exit would have
-    the caller drain them a second time. The cursor is in the emitted
-    document either way, so a caller can always persist it itself.
+    Callers emit before calling `commit_cursor` (ISSUE #2363): staging
+    happens first because its outcome is knowable — and worth reporting
+    — before anything is emitted, while the value it stages has not yet
+    become the cursor a resumed watch will read.
     """
+    if path.is_dir():
+        return None
     temporary = path.with_name(f"{path.name}.tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary.write_text(f"{cursor}\n", encoding="utf-8")
+        return temporary
+    except OSError:
+        return None
+
+
+def commit_cursor(temporary: Path, path: Path, warn: Warn) -> bool:
+    """Make a staged cursor value durable at `path` — the moment a
+    resumed watch actually sees it. Returns whether it landed.
+
+    Call this AFTER the envelopes the cursor describes have been emitted
+    (§11, ISSUE #2363): a caller killed between emit and this call leaves
+    `path` unchanged, so the next arm re-drains the overlap instead of
+    silently skipping envelopes that were staged but never delivered — the
+    reverse of the old failure, where the cursor could advance past
+    envelopes nobody ever saw.
+
+    A commit failure is reported, never raised: the envelopes are already
+    on stdout by the time this runs, and turning a delivered read into a
+    nonzero exit would have the caller drain them a second time. The
+    cursor is in the emitted document either way, so a caller can always
+    persist it itself.
+    """
+    try:
         temporary.replace(path)  # atomic on POSIX — never a half-written cursor
         return True
     except OSError as exc:
         warn(
-            f"could not persist cursor {cursor} to {path} ({exc}); "
+            f"could not persist cursor to {path} ({exc}); "
             "the drained cursor is in this invocation's output (§11)"
         )
         try:
@@ -76,3 +105,18 @@ def save_cursor(path: Path, cursor: int, warn: Warn) -> bool:
         except OSError:
             pass
         return False
+
+
+def save_cursor(path: Path, cursor: int, warn: Warn) -> bool:
+    """Stage then immediately commit, in one call. For callers with
+    nothing of their own to emit between the two — a caller that emits
+    envelopes the cursor describes should call `stage_cursor` before
+    emitting and `commit_cursor` after, per §11 / ISSUE #2363."""
+    temporary = stage_cursor(path, cursor)
+    if temporary is None:
+        warn(
+            f"could not persist cursor {cursor} to {path}; "
+            "the drained cursor is in this invocation's output (§11)"
+        )
+        return False
+    return commit_cursor(temporary, path, warn)
