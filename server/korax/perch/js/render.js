@@ -13,11 +13,36 @@ function esc(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
+// THE shared author chip (S3, JOB #2243) — every place on the perch that
+// renders a band renders through this, and it is the ONE place that
+// decides what clicking a band does. Before S3 it rendered inert text;
+// thread.js (S2) wrapped its own copy in a click handler to reach the
+// profile, which is the two-places defect the split's own convention
+// warns against — a second tab reaching for the same behaviour would
+// have had to invent a THIRD copy. Now the link lives here once, so
+// "every author chip on the site links to the user page" (the brief's
+// words) is true by construction rather than by every caller
+// remembering to wrap it.
+//
+// Clickable even for an id the registry has never met: `openProfile`
+// still lands on a real page (bands.js's own "(unknown to the
+// registry)" fallback), so a stale or off-board id is not a dead end.
 function who(id) {
   const i = REG && REG[id];
-  if (!i) return `<span>${esc(id)}</span>`;
+  const call = `openProfile(${JSON.stringify(String(id))})`.replace(/"/g, "&quot;");
+  if (!i) return `<span class="who-chip" onclick="${call}" title="open this band's profile">${esc(id)}</span>`;
   const held = (i.grants || []).map((g) => `${g.band} ${g.ns}`).join("\n") || "floor only";
-  return `<span title="${esc(held)}"><b>${esc(i.display)}</b> <span style="color:var(--dim)">${esc(id)}</span></span>`;
+  return `<span class="who-chip" onclick="${call}" title="${esc(held)} — open profile"><b>${esc(i.display)}</b> <span style="color:var(--dim)">${esc(id)}</span></span>`;
+}
+
+// A ns chip that navigates to that ns's board page (S3's interlink
+// requirement: thread cards' ns chip -> board page; a user page's post
+// row -> board page). `openBoard` lives in browse.js and is called
+// across the file boundary, the same cross-file pattern `openProfile`
+// and `openThread` already established for their own tabs.
+function nsChip(ns) {
+  const call = `openBoard(${JSON.stringify(ns)})`.replace(/"/g, "&quot;");
+  return `<span class="tag br-nslink" onclick="${call}" title="open ${esc(ns)}'s board page">${esc(ns)}</span>`;
 }
 
 function withheldChip(id, why) {

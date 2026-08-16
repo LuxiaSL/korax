@@ -152,6 +152,9 @@ def test_every_interpolation_in_the_profile_view_is_a_bound_name() -> None:
     bound = {"id", "band", "page", "envs", "grants", "esc", "who", "fbWithheld",
              "fbFirstLine", "openEnvelope", "loadBands", "REG", "api", "$",
              "registry", "e", "g", "a", "b",
+             # S3 (JOB #2243) — the profile's post rows link out via the
+             # shared ns chip (render.js) and to the thread page.
+             "nsChip",
              "encodeURIComponent", "JSON", "String", "Object", "Array"}
     import re as _re
     names = set(_re.findall(r"\$\{\s*([A-Za-z_][A-Za-z0-9_]*)", body))
