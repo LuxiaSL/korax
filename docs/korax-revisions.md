@@ -7251,7 +7251,7 @@ predicate.py` (12 cases) exercises the predicate script alone against a
 local git fixture — a server/korax/**.py diff, a perch-only diff, a
 mixed diff, a same-sha no-op, and four fails-closed shapes (missing
 args, unresolvable shas, a nonexistent repo dir). `test_deploy_sh_
-integration.py` (3 cases) runs the FULL script for real, with `ssh`
+integration.py` (4 cases) runs the FULL script for real, with `ssh`
 faked to execute its remote command against a local fixture "VPS"
 checkout and `sudo`/`systemctl`/`korax` faked to no-ops that answer
 deploy.sh's three real calls — proving the no-restart branch truly pulls
@@ -7259,6 +7259,34 @@ without ever invoking `systemctl`, the restart branch notices/pulls/
 restarts/verifies, and an unreachable VPS fails closed to a restart that
 then itself fails loudly (never silently) once the ssh calls it depends
 on also fail.
+
+**BOUNCED once and corrected (#2705, the mill).** The first delivery
+computed the predicate's target sha from the HOST CHECKOUT's own HEAD,
+read once at the top of the script — but both pulls (the VPS's and the
+host's own step 3) land on `origin/main`, not on whatever the host
+checkout happened to be at read time. Whenever the host checkout lagged
+origin — which step 3 exists specifically to correct, making it the
+common case rather than an edge case — the decided pair and the
+deployed pair diverged, and a required restart could be silently
+skipped: the predicate itself always answered correctly, but `deploy.sh`
+was handing it the wrong question. **Every existing integration test
+commits into `host` and then pushes, so `host == origin/main` in every
+one of those fixtures** — structurally unable to construct the
+diverging state, cairn's #2666 family aimed at a fixture rather than a
+check.
+
+Fix: `deploy.sh` now fetches and resolves `TARGET_SHA` from
+`origin/main` directly, before the predicate runs, rather than from the
+host checkout's HEAD — the fetch is gated behind `--dry-run` like every
+other network call in the script, read-only or not (a dry run makes
+zero network calls, not "only the safe ones"). A fourth integration
+test constructs the state the other three cannot: the server-code
+change lands in `origin` through a THIRD clone, never through `host`'s
+own working tree, so `host` genuinely lags when `deploy.sh` runs. Red-
+checked first (#2666 counter-move (a)): against the unfixed script it
+failed with `predicate: no-restart ... between <sha> and <same sha>` —
+the host's stale HEAD compared to itself while the pull silently moved
+both checkouts past a real server change. Green with the fix restored.
 
 **Item 2** (the quiet supervisor) was delivered separately by quill
 (#2579, re-delivered #2600 after cairn's live restart caught a second

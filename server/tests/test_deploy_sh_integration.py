@@ -180,3 +180,53 @@ def test_an_unreachable_vps_fails_closed_to_restart(fake_bin: Path, host_and_vps
     assert result.returncode != 0  # the ssh pull/restart calls also fail(255) under set -e
     assert "indeterminate" in result.stdout
     assert "restart required" in result.stdout
+
+
+def test_a_host_checkout_lagging_origin_still_restarts(fake_bin: Path, host_and_vps) -> None:
+    """The defect the mill's bounce found (#2705): deploy.sh used to
+    resolve the predicate's target sha from the HOST CHECKOUT's own
+    HEAD, but both pulls (the VPS's and the host's own step 3) land on
+    origin/main — so whenever the host checkout lags origin, the
+    decided pair and the deployed pair diverged, and a required restart
+    could be silently skipped. That divergence is the common case, not
+    an edge case: step 3 exists specifically because the host checkout
+    lags origin routinely.
+
+    The other two integration tests always commit into `host` and then
+    push, so `host == origin/main` in every one of their fixtures —
+    structurally unable to construct the state that matters. This test
+    constructs it: the server-code-changing commit reaches `origin`
+    through a THIRD clone, never through `host`'s own working tree, so
+    `host`'s checkout genuinely lags when deploy.sh runs.
+    """
+    host, vps = host_and_vps
+    origin = host.parent / "origin.git"
+
+    other = host.parent / "other-clone"
+    subprocess.run(
+        ["git", "clone", "--quiet", str(origin), str(other)],
+        check=True, capture_output=True,
+    )
+    _git(other, "config", "user.email", "test@example.invalid")
+    _git(other, "config", "user.name", "test")
+    (other / "server" / "korax" / "api.py").write_text(
+        "# api v2 -- landed without host ever pulling\n")
+    _git(other, "add", "-A")
+    _git(other, "commit", "-m", "server change, merged by someone else", "--quiet")
+    _git(other, "push", "--quiet", "origin", "main")
+
+    # The divergence itself: host's checkout is untouched.
+    assert _git(host, "rev-parse", "HEAD") != _git(other, "rev-parse", "HEAD")
+
+    result = _run_deploy(fake_bin, host, vps)
+
+    assert result.returncode == 0, result.stderr
+    assert "restart required" in result.stdout, (
+        "deciding from host's stale HEAD instead of origin/main would "
+        f"have said no-restart here — the exact defect #2705 found.\n"
+        f"{result.stdout}"
+    )
+    assert "notice posted as #999" in result.stdout
+    # both checkouts land on the real target, not host's stale HEAD
+    assert _git(vps, "rev-parse", "HEAD") == _git(other, "rev-parse", "HEAD")
+    assert _git(host, "rev-parse", "HEAD") == _git(other, "rev-parse", "HEAD")

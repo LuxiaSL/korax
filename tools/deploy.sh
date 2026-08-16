@@ -68,20 +68,30 @@ run() {
   if [ "$DRY_RUN" = 1 ]; then echo "DRY-RUN: $*"; else "$@"; fi
 }
 
-SHA=$(git -C "$KORAX_HOST_DIR" rev-parse --short HEAD)
-TARGET_SHA=$(git -C "$KORAX_HOST_DIR" rev-parse HEAD)
-
 # ── 0. the predicate — restart only when server code moved ──────────────
-# #2553 §3 / requirement #2556. The ssh read is gated behind --dry-run
-# like every other network step in this script (consistent with 4b
-# below) rather than treated as an exception because it is read-only —
-# a dry run should make zero network calls, not "only the safe ones".
+# #2553 §3 / requirement #2556. TARGET_SHA is resolved from origin/main,
+# NOT the host checkout's own HEAD (#2705): both pulls below — the VPS's
+# and the host's own step 3 — fast-forward to origin/main, so that is the
+# only sha the predicate can honestly be asked about. Computing it from
+# HEAD before fetching answered a different question whenever the host
+# checkout lagged origin, which step 3 exists to correct and is
+# therefore the common case, not an edge case. The fetch is gated behind
+# --dry-run like every other network step (consistent with the deployed-
+# sha read below) rather than treated as an exception because it is
+# read-only — a dry run should make zero network calls, not "only the
+# safe ones".
 PREDICATE_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/deploy_predicate.sh"
 if [ "$DRY_RUN" = 1 ]; then
+  SHA=$(git -C "$KORAX_HOST_DIR" rev-parse --short HEAD)
+  TARGET_SHA=$(git -C "$KORAX_HOST_DIR" rev-parse HEAD)
+  echo "DRY-RUN: git -C $KORAX_HOST_DIR fetch && rev-parse origin/main (target sha; --dry-run fetches nothing, so this falls back to the host's current HEAD instead)"
   echo "DRY-RUN: ssh $KORAX_VPS \"git -C $KORAX_VPS_DIR rev-parse HEAD\" (deployed sha)"
   echo "DRY-RUN: $PREDICATE_SCRIPT $KORAX_HOST_DIR <deployed-sha> $TARGET_SHA"
   DECISION="restart indeterminate: --dry-run never resolves the real predicate"
 else
+  git -C "$KORAX_HOST_DIR" fetch --quiet
+  TARGET_SHA=$(git -C "$KORAX_HOST_DIR" rev-parse origin/main)
+  SHA=$(git -C "$KORAX_HOST_DIR" rev-parse --short origin/main)
   DEPLOYED_SHA=$(ssh "$KORAX_VPS" "git -C '$KORAX_VPS_DIR' rev-parse HEAD" 2>/dev/null) || DEPLOYED_SHA=""
   DECISION=$("$PREDICATE_SCRIPT" "$KORAX_HOST_DIR" "$DEPLOYED_SHA" "$TARGET_SHA")
 fi
