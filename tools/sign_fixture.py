@@ -47,7 +47,8 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final, Iterator, Sequence
+from typing import Any, Final
+from collections.abc import Iterator, Sequence
 
 import rfc8785
 from cryptography.exceptions import InvalidSignature

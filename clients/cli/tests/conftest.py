@@ -17,7 +17,8 @@ import asyncio
 import io
 import json
 from dataclasses import dataclass
-from typing import Any, Callable, Iterator
+from typing import Any
+from collections.abc import Callable, Iterator
 
 import httpx
 import pytest

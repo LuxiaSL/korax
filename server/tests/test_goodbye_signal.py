@@ -28,7 +28,6 @@ re-arm; a one-client test is a special case wearing the behaviour's name.
 from __future__ import annotations
 
 import json
-import os
 import signal
 import subprocess
 import sys
@@ -122,7 +121,7 @@ def test_a_real_sigterm_releases_every_parked_call(tmp_path) -> None:
             try:
                 with opener.open(request, timeout=90) as response:
                     body = json.loads(response.read())
-            except Exception as exc:  # noqa: BLE001 — the failure IS the result
+            except Exception as exc:
                 body = {"error": repr(exc)}
             with lock:
                 results.append(body)

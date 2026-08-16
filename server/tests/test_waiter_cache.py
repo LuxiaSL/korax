@@ -91,7 +91,14 @@ def test_a_retroactive_grant_is_not_served_from_an_old_head(world: dict) -> None
     client = world["client"]
     b, btok = _register(world, "corvid-b")
 
-    before = board_shape(world, b)
+    # SEEDS THE CACHE AT THE PRE-GRANT HEAD, and that is this call's whole
+    # job — `visible_for` is memoized on (identity, head), so without this
+    # there is no old-head entry for the grant to be wrongly served from
+    # and the test asserts nothing. The value is deliberately unbound: it
+    # was previously held in `before` and compared only by an assertion
+    # that could not fail, which made a load-bearing call look like a dead
+    # one (both found by the type lane).
+    board_shape(world, b)
 
     # a retroactive-class envelope: the operator grants b the human band
     _post(world, world["op_token"], {
@@ -109,7 +116,10 @@ def test_a_retroactive_grant_is_not_served_from_an_old_head(world: dict) -> None
     ), "the post-grant read was served pre-grant semantics"
     # and the surface agrees with the object
     assert client.get("/read", headers=auth(btok)).status_code == 200
-    assert before != after or True  # the grant may or may not widen b's slice
+    # No before/after comparison: the grant may or may not widen b's
+    # slice and both outcomes are correct, so the real assertion is the
+    # one above — that the post-grant read matches a freshly filtered
+    # log rather than the cached pre-grant slice.
 
 
 def board_shape(world: dict, who: str):

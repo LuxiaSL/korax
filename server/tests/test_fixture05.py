@@ -21,7 +21,7 @@ import pytest
 
 from conftest import CONFORMANCE, load_jsonl
 from korax.log import Log
-from korax.models import Act, Envelope
+from korax.models import Envelope
 from korax.nsglob import in_subtree
 from korax.policy import PolicyTimeline
 from korax.reductions import descendants, provenance, taint, thread

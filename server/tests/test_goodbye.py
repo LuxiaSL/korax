@@ -312,7 +312,7 @@ def test_the_goodbye_carries_every_counter_a_normal_page_does(world: dict) -> No
         world, "/wait", {**PARKS, "since": head, "timeout": 8}).json()
 
     assert goodbye["system_notice"]["kind"] == "restart", "not the goodbye path"
-    assert COUNTER_KEYS <= set(live), (
+    assert set(live) >= COUNTER_KEYS, (
         "the control page lost a counter — this test's baseline is wrong, "
         "not the goodbye page"
     )

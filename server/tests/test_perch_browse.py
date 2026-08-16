@@ -9,8 +9,6 @@ ordering is the server's, and a bound renders as a bound.
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,7 +19,7 @@ from korax.board import Board
 from korax.seed import seed_board
 from korax.store import Store
 
-from perch_source import PERCH_DIR, markup as _markup, script as _script
+from perch_source import PERCH_DIR, script as _script
 
 
 def script() -> str:

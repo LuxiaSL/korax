@@ -301,7 +301,7 @@ class KoraxClient:
         idem: str,
         author: str,
         attempts: int = DEFAULT_ATTEMPTS,
-        sleep: "Callable[[float], Any] | None" = None,
+        sleep: Callable[[float], Any] | None = None,
     ) -> Any:
         """Post, and survive a restart without appending twice (#1205).
 

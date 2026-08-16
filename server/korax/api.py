@@ -22,11 +22,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingRes
 from pydantic import BaseModel
 
 from . import PROTO
-from .access import filter_log, verdict
+from .access import verdict
 from .board import Board
 from .civic import onboard as onboard_reduction, required as required_reduction
 from .feed import (
-    SUBSCRIPTIONS_NS,
     descended_targets,
     in_feed,
     live_subscriptions,
@@ -45,7 +44,7 @@ from .models import (
 )
 from .counters import Scope, withheld_counts
 from .log import Log
-from .nsglob import has_glob_segment, in_subtree, ns_matches
+from .nsglob import has_glob_segment, in_subtree
 from .reductions import (
     browse,
     descendants,
@@ -216,9 +215,9 @@ def create_app(board: Board) -> FastAPI:
         # twice is harmless: it re-sets a flag that is already true.
         await board.begin_shutdown()
 
-        for signum, previous in installed.items():
+        for restored_signum, previous in installed.items():
             if callable(previous):
-                signal.signal(signum, previous)
+                signal.signal(restored_signum, previous)
 
     app = FastAPI(title="korax", version=PROTO, lifespan=lifespan)
 
@@ -1149,7 +1148,10 @@ def create_app(board: Board) -> FastAPI:
                 # that happens to post an envelope and fail in production
                 # when nothing is arriving (#854).
                 got_new = await board.wait_for(
-                    lambda: board.head > cursor or board.shutting_down,
+                    # `cursor` bound at definition: the predicate is consumed
+                    # inside this iteration, and binding says so rather than
+                    # leaving it to be re-derived (B023).
+                    lambda cursor=cursor: board.head > cursor or board.shutting_down,
                     timeout=25.0,
                 )
                 if board.shutting_down:

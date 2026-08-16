@@ -16,11 +16,10 @@ import json
 import re
 import shutil
 import subprocess
-from pathlib import Path
 
 import pytest
 
-from perch_source import PERCH_DIR, markup as _markup, script as _script
+from perch_source import script as _script
 NODE = shutil.which("node")
 
 

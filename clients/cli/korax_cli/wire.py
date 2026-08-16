@@ -79,7 +79,7 @@ class Submission(BaseModel):
         return data
 
     @model_validator(mode="after")
-    def _payload_fits(self) -> "Submission":
+    def _payload_fits(self) -> Submission:
         if self.payload is None:
             return self
         encoded = (
@@ -245,7 +245,11 @@ class SummaryReadPage(ReadPage):
     shape that cannot be mistaken for a full envelope with an empty body.
     """
 
-    envelopes: tuple[SummaryEnvelope, ...] = ()
+    # Narrows the base's `tuple[Envelope, ...]` ON PURPOSE — that is this
+    # subclass's entire reason to exist (see the docstring above), and the
+    # LSP complaint is the checker correctly describing a deliberate
+    # design. Coded narrowly so any OTHER assignment problem here reports.
+    envelopes: tuple[SummaryEnvelope, ...] = ()  # type: ignore[assignment]
 
 
 class FeedPage(ReadPage):

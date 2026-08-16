@@ -446,7 +446,8 @@ def provenance(log: Log, offset: int, env_id: int) -> dict[str, Any]:
     closure = _ancestry_closure(log, env_id, offset)
     ground = sorted(
         i for i in closure
-        if not any(log.get(i).refs_of(edge) for edge in ANCESTRY_EDGES)
+        if (ground_env := log.get(i)) is not None
+        and not any(ground_env.refs_of(edge) for edge in ANCESTRY_EDGES)
     )
     chain = sorted((i for i in closure if i not in set(ground)), reverse=True)
     return {"edges": edges, "chain": chain, "ground": ground}
@@ -478,15 +479,18 @@ def taint(log: Log, offset: int, env_id: int) -> list[dict[str, Any]]:
             if child.id not in entries or entries[child.id] > dist + 1:
                 entries[child.id] = dist + 1
                 frontier.append((child.id, dist + 1))
-    return [
-        {
+    descendants: list[dict[str, Any]] = []
+    for i, d in sorted(entries.items()):
+        entry_env = log.get(i)
+        if entry_env is None:
+            continue  # ids come from the walk, so this cannot fire
+        descendants.append({
             "id": i,
-            "ns": log.get(i).ns,
-            "grade": log.get(i).grade.value,
+            "ns": entry_env.ns,
+            "grade": entry_env.grade.value if entry_env.grade else None,
             "distance": d,
-        }
-        for i, d in sorted(entries.items())
-    ]
+        })
+    return descendants
 
 
 def fresh(
@@ -1067,8 +1071,8 @@ def _ungated(log: Log, offset: int, project: str) -> list[dict[str, Any]]:
         # re-delivery would read as an independent gate on the first's.
         chain = _supersede_chain(log, first.id, offset)
         delivered_by = {
-            env.author for cid in chain
-            if (env := log.get(cid)) is not None
+            chain_env.author for cid in chain
+            if (chain_env := log.get(cid)) is not None
         }
         # A DESK'S OWN ENVELOPE AT THE ROOT *IS* THE DISPOSITION.
         #
@@ -1458,7 +1462,11 @@ def jobs(log: Log, timeline: PolicyTimeline, offset: int, ns: str) -> dict[str, 
     for children in forest.values():
         children.sort()
 
-    open_, taken, delivered, lapsed, inadmissible = [], [], [], [], []
+    open_: list[Any] = []
+    taken: list[Any] = []
+    delivered: list[Any] = []
+    lapsed: list[Any] = []
+    inadmissible: list[Any] = []
     superseded = []
     blocked_by: dict[str, list[int]] = {}
     for job in sorted(all_jobs, key=lambda e: e.id):

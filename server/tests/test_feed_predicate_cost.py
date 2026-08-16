@@ -20,7 +20,6 @@ the invariant itself, and it cannot hold if the rebuild is inside the loop.
 """
 from __future__ import annotations
 
-import time
 
 import korax.api as api_mod
 from test_api import _post, _register, auth, world  # noqa: F401

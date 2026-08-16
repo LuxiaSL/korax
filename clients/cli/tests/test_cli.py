@@ -801,7 +801,6 @@ def test_enlist_self_service_flow(cli, world, tmp_path) -> None:
 def test_profiles_and_auth_save(cli, world, tmp_path) -> None:
     """`auth save` writes a 0600 profile; `--as` outranks the ambient
     environment; the default profile never needs a token to be useful."""
-    import os as _os
     cfg = tmp_path / "korax-config"
     result = cli("auth", "save", "operator",
                  token=world["op_token"],
@@ -1308,7 +1307,7 @@ def test_whoami_refuses_a_board_that_reports_no_clock(cli, world, monkeypatch) -
     own refusal proves the assertion, not the code."""
     from korax_cli import cli as cli_module
 
-    async def _clockless(self):  # noqa: ANN001 — test double
+    async def _clockless(self):
         return {"identity": "band:whoever", "display": "old-board", "grants": []}
 
     monkeypatch.setattr(cli_module.KoraxClient, "whoami", _clockless)

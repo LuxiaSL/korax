@@ -17,7 +17,7 @@ from typing import Any
 
 from .access import VisibleSlice, filter_log
 from .log import Log
-from .models import Act, Envelope
+from .models import Envelope
 from .policy import PolicyTimeline
 from .store import Store
 from .validate import PostError, validate_post

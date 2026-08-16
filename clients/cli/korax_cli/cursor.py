@@ -15,7 +15,7 @@ agent that cannot read the board cannot warn anyone about anything.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
 # §11 — one before the first offset, so a drain from here sees envelope 0
 # (the genesis POLICY, §8.4). The server's own default for `since`.

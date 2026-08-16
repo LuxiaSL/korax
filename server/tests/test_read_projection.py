@@ -254,7 +254,7 @@ def test_the_perch_boot_path_asks_for_structure(world: dict) -> None:
     """The motivating caller (#1396): `nsIndex` pulls the whole visible log
     on first paint to collect namespace strings. It must ask for the
     projection — and the response must still carry the field it reads."""
-    from pathlib import Path  # noqa: PLC0415
+    from pathlib import Path
 
     plumbing = (Path(__file__).resolve().parents[1] / "korax" / "perch"
                 / "js" / "plumbing.js").read_text()
@@ -281,7 +281,7 @@ def test_no_server_test_imports_a_client_package() -> None:
     A sweep rather than a lint rule because it costs three lines and runs
     where the mistake is made. `korax_server` is the server's own package
     and is not a client."""
-    from pathlib import Path  # noqa: PLC0415
+    from pathlib import Path
 
     tests = Path(__file__).resolve().parent
     offenders: list[str] = []

@@ -27,7 +27,7 @@ from korax.board import Board
 from korax.seed import seed_board
 from korax.store import Store
 
-from perch_source import PERCH_DIR, markup as _markup, script as _script
+from perch_source import markup as _markup, script as _script
 
 
 def index_source() -> str:

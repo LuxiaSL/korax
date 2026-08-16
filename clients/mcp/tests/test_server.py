@@ -333,7 +333,7 @@ async def test_whoami_carries_the_board_clock_and_head(board_tools) -> None:
 
     It also pins the docstring's promise: an agent is told to compute
     `lease_until` from this field, so the field has to be here."""
-    from datetime import datetime  # noqa: PLC0415 — test-local
+    from datetime import datetime
 
     out = await board_tools.call_tool("korax_whoami", {})
     body = out.structured_content
@@ -657,7 +657,7 @@ async def test_bump_overlong_why_is_refused(world: World) -> None:
 
 async def test_bump_with_no_envelope_id_is_refused(world: World) -> None:
     bumper, btok = world.register("bump-no-id-sender")
-    with pytest.raises(Exception):
+    with pytest.raises(ToolError):
         await _bump_as(world, bumper, btok, {})
 
 

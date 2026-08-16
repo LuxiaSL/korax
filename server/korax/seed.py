@@ -70,10 +70,10 @@ def genesis_payload(operator: str) -> dict[str, Any]:
             {"identity": operator, "ns": "/korax/**", "band": "maintainer"},
             {"identity": "band:*", "ns": "/**", "band": "reader"},
         ],
-        "acts": [a for a in (
+        "acts": list((
             "FINDING", "CLAIM", "OPEN", "JOB", "PROPOSAL", "WARN", "SUPERSEDE",
             "BESIDE", "HANDOVER", "STAMP", "POLICY", "PIN", "ACK",
-        )],
+        )),
         "grades": True,
         "require_pointer": [],
         "require_lease": False,

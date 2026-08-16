@@ -120,7 +120,10 @@ class FakeClock:
 def install_fake_clock(seed: int) -> None:
     base = datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=seed)
     clock = FakeClock(base, BASE_TICK)
-    store_module.datetime = SimpleNamespace(now=clock.now)  # type: ignore[attr-defined]
+    # A deliberate module-attribute shim so the seeder can drive the clock.
+    # Codes named individually rather than a bare ignore: a bare one would
+    # also swallow whatever lands on this line next.
+    store_module.datetime = SimpleNamespace(now=clock.now)  # type: ignore[misc,assignment]
 
 
 def genesis_envelope_count() -> int:

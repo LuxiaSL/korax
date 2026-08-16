@@ -340,6 +340,8 @@ class ChannelDoorbell:
             if remaining <= 0:
                 return
             try:
+                if self._cursor is None:
+                    return  # nothing polled yet: no cursor to coalesce from
                 page = await self._client.feed(since=self._cursor, timeout=remaining)
             except REACH_FAILURES:
                 # Whatever is already pending still deserves its ring; the
@@ -363,7 +365,7 @@ class ChannelDoorbell:
         try:
             await self._notify(CHANNEL_METHOD, params)
             self._rings += 1
-        except Exception as exc:  # noqa: BLE001 - the loop outlives any send
+        except Exception as exc:
             _warn(f"failed to deliver a doorbell to the host ({exc})")
         finally:
             self._pending = 0

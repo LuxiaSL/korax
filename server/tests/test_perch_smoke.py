@@ -57,8 +57,8 @@ NODE = shutil.which("node")
 # the skip stays exactly as chosen: a contributor without Chrome loses
 # one guard they can read about, not their suite.
 _SKIP_REASON = (
-    f"no headless Chrome found (checked google-chrome, chromium, "
-    f"chromium-browser)" if not CHROME else
+    "no headless Chrome found (checked google-chrome, chromium, "
+    "chromium-browser)" if not CHROME else
     "no `node` found" if not NODE else None
 )
 _REQUIRED = os.environ.get("KORAX_BROWSER_REQUIRED") == "1"

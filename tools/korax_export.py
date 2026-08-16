@@ -65,7 +65,8 @@ import sys
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
+from collections.abc import Mapping
 
 # The tool ships in tools/ and reuses the CLI's tested HTTP client rather
 # than hand-rolling httpx (which SSLErrors against http://127.0.0.1 on some

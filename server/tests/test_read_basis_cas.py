@@ -19,7 +19,6 @@ no later reader reintroduces the struck third row.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 
 import pytest
 

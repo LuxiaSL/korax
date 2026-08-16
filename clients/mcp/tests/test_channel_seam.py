@@ -107,7 +107,7 @@ class TestCapabilitySeam:
 
     def test_missing_kwarg_raises(self) -> None:
         class Low:
-            def create_initialization_options(self, notification_options=None):  # noqa: ANN001, ANN201
+            def create_initialization_options(self, notification_options=None):
                 return None
 
         class Server:
@@ -187,7 +187,7 @@ class TestNotifierSeam:
         sent: list[tuple[str, dict]] = []
 
         class Connection:
-            async def notify(self, method, params, opts=None):  # noqa: ANN001, ANN201
+            async def notify(self, method, params, opts=None):
                 sent.append((method, params))
 
         class Session:

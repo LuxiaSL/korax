@@ -79,7 +79,7 @@ def test_every_counter_the_surface_serves_is_required(model, body) -> None:
     counters = [k for k in body if k.endswith("_excluded")] + ["withheld_scope"]
     for field in counters:
         partial = {k: v for k, v in body.items() if k != field}
-        with pytest.raises(ValidationError, match="[Ff]ield required"):
+        with pytest.raises(ValidationError, match=r"[Ff]ield required"):
             model.model_validate(partial)
 
 

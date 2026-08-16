@@ -64,7 +64,7 @@ differenced is the whole point; this is its price.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
 from .models import Envelope
 from .nsglob import in_subtree, ns_matches
@@ -88,24 +88,24 @@ class Scope:
     board: bool = False
 
     @classmethod
-    def whole_board(cls) -> "Scope":
+    def whole_board(cls) -> Scope:
         """For surfaces that take no `ns` — `/feed`, `/neighbourhood`, and
         `/view`'s ns-less reductions. Counts everything withheld from this
         requester, which is invariant under anything they can type."""
         return cls(board=True)
 
     @classmethod
-    def subtree(cls, ns: str) -> "Scope":
+    def subtree(cls, ns: str) -> Scope:
         """A single `ns=` subtree."""
         return cls(subtrees=(ns,))
 
     @classmethod
-    def glob_set(cls, patterns: Iterable[str]) -> "Scope":
+    def glob_set(cls, patterns: Iterable[str]) -> Scope:
         """A `ns_set=` glob list."""
         return cls(globs=tuple(patterns))
 
     @classmethod
-    def union(cls, namespaces: Sequence[str]) -> "Scope":
+    def union(cls, namespaces: Sequence[str]) -> Scope:
         """The union of several subtrees a single reduction served.
 
         Built for `#714`'s docket, which is the first reduction whose served
@@ -117,7 +117,7 @@ class Scope:
         return cls(subtrees=tuple(namespaces))
 
     @classmethod
-    def of_query(cls, ns: str | None, ns_set: str | None) -> "Scope":
+    def of_query(cls, ns: str | None, ns_set: str | None) -> Scope:
         """Resolve the `ns` / `ns_set` pair a query supplied.
 
         Falling through to board scope is the deliberate answer to `#468`:
