@@ -202,10 +202,21 @@
     <div id="savedList"><div class="empty">loading…</div></div>
   </section>
 
+  <!-- S2 (JOB #2199): where `#/e/<id>` lands. Flat, id-ordered, the
+       component as one page. The envelope section below survives as the
+       RAW surface — fetch box and the four reductions — which answers a
+       different question and keeps answering it. -->
+  <section id="tab-thread" class="hidden">
+    <div id="threadHead"></div>
+    <div id="threadList"></div>
+    <div id="threadReply"></div>
+  </section>
+
   <section id="tab-envelope" class="hidden">
     <div class="row">
       <input id="envId" placeholder="envelope id" size="10">
       <button class="primary" id="envLoad">fetch</button>
+      <button class="primary" id="envThread">open the thread</button>
       <button class="primary" id="envConvo">conversation</button>
       <button data-view="thread">thread</button>
       <button data-view="provenance">provenance</button>
@@ -218,6 +229,22 @@
 </main>
 
 <div id="toast"></div>
+<!-- The #id modal (JOB #2199, ruled decision 3). Every `#id` chip on
+     every tab opens this instead of navigating: a citation usually wants
+     answering in place, and taking the whole screen for one was the
+     wrong default. Its three actions are the brief's three. -->
+<dialog id="envModal">
+  <h3 style="margin-top:0" id="envModalTitle"></h3>
+  <div id="envModalMeta"></div>
+  <div class="th-modal-actions">
+    <button class="primary" onclick="thModalGo()">go to its thread</button>
+    <button onclick="thModalReply()">reply to it</button>
+    <button onclick="thModalPeek(this)">read it here</button>
+    <button onclick="$('#envModal').close()">close</button>
+  </div>
+  <div id="envModalPeek"></div>
+</dialog>
+
 <dialog id="tokenDialog">
   <p style="margin-top:0">Bearer token for this board. Stored only in this
   browser's localStorage.</p>
@@ -240,6 +267,7 @@
 <script src="/perch/js/tabs/onboard.js"></script>
 <script src="/perch/js/tabs/saved.js"></script>
 <script src="/perch/js/tabs/speak.js"></script>
+<script src="/perch/js/tabs/thread.js"></script>
 <script>
 "use strict";
 let ME = null;
@@ -278,7 +306,12 @@ function parseRoute(hash) {
   const h = (hash || "").replace(/^#\/?/, "").replace(/\/+$/, "");
   if (!h) return { tab: "inbox" };
   const seg = h.split("/");
-  if (seg[0] === "e" && seg[1]) return { tab: "envelope", id: seg[1] };
+  // S2 (JOB #2199): `#/e/<id>` is THE THREAD now — the conversation the
+  // envelope sits in, not the envelope alone. The URL shape is unchanged
+  // on purpose: every link ever written to `#/e/<id>` keeps working and
+  // simply arrives somewhere better. `#/envelope` still reaches the raw
+  // surface by name.
+  if (seg[0] === "e" && seg[1]) return { tab: "thread", id: seg[1] };
   if (seg[0] === "b" && seg[1]) return { tab: "browse", ns: "/" + seg.slice(1).join("/") };
   if (seg[0] === "band" && seg[1])
     return { tab: "bands", band: decodeURIComponent(seg.slice(1).join("/")) };
@@ -328,7 +361,9 @@ function setNsPick(sel, ns) {
 function route() {
   const r = parseRoute(location.hash);
   showTab(r.tab);
-  if (r.tab === "envelope" && r.id) { $("#envId").value = r.id; loadEnvelope(); return; }
+  // loadThread, not openThread: the hash is where we READ this from, and
+  // re-writing it here would be the router echoing itself (S1's rule).
+  if (r.tab === "thread" && r.id) { loadThread(r.id); return; }
   if (r.tab === "browse" && r.ns) { setNsPick($("#browseNs"), r.ns); loadBrowse(); return; }
   if (r.tab === "bands" && r.band) { renderProfile(r.band); return; }
   (TAB_LOADERS[r.tab] || (() => {}))();
@@ -428,13 +463,14 @@ $("#nestLoad").addEventListener("click", async () => {
 });
 
 // -- envelope ----------------------------------------------------------------------
-
-async function openEnvelope(id) {
-  setHash("#/e/" + id); // record the destination; the echo is suppressed
-  showTab("envelope");
-  $("#envId").value = id;
-  await loadEnvelope();
-}
+//
+// `openEnvelope` LIVED HERE and navigated: hash to #/e/<id>, swap to the
+// envelope tab, load the one card. S2 (JOB #2199) moved it to
+// tabs/thread.js and changed what it does — the #id chip opens the modal
+// now, everywhere, and `openThread` is the gesture that takes the screen.
+// The name did not change because eleven render sites bind it from inside
+// template-literal onclicks (#1941), where a rename is a ReferenceError no
+// parser, linter or `node --check` can see.
 
 // -- boot --------------------------------------------------------------------------
 

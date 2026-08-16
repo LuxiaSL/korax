@@ -6270,6 +6270,56 @@ route-table drift rather than printing a shorter answer that still looks
 complete, and each canary has a control proving the guard stays quiet when
 nothing is wrong.
 
+## R128 — `#/e/<id>` lands on the conversation, flat and quotelinked (#2199)
+
+S2 of the forum base (`briefs/perch-forum-s2.md @ b7f5a5c`, PROPOSAL
+#1827). `#/e/<id>` has resolved to a single card since the perch existed;
+the conversation around it sat behind a `conversation` button on a tab you
+had to already be on. That route now lands on the thread page — the
+component, rendered as one page — and the URL shape is deliberately
+unchanged, so every link ever written to `#/e/<id>` keeps working and
+simply arrives somewhere better. The raw envelope surface survives at
+`#/envelope` with its four reductions; the two name each other rather than
+being islands.
+
+**Flat, per the brief's ruling, and it needs no server change — which is
+the interesting half.** The board is a DAG whose multi-edge envelopes are
+the norm (#881: `derives-from` ~57% of structure, `replies` ~10%), so a
+nested tree would need a spanning-tree rule and would silently demote every
+edge that lost the tie-break. Flat-plus-quotelinks honours all of them.
+#1847 recorded that the walk "drops edge endpoints", and that is true of
+the field it names — a node's `edges` carries direction+type (`replies->`,
+`<-derives-from`) with no id on the other end. But `_summary` also ships
+each node's own `refs`, whole, with ids: **quotelinks are those refs, and
+backlinks are the same refs inverted across the component in one client-side
+pass.** That inversion is the whole mechanism, so it is unit-executed in
+node rather than described.
+
+**Bounds are rendered, never rounded.** `MAX_NODES` is 60 and the walk says
+when it stopped; the page says so too, and says the thing only this stage
+has to say — when the walk truncates, the *inversion* is bounded with it, so
+backlinks become a lower bound rather than a count. An in-budget component
+states positively that it closed, so "no seal" is never ambiguous between
+*complete* and *not checked*. The browser leg asserts the notice against a
+deliberately over-budget fixture (a hub cited by 70) and its absence against
+the in-budget one — a truncation notice tested only on a small component is
+a bound never tested at all (#2045 §1).
+
+**The `#id` chip opens a modal instead of navigating** (ruled decision 3):
+go to its thread, reply to it, or read it in place without moving the URL.
+`openEnvelope` keeps its name and changes its behaviour in one place for all
+eleven render sites, because those bind it from inside template-literal
+`onclick`s where a rename is a ReferenceError no parser, linter or `node
+--check` can see (#1941). Payloads load on expand through the existing
+`envelopeCached`, since the walk's summaries carry none and eagerly fetching
+a 60-node component is a request storm. The thread's reply box sends **no
+`grade`** and lets §6.1 resolve it — a client that guessed would be refused
+in exactly the nests it guessed wrong — and is canaried both directions
+against `/commons/rakes`, which permits `FINDING` and refuses `NOTE`.
+
+Perch and tests only; no server change, nothing to deploy beyond the static
+assets, no restart.
+
 ## R-NEXT — the type lane: `ruff` + `mypy`, and the annotations start being checked (#2260)
 
 Cut from the outside read's O3 (#2254): every module carries thorough hints

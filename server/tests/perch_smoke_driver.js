@@ -44,8 +44,16 @@ const ROUTES = [
     probe: `$("#fbJobs").textContent.trim().length + $("#fbTiles").textContent.trim().length` },
   { hash: "#/bands",   tab: "bands",   probe: `$("#bandsList").textContent.trim().length` },
   // the parameterized shapes, exercised with real params: a cold #/e/<id>
-  // must LOAD the envelope, which the old tab walk could not express
-  { hash: `#/e/${PROBE_ENVELOPE_ID}`, tab: "envelope", probe: `$("#envOut").textContent.trim().length` },
+  // must LOAD the conversation, which the old tab walk could not express.
+  // S2 (JOB #2199) moved this route's destination from the single-envelope
+  // tab to the thread page; the URL shape is deliberately unchanged.
+  { hash: `#/e/${PROBE_ENVELOPE_ID}`, tab: "thread", probe: `$("#threadList").textContent.trim().length` },
+  // ...and the raw envelope surface at its own name, which #/e/<id> used
+  // to cover. It auto-loads nothing by design — it is a fetch box and four
+  // reductions — so the probe asserts its CONTROLS are there, which is the
+  // real invariant for a tool surface with no loader.
+  { hash: "#/envelope", tab: "envelope",
+    probe: `document.querySelectorAll("#tab-envelope button").length` },
   // #/me is the ruled name for the shelf until S4 builds the profile page
   { hash: "#/me",      tab: "saved",   probe: `$("#savedList").textContent.trim().length` },
 ];
@@ -91,14 +99,26 @@ async function main() {
   await call("Page.navigate", { url: ORIGIN });
   await sleep(2000);
 
-  // The route list must cover the shell's own nav exactly — a shell edit
-  // that adds a tab without a route (or vice versa) fails loudly rather
-  // than silently checking fewer views than exist.
+  // The route list must cover the shell's own nav — a shell edit that adds
+  // a tab without a route fails loudly rather than silently checking fewer
+  // views than exist.
+  //
+  // S2 (JOB #2199) RELAXED THE COUNT AND TIGHTENED THE CHECK. This was
+  // `navTabs.length !== ROUTES.length`, which was a cheap proxy for "routes
+  // and nav are one-to-one" and held only while every routed view had a nav
+  // button. The thread page is a routed view with NO nav button on purpose
+  // — you reach a conversation by following a citation, not by picking it
+  // off a bar — so the count now disagrees for a legitimate reason. What
+  // replaces it is stronger in the direction that matters: every route's
+  // tab must name a REAL section, so a typo in ROUTES still fails here
+  // instead of quietly probing a view that does not exist.
   const navTabs = JSON.parse(await evil(
     `JSON.stringify([...document.querySelectorAll("nav button")].map(b => b.dataset.tab))`));
+  const sectionTabs = JSON.parse(await evil(
+    `JSON.stringify([...document.querySelectorAll("main section")].map(s => s.id.replace(/^tab-/, "")))`));
   const routeTabs = ROUTES.map((r) => r.tab);
-  const routeMismatch = navTabs.length !== ROUTES.length
-    || !navTabs.every((t) => routeTabs.includes(t));
+  const routeMismatch = !navTabs.every((t) => routeTabs.includes(t))
+    || !routeTabs.every((t) => sectionTabs.includes(t));
 
   const visibleTab = () => evil(
     `[...document.querySelectorAll("main section")].filter(s => !s.classList.contains("hidden")).map(s => s.id).join(",")`);
@@ -164,16 +184,32 @@ async function main() {
   // rendered markup — and judged by its EFFECT. Mutations land on the
   // throwaway seeded board.
 
-  // openEnvelope: a #id chip anywhere; browse renders eleven of them
+  // openEnvelope: a #id chip anywhere; browse renders eleven of them.
+  // S2 (JOB #2199) changed what the chip DOES — it opens the modal now
+  // rather than navigating — so the effect asserted here changed with it:
+  // the dialog must be open and the URL must NOT have moved. The old
+  // assertion (hash starts #/e/, envelope tab shown) would now be a test
+  // of the behaviour the ruling replaced.
   where = "census openEnvelope";
   await call("Page.navigate", { url: `${ORIGIN}/#/browse` });
   await sleep(1800);
+  const hashBeforeChip = await evil(`location.hash`);
   await evil(`document.querySelector('#browseList .tag.id').click(); 'ok'`);
   await sleep(1200);
   report.census.openEnvelope =
+    (await evil(`$("#envModal").open === true`))
+    && (await evil(`location.hash`)) === hashBeforeChip
+    && !!(await evil(`$("#envModalMeta").textContent.trim().length`));
+  // and its "go to its thread" action is the navigation that used to be
+  // the chip's whole behaviour — still reachable, now asked for
+  where = "census openThread";
+  await evil(`[...document.querySelectorAll('#envModal button')]
+    .find(b => b.textContent.includes("go to its thread")).click(); 'ok'`);
+  await sleep(2000);
+  report.census.openThread =
     (await evil(`location.hash.startsWith("#/e/")`))
-    && (await visibleTab()) === "tab-envelope"
-    && !!(await evil(`$("#envOut").textContent.trim().length`));
+    && (await visibleTab()) === "tab-thread"
+    && !!(await evil(`$("#threadList").textContent.trim().length`));
 
   // openProfile: the bands list's profile button; the URL must follow
   where = "census openProfile";
@@ -212,8 +248,12 @@ async function main() {
 
   // stamp: the envelope page offers the operator a stamp; after the click
   // the reloaded page must show the stamp as a fact, not an offer
+  // S2: #/e/<id> is the thread now, so the raw envelope surface is reached
+  // by its own route and its fetch box — which is what a person does too.
   where = "census stamp";
-  await call("Page.navigate", { url: `${ORIGIN}/#/e/${PROBE_ENVELOPE_ID}` });
+  await call("Page.navigate", { url: `${ORIGIN}/#/envelope` });
+  await sleep(1500);
+  await evil(`$("#envId").value = "${PROBE_ENVELOPE_ID}"; $("#envLoad").click(); 'ok'`);
   await sleep(1800);
   await evil(`document.querySelector('#envOut button[onclick^="stamp("]').click(); 'ok'`);
   await sleep(1500);
@@ -222,9 +262,16 @@ async function main() {
   // toggleThreadNode + fbHopLabel: the conversation walk renders hop
   // labels (fbHopLabel is a lexical call in that render since S0) and
   // ▸ toggles; opening one must expand its inline pane
+  // S2: reached through the raw surface's own route and fetch box, since
+  // #/e/<id> is the thread page now. The walk-with-inline-expansion this
+  // exercises survives beside the thread page and answers a narrower
+  // question (#881's ruling did not delete `thread`, and this did not
+  // delete the walk view).
   where = "census toggleThreadNode";
-  await call("Page.navigate", { url: `${ORIGIN}/#/e/${THREAD_ROOT_ID}` });
-  await sleep(1800);
+  await call("Page.navigate", { url: `${ORIGIN}/#/envelope` });
+  await sleep(1500);
+  await evil(`$("#envId").value = "${THREAD_ROOT_ID}"; $("#envLoad").click(); 'ok'`);
+  await sleep(1500);
   await evil(`$("#envConvo").click(); 'ok'`);
   await sleep(1500);
   report.census.fbHopLabel = !!(await evil(`$("#envView").textContent.trim().length`));
