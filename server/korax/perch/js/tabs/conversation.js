@@ -70,12 +70,17 @@ async function toggleThreadNode(id, btn) {
   try {
     const e = await envelopeCached(id);
     await registry();
+    // S2 (JOB #2199): re-rooting now means "open the thread page here" —
+    // the same gesture, landing on the page built for it instead of
+    // re-walking inside this pane. `openEnvelope` is no longer a
+    // navigation (it opens the #id modal), so this button names the one
+    // that is.
     pane.innerHTML = e.withheld
       ? withheldChip(id)
       : envCard(e, `<div class="meta" style="margin-top:8px">
-          <button onclick="$('#envId').value=${id}; openEnvelope(${id}); loadConversation();">conversation</button>
+          <button onclick="openThread(${id})">open the thread</button>
           <span style="color:var(--dim);font-size:12px">inline depth is 1 —
-          “conversation” re-roots the walk here to go deeper</span>
+          the thread page re-roots the walk here and renders it flat</span>
         </div>`);
     pane.dataset.loaded = "1";
   } catch (err) {

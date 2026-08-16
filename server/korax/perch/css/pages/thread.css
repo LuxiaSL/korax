@@ -1,7 +1,12 @@
-/* css/pages/thread.css — the conversation walk's inline expansion
- * (JOB #1629). Prefixed `ti-` per the fb-/br-/fd- precedent: an
- * unprefixed selector here would restyle every tab. Colors come from
- * variables.css tokens only. */
+/* css/pages/thread.css — the conversation, in two layers.
+ *
+ * `ti-` is the walk's INLINE EXPANSION on the envelope tab (JOB
+ * #1629); `th-` is THE THREAD PAGE (JOB #2199, S2 of the forum base),
+ * which is where `#/e/<id>` lands now. Both live here because they are
+ * one subject; both are prefixed per the fb-/br-/fd- precedent, since
+ * an unprefixed selector here would restyle every tab. Colors come
+ * from variables.css tokens only — a raw hex in this file is a colour
+ * the style pass cannot reach. */
 
 /* The toggle reads as an affordance, not another tag: dim until it
    matters, accent when the thread is open beneath it. */
@@ -29,3 +34,139 @@
   border-left: 2px solid var(--accent2);
 }
 .ti-inline .card { margin-bottom: 0; }
+
+/* ── the thread page (JOB #2199) ──────────────────────────────────── */
+
+/* The lede and the bound both explain the page's own limits, so they
+   read as prose rather than as chrome. */
+.th-lede {
+  color: var(--dim);
+  font-size: var(--text-sm);
+  line-height: var(--leading-ui);
+  margin: var(--space-xs) 0 var(--space-sm);
+  max-width: 78ch;
+}
+.th-tools { margin-bottom: var(--space-sm); }
+
+/* A component that closed inside the budget is a FACT worth stating —
+   quiet, but present, so "no bound shown" never has to be read as
+   "bound not checked". */
+.th-complete {
+  color: var(--faint);
+  font-size: var(--text-xs);
+  margin: var(--space-sm) 0;
+}
+.th-bound { margin: var(--space-sm) 0; }
+
+/* Cards sit flush in one column — flat is the point, so nothing here
+   indents by depth. */
+.th-card { position: relative; }
+
+/* The envelope you followed. It is highlighted rather than moved: the
+   page is id-ordered and lying about position to make it lead would
+   undo the ordering the whole design rests on. */
+.th-focus {
+  border-color: var(--accent);
+  box-shadow: var(--glow-accent);
+}
+.th-here {
+  background: var(--accent-quiet);
+  color: var(--accent);
+}
+
+/* The jump target flash — a citation you followed should say where it
+   put you, because a silent scroll on a page of near-identical cards
+   is indistinguishable from nothing happening. */
+.th-flash {
+  border-color: var(--accent2);
+  box-shadow: 0 0 0 1px var(--accent2);
+}
+
+.th-collapse {
+  padding: var(--space-2xs) var(--space-sm);
+  font-size: var(--text-xs);
+  font-family: var(--font-ui);
+  color: var(--dim);
+}
+.th-collapse[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.th-author { cursor: pointer; }
+.th-author:hover b { color: var(--accent); }
+
+.th-nopayload {
+  color: var(--faint);
+  font-size: var(--text-xs);
+  padding: var(--space-xs) 0;
+}
+
+/* Quotelinks and backlinks share a row and are told apart by colour and
+   by mark: `>>` cites forward, `↩` is cited by. */
+.th-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--line-soft);
+}
+.th-lab {
+  color: var(--faint);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+}
+.th-ql, .th-bl {
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  padding: var(--space-2xs) var(--space-xs);
+  border: 1px solid var(--line);
+}
+.th-ql { color: var(--accent); }
+.th-bl { color: var(--accent2); }
+.th-ql:hover { border-color: var(--accent); background: var(--accent-quiet); }
+.th-bl:hover { border-color: var(--accent2); background: var(--accent2-quiet); }
+/* A citation whose target is outside the walk still resolves — it opens
+   the card — so it is marked as OFF-PAGE rather than disabled. A chip
+   that looked dead would be the page claiming the edge does not exist. */
+.th-out { color: var(--dim); border-style: dashed; }
+.th-edge {
+  color: var(--faint);
+  font-size: var(--text-2xs);
+  margin-left: var(--space-xs);
+}
+
+/* The reply box is deliberately plain: it is one box for one thread,
+   not Speak's composer moved here. */
+.th-reply {
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
+  border: 1px solid var(--line);
+  background: var(--panel2);
+}
+.th-reply textarea {
+  width: 100%;
+  margin: var(--space-sm) 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+}
+
+/* The #id modal (ruled decision 3). base.css already dresses every
+   `dialog` — panel, border, shadow, backdrop, and the phone block's
+   width — so this overrides ONE property: the 420px max-width, which
+   is right for a token prompt and too narrow to read an envelope in.
+   No `width` here on purpose: an id selector would outrank the
+   media query's element rule and quietly undo the mobile pass, which
+   is the trap the .ti-toggle note above records. */
+#envModal { max-width: 72ch; }
+.th-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+#envModalPeek { margin-top: var(--space-md); max-height: 46vh; overflow: auto; }
