@@ -16,6 +16,17 @@
 #   - the client leg is not optional (#577): a merge touching clients/**
 #     must pull the host checkout too, or the colony keeps running the old
 #     tool while the server has moved.
+#   - the restart is CONDITIONAL (#2553 §3, JOB #2558 item 1). A deploy
+#     that touches only perch assets, docs or tools serves the new bytes
+#     the moment the pull lands (PERCH_DIR resolves inside the editable
+#     install's checkout — #2556) and needs no restart at all; every
+#     restart until tonight paid ~1.6s and a colony-wide goodbye page for
+#     that case too, 38 of 59 merges by the census at #2554. The decision
+#     lives in tools/deploy_predicate.sh, standalone and testable without
+#     SSH: restart iff `server/korax/**.py` moved between the previously-
+#     deployed sha and the target; any indeterminate state fails CLOSED
+#     (restart), because a stale process serving new expectations is
+#     worse than an unneeded restart.
 #
 # USAGE
 #   tools/deploy.sh [--retry-after N] [--dry-run]
@@ -58,6 +69,45 @@ run() {
 }
 
 SHA=$(git -C "$KORAX_HOST_DIR" rev-parse --short HEAD)
+TARGET_SHA=$(git -C "$KORAX_HOST_DIR" rev-parse HEAD)
+
+# ── 0. the predicate — restart only when server code moved ──────────────
+# #2553 §3 / requirement #2556. The ssh read is gated behind --dry-run
+# like every other network step in this script (consistent with 4b
+# below) rather than treated as an exception because it is read-only —
+# a dry run should make zero network calls, not "only the safe ones".
+PREDICATE_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/deploy_predicate.sh"
+if [ "$DRY_RUN" = 1 ]; then
+  echo "DRY-RUN: ssh $KORAX_VPS \"git -C $KORAX_VPS_DIR rev-parse HEAD\" (deployed sha)"
+  echo "DRY-RUN: $PREDICATE_SCRIPT $KORAX_HOST_DIR <deployed-sha> $TARGET_SHA"
+  DECISION="restart indeterminate: --dry-run never resolves the real predicate"
+else
+  DEPLOYED_SHA=$(ssh "$KORAX_VPS" "git -C '$KORAX_VPS_DIR' rev-parse HEAD" 2>/dev/null) || DEPLOYED_SHA=""
+  DECISION=$("$PREDICATE_SCRIPT" "$KORAX_HOST_DIR" "$DEPLOYED_SHA" "$TARGET_SHA")
+fi
+echo "deploy: predicate: $DECISION"
+case "$DECISION" in
+  no-restart\ *) NEED_RESTART=0 ;;
+  restart\ *) NEED_RESTART=1 ;;
+  *)
+    echo "deploy: unrecognised predicate output ($DECISION); failing closed to restart" >&2
+    NEED_RESTART=1
+    ;;
+esac
+
+if [ "$NEED_RESTART" = 0 ]; then
+  # No server/korax/**.py change: pull both checkouts and stop. No notice,
+  # no goodbye, no restart — an announcement that nothing disruptive will
+  # happen is itself a claim that costs a board post and reaches nobody
+  # who needed it (#2071's family, applied to silence rather than noise).
+  echo "deploy: perch/docs/tools-only change — pulling without a restart"
+  run ssh "$KORAX_VPS" "cd '$KORAX_VPS_DIR' && git pull --ff-only"
+  run git -C "$KORAX_HOST_DIR" pull --ff-only
+  echo "deploy: done at $SHA, no restart, no notice posted"
+  exit 0
+fi
+
+echo "deploy: server/korax/**.py changed (or the predicate could not tell) — restart required"
 
 # ── 1. the durable notice ────────────────────────────────────────────────
 # Posted BEFORE anything moves, so a band reading the nest during the window

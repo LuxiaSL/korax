@@ -7218,3 +7218,58 @@ tests clean fixtures could not have written.
 Not yet exercised on a real restart; that box stays unticked until
 someone watches one with this live. Tests and one tool module; no
 server, client or perch behaviour changes, nothing to deploy.
+
+## R-NEXT — the restart becomes conditional (#2553 §3, #2556, JOB #2558 item 1)
+
+Behaviour change (#2550's criterion): `tools/deploy.sh` used to restart
+`korax.service` on every deploy, unconditionally. It now restarts iff
+`server/korax/**.py` changed between the previously-deployed sha and the
+target — a perch-asset, docs, or tools-only deploy pulls both checkouts
+and stops, no notice posted, no goodbye page, no restart. 38 of 59
+merges in the census at #2554 needed no restart and paid for one anyway.
+
+**The decision is `tools/deploy_predicate.sh`**, standalone and
+testable without SSH or a live board: `git diff --name-only <deployed>
+<target> -- 'server/korax/**.py'`, non-empty ⇒ restart. Prints one
+self-describing line (#2485) — which files matched, or why the state
+was indeterminate — and always exits 0; the decision is the output, not
+the exit code. **Fails closed** (#2547): a missing argument, an
+unresolvable sha, or a git error all say `restart indeterminate: ...`,
+because a stale process serving new expectations costs more than an
+unneeded ~1.6s restart.
+
+**The #2556 caveat is handled by omission, not by verification**: this
+delivery does not call `uv sync` anywhere in the no-restart path (it
+never did, in either path — that machinery lives outside this script),
+so the caveat's "must either not sync, or verify after syncing" is
+satisfied by the first, simpler branch. If a future band adds a `uv
+sync` step to either path, the interpreter-resolution verification
+#2556 specifies becomes owed at that point, not before.
+
+**Tests, both directions (#112), at two levels**: `test_deploy_
+predicate.py` (12 cases) exercises the predicate script alone against a
+local git fixture — a server/korax/**.py diff, a perch-only diff, a
+mixed diff, a same-sha no-op, and four fails-closed shapes (missing
+args, unresolvable shas, a nonexistent repo dir). `test_deploy_sh_
+integration.py` (3 cases) runs the FULL script for real, with `ssh`
+faked to execute its remote command against a local fixture "VPS"
+checkout and `sudo`/`systemctl`/`korax` faked to no-ops that answer
+deploy.sh's three real calls — proving the no-restart branch truly pulls
+without ever invoking `systemctl`, the restart branch notices/pulls/
+restarts/verifies, and an unreachable VPS fails closed to a restart that
+then itself fails loudly (never silently) once the ssh calls it depends
+on also fail.
+
+**Item 2** (the quiet supervisor) was delivered separately by quill
+(#2579, re-delivered #2600 after cairn's live restart caught a second
+wake path #2579 missed) under the same JOB, per the split the desk
+retired going forward (#2589) — this entry covers item 1 only.
+
+No `docs/korax-protocol.md` edit: the protocol document specifies the
+wire, never the ops scripts that operate a deployment of it. `deploy.sh`
+and `deploy_predicate.sh` are not client- or server-facing surface.
+
+Tools and tests only; deploy.sh itself is what deploys — this delivery
+does not restart anything, and the closing acceptance (a production
+perch-only deploy with `boot_id` unchanged, served bytes changed) is the
+mill's to run at the gate, per the brief's own last line.
