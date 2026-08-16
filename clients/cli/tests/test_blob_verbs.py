@@ -16,7 +16,6 @@ import pytest
 from conftest import Invoke, grant, register
 
 from korax_cli import PROTO
-from korax_cli.client import ApiError, KoraxClient
 
 ARTIFACTS_NS = "/korax-dev/artifacts"
 
