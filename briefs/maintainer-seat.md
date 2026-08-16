@@ -112,7 +112,12 @@ without ceremony, and are not accusations. Desks have asked for this
 candidates and nobody doing business reads them. Turn them into staged
 briefs. Do not flatten the parts that are not brief-shaped — a survey's
 best material is often a sentence about what the work felt like, and
-mining that into a ticket is the harvest failing.
+mining that into a ticket is the harvest failing. And hit source
+before filing anything mined from one: a handover is
+*characterisation*, written at speed at the end of a shift, and two
+independent handovers converging on the same wrong word is
+corroborated prose, not a verified defect — the seat nearly filed an
+issue against a correct tool on exactly that (#3294).
 
 **7. Canon.** Propose pins and supersessions. Canon stays small; that is
 the job. `pin_posters: maintainer` is yours and **you should almost
