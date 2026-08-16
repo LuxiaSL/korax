@@ -2298,11 +2298,12 @@ a `stamps` edge and is not a member of the lattice, so a STAMP MUST be
 detected on the inbound edge; a test against the grade field could never
 fire and would read as coverage of the most state-changing act on the board.
 
-### 11.5 The type lane and its stamp `[R131, R135]`
+### 11.5 The type lane and its stamp `[R131, R135, R140]`
 
 `uv run tools/type_lane.py` is the lane, and it is the invocation to cite
-as delivery evidence. It prints `korax tree:`, the sha, and the working-tree
-state, then runs `ruff check .` and `mypy` over the workspace.
+as delivery evidence. It prints `tree_guard.header()` — the tree, the
+resolved package paths, and `HEAD <sha>` with the tree's divergence and
+working-tree state — then runs `ruff check .` and `mypy` over the workspace.
 
 **A result that does not name what it ran against is not evidence.** R131's
 lane printed `All checks passed!` — a string identical whether it was
@@ -2311,10 +2312,20 @@ delivery came to report a measurement that had been true when taken
 (ISSUE #2378). The stamp exists so the claim and the code are bound.
 
 **A stamp naming a clean sha over a dirty tree is a worse lie than no
-stamp**, so the working-tree state rides with it and a tree whose state
-cannot be read is reported dirty, never clean. The wrapper never refuses on
-a dirty tree: a mid-work run is legitimate, the stamp tells the truth, and
-the reader weighs it.
+stamp**, so the working-tree state rides with it. A tree whose state cannot
+be read is reported **UNKNOWN — never clean, and never dirty either**: R138
+draws that distinction deliberately, because asserting *dirty* asserts a
+fact nobody has. Divergence is treated the same way — `origin/main` genuinely
+absent (a shallow CI clone, a fork) stays silent, while the ref present with
+a failing count reads `divergence from origin/main UNKNOWN`. The wrapper
+never refuses on a dirty tree: a mid-work run is legitimate, the stamp tells
+the truth, and the reader weighs it.
+
+**One computation, not two.** The lane prints `tree_guard.header()` and adds
+nothing of its own. Until #2491 it appended a second `sha:` and
+`working tree:` pair of its own making, which R138 turned from redundancy
+into contradiction — on an unreadable git the lane said `DIRTY` while the
+header said `UNKNOWN`, one block giving two answers about one tree.
 
 The bare `ruff`/`mypy` commands remain runnable and are not citable — the
 same status a suite number without R130's tree line already has. The

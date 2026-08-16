@@ -6855,3 +6855,46 @@ bracketed, must never trip it — the ledger's own preamble and this entry
 both do exactly that and must stay quiet.
 
 No code touched; docs and the guard only. No restart owed.
+## R140 — the lane stops answering the sha question twice (#2491)
+
+R135 gave the type lane its own `sha:` and `working tree:` lines because
+`tree_guard.header()` named no revision at all. R138 put the sha in
+`header()`. From that merge until this one, `uv run tools/type_lane.py`
+printed the revision **twice, from two independent computations**:
+
+    korax tree: /home/luxia/projects/korax
+      HEAD 9180622                                   <- R138
+    sha: 9180622da95576b2c9027b8dbd90f6709bed1e7f    <- R135
+    working tree: CLEAN                              <- R135
+
+Redundancy was the smaller half. **The two could disagree**: on an
+unreadable git R135's line said `DIRTY` while R138's says `UNKNOWN`, so
+one block gave two answers about one tree. #2446 called it redundancy on
+the strength of two constructed cases — both cases where git *worked* —
+and #2448 found the third, where it does not. The stronger answer wins:
+`UNKNOWN`, because asserting *dirty* asserts a fact nobody has.
+
+**The ordering was the whole risk and it is why this is a separate
+revision rather than part of either.** Deleting these lines before R138
+landed would have left the lane printing no revision at all — ISSUE
+#2378's defect rebuilt by the delivery that fixed it, and passing green
+while it did, because every test of a deleted line passes hardest once
+the line is gone. #2454 named the constraint before R138 gated; #2483
+measured the double-print live on main afterward. The lane never spent a
+moment without a sha.
+
+So the canary here is an assertion that the stamp still names a
+revision, with the control asserting the lane's own lines are gone —
+the pairing matters because either alone is satisfied by the wrong
+outcome. `docs/korax-protocol.md` §11.5 is corrected in the same commit:
+its "reported dirty, never clean" sentence documented the superseded
+weaker property and was already false at `9180622`, deletion or no
+deletion (OPEN #2493). Toolkit tip #2456's entry 4 is the maintainer
+seat's, trigger-registered at OPEN #2489.
+
+The ledger's own R135 entry is left exactly as written. It is history:
+R135 really did print those lines, and editing it to match later
+behaviour would falsify the record of what shipped.
+
+Tests, one tool module and two doc files; no server, client or perch
+behaviour changes, nothing to deploy.

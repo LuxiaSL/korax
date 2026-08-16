@@ -34,12 +34,21 @@ The bare `uv run ruff check .` stays perfectly runnable mid-work. It
 just stops being citable as delivery evidence, exactly as a suite
 number without R130's tree line already is.
 
-**THE STAMP TELLS THE TRUTH ABOUT A DIRTY TREE AND NEVER REFUSES.** A
-stamp naming a clean sha over uncommitted changes is a worse lie than
-no stamp at all — it manufactures the confidence this whole tool exists
-to remove. A mid-work run is legitimate; the stamp says `DIRTY (n
-files)` and the gate weighs it (#2378's constraint, adopted verbatim as
-the acceptance floor at #2379).
+**THE STAMP TELLS THE TRUTH ABOUT A DIRTY TREE AND NEVER REFUSES** —
+#2378's constraint, adopted verbatim as the acceptance floor at #2379.
+A stamp naming a clean sha over uncommitted changes is a worse lie than
+no stamp at all; it manufactures the confidence this whole tool exists
+to remove. A mid-work run is legitimate, the stamp says so, and the
+gate weighs it.
+
+**That property is now `tree_guard.header()`'s and this file no longer
+duplicates it** (#2491, spec of record; brief item 5). R135 printed its
+own `sha:` and `working tree:` lines because `header()` named no
+revision; R138 put the sha in `header()`, and keeping both meant one
+block answering the same question twice — divergently, on an unreadable
+git, where this file said `DIRTY` and `header()` says `UNKNOWN`.
+`UNKNOWN` is the better answer: asserting *dirty* asserts a fact nobody
+has (#2448).
 
 **AND IT REPORTS WHERE THE PACKAGES RESOLVE FROM, WHICH IS NOT
 DECORATION.** `mypy` resolves imports through the installed
@@ -91,39 +100,6 @@ def _tree_guard():
     return module
 
 
-def _git(*args: str) -> tuple[int, str]:
-    proc = subprocess.run(
-        ["git", *args], capture_output=True, text=True, cwd=TREE, check=False
-    )
-    return proc.returncode, proc.stdout.strip()
-
-
-def revision() -> str:
-    """The sha, or an explicit unknown — never a plausible-looking blank.
-
-    An empty string here would render as `sha: ` and read as a stamp
-    that was made and found nothing, which is the shape of defect this
-    file exists to remove."""
-    rc, out = _git("rev-parse", "HEAD")
-    return out if rc == 0 and out else "UNKNOWN (not a git tree, or git unavailable)"
-
-
-def dirty_state() -> tuple[bool, int, str]:
-    """`(is_dirty, file_count, rendered)`.
-
-    A tree whose state cannot be READ is reported as unknown, not as
-    clean. Failing open here would put `CLEAN` beside a sha on a tree
-    nobody measured — the precise lie the acceptance floor forbids.
-    """
-    rc, out = _git("status", "--porcelain")
-    if rc != 0:
-        return True, 0, "DIRTY-STATE UNKNOWN (git status failed — treat as dirty)"
-    files = [line for line in out.splitlines() if line.strip()]
-    if files:
-        return True, len(files), f"DIRTY ({len(files)} file{'s' if len(files) != 1 else ''})"
-    return False, 0, "CLEAN"
-
-
 def stamp() -> str:
     """The provenance block, printed before either checker runs.
 
@@ -131,16 +107,27 @@ def stamp() -> str:
     stops being a string whose provenance you reconstruct later, and a
     stamp that appeared only on success would be absent from every
     transcript where it was most needed.
+
+    **THIS IS `tree_guard.header()` AND NOTHING ELSE, SINCE R138.** It
+    used to append its own `sha:` and `working tree:` lines, because
+    when R135 shipped `header()` named no revision at all. R138 moved
+    the sha into `header()`, so from that merge until this one the block
+    printed the sha TWICE from two independent computations — and worse,
+    the two could DISAGREE: on an unreadable git this file said `DIRTY`
+    while `header()` says `UNKNOWN` (#2448). Two different words about
+    one tree is worse than either alone.
+
+    **The deletion had to follow R138 and never precede it** (#2454,
+    measured live at #2483): remove these lines while `header()` still
+    carried no sha and the lane prints no revision at all — R131's
+    defect rebuilt by the delivery that fixed it, passing green while it
+    does. Ordering was the whole risk, and it held.
+
+    `header()`'s answer is the better one: it carries `N ahead of
+    origin/main` besides the sha, and it reports an unreadable tree as
+    UNKNOWN rather than asserting DIRTY — a fact nobody has (#2448).
     """
-    guard = _tree_guard()
-    _dirty, _n, rendered = dirty_state()
-    return "\n".join(
-        [
-            guard.header(TREE, PACKAGES),
-            f"sha: {revision()}",
-            f"working tree: {rendered}",
-        ]
-    )
+    return _tree_guard().header(TREE, PACKAGES)
 
 
 def run_checks(runner=subprocess.run) -> list[tuple[str, int]]:
