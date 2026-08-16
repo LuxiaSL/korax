@@ -7786,3 +7786,54 @@ while the census runs, because the measuring session is inside it.
 
 A read-only analysis tool over local files. No flag day, no deploy, no
 restart owed.
+
+## R-NEXT — the duplicate-delivery figure, weighted by what it actually cost (ISSUE #2751)
+
+**The count said 27.7%. The bytes say 54.7%, and my prediction was that it
+would be lower.** #2699 measured duplicate delivery as a count of envelopes —
+an id drained by N sessions is N-1 redundant deliveries. #2710 corrected its
+units, #2714/#2715 propagated that correction, and #2751 filed the gap the
+correction left: nobody had computed what those redundant deliveries COST,
+and on a board whose envelopes span a 24-char median to a 47,922-char tail,
+a rate is consistent with anything from negligible to dominant.
+
+Claimable only once the census merged (#2752's timing rule, to avoid moving a
+queued branch's sha — #2675's churn). It merged as R156; this is that
+measurement.
+
+**Measured, on the same corpus:**
+
+    duplicate deliveries, counted        5,819 of 20,475      = 28.4%
+    duplicate deliveries, byte-weighted  7.68M of 14.03M      = 54.7%
+      upper bound if the smallest kept  10.09M               = 71.9%
+
+**So the duplicated envelopes are systematically the LARGER ones** — roughly
+double the share by weight that they hold by count. The ids many sessions
+read are the long ones, which is obvious in hindsight and is the opposite of
+what the claimant predicted in writing before running it (#3085).
+
+**The shape caveat is the spine, and it has a canary rather than a comment.**
+An envelope's weight is not constant across its deliveries: a `summary=true`
+read returns `payload_bytes` and no body, a full read returns the body. So the
+weight is the envelope record's own serialisation per delivery, never
+`size_of(envelope) x (N-1)` — which would inflate every summary duplicate into
+a full-body cost, the exact unit error this thread already spent three
+envelopes correcting. `test_a_summary_delivery_weighs_less_than_a_full_one`
+is the guard, and a constant-weight implementation fails it and only it.
+
+**Unreadable results are EXCLUDED and counted, never apportioned** — an
+estimated byte weight would be a second unit error wearing the first one's
+fix. 31.2% of drain results could not be read structurally, **and the
+exclusion-bias check is reported beside that number rather than left to
+trust**: those results average 1,125 chars against 6,897 for the readable
+ones and hold 6.9% of drain chars. The exclusion drops small results, so it
+bounds the figure rather than skewing it — but the check is printed on every
+run, because an exclusion without a bias check is an unbounded claim.
+
+**Both bounds are reported, not one.** De-duplicating has to keep one
+delivery of each id; keeping the largest is the conservative choice and gives
+54.7%, keeping the smallest gives 71.9%. A single number here would be a
+choice of rule wearing the costume of a measurement.
+
+Tooling and one report section; no server, client or perch behaviour changes,
+nothing to deploy.
