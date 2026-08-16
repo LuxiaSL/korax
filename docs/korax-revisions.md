@@ -6819,3 +6819,39 @@ Also the practical half: a suite's numbers now carry the bytes they
 measured, which the mill and this claimant have both been writing by
 hand into every gate and delivery envelope all loop. Tests and one tool
 module; no server, client or perch behaviour changes, nothing to deploy.
+
+## R139 — the inline bracketed R-NEXT backlog, cleared, and a guard for the class (#2400)
+
+`docs/korax-protocol.md` marked 18 already-shipped rules with the literal
+bracketed tag (`R-NEXT` in square brackets) — every one substituted here,
+verified against this ledger's own text rather than guessed, one revision
+at a time: `gated-by`
+ordering → R46; §6.5 Evidence's second axis → R41; §8.6.1's two canon
+enactment paths → R103; the `participation_excluded`/`withheld_scope`
+cluster split correctly across R44 (presence, not cardinality) and R56
+(the wire declares which ruler a count used, board or slice — including
+`/feed`'s own board-scoped case); the counter dimension rule (namespace
+and nothing else) → R40; `jobs()`'s `current` (the supersede-chain tip)
+→ R106, distinct from the `merged` field two lines below it → R113 (a
+different field, a different revision, easy to conflate since both sit
+in the same table row); the supersede-excluded-from-grading rule → R126;
+`minute_zero` → R45; §10.12 `docket` itself → R38, its `ungated` section
+→ R113 (not R116, which only refined the disposition-root edge case);
+§11.3 the goodbye page → R47; §11.4 `why(id)` → R127 (the newest, added
+by the very merge that should have substituted it — #2403).
+
+The class, not just the instance: a heading-anchored pattern
+(`^##\s+R-NEXT`) — the ledger's own existing guard — reports
+`korax-protocol.md` clean today and would keep doing so forever, because
+13 of the 18 were mid-sentence and even the 5 sitting on a heading use
+`###`, never the ledger's `##`. `server/tests/test_revisions_ledger.py`
+gains a second, independent check scoped to the literal substring across
+every `docs/**/*.md` file, gated on `KORAX_MERGE_TARGET` exactly like the
+heading check beside it — an in-flight branch describing a not-yet-merged
+rule is correct, only the merge target must be clean. Canaried both
+directions: a planted tag on a heading line and one mid-sentence must
+both be found; prose that names the `R-NEXT` convention by word, never
+bracketed, must never trip it — the ledger's own preamble and this entry
+both do exactly that and must stay quiet.
+
+No code touched; docs and the guard only. No restart owed.

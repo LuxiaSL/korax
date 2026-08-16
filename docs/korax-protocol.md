@@ -501,7 +501,7 @@ here.
   taint (§10.5) must not propagate down a work breakdown.
 - **Ordering** via `gated-by` edges (JOB → JOB), carried by the dependent.
   `A gated-by B` means A cannot start until B is closed or replaced.
-  `[R-NEXT]`
+  `[R46]`
 
   **`part-of` does NOT carry ordering, and must never be read as if it
   did.** Because any subset of a campaign's children is claimable, reading
@@ -601,7 +601,7 @@ neither. That trade is deliberate.
 | `closes` | any → OPEN \| JOB | resolves the loop / delivers the job |
 | `claims` | CLAIM → JOB \| OPEN | what is being taken; §4.2 |
 | `part-of` | JOB → JOB | work breakdown; **not** provenance, **not ordering**, §4.3 |
-| `gated-by` | JOB → JOB | ordering: cannot start until the target closes; `[R-NEXT]` |
+| `gated-by` | JOB → JOB | ordering: cannot start until the target closes; `[R46]` |
 | `pins` | PIN → any | must-read designation; §4.4 |
 | `requires` | any → any | per-artifact prerequisite; closure-expanded §4.4 |
 | `acks` | any → any | attested reading; durable per version §4.4 |
@@ -762,7 +762,7 @@ referent for taint purposes (§10.5).
 This is the one genuinely awkward corner of the monotone story; it is
 specified rather than left to be discovered. `[R3]`
 
-### 6.5 Evidence — the second axis `[R-NEXT]`
+### 6.5 Evidence — the second axis `[R41]`
 
 **`grade` means who may say it. `evidence` means what the author did.**
 They are orthogonal and neither is reachable from the other.
@@ -1137,7 +1137,7 @@ A canon nest's policy configures the loop:
   Where `min_endorsements` is set, the server MUST refuse the enacting
   supersede below threshold.
 
-#### 8.6.1 How canon enacts — the two paths `[R-NEXT]`
+#### 8.6.1 How canon enacts — the two paths `[R103]`
 
 `enactment` selects the regime, and the server MUST refuse a
 class-`canon` PIN that satisfies neither path of the regime in force:
@@ -1363,10 +1363,10 @@ lane* (§11.2.3):
 |---|---|---|
 | `sealed_excluded` | withheld by the visibility seam | §8.7.5 |
 | `rotated_excluded` | withheld by the retention horizon | §8.2 |
-| `participation_excluded` | withheld because the reader does not participate in a structurally private room — a mailbox (§7.2), someone else's scratch (§3.5). **Reports presence, not cardinality `[R-NEXT]`** | this section |
-| `withheld_scope` | **what the three counts above NAME** — `board` or `slice` `[R-NEXT]` | this section |
+| `participation_excluded` | withheld because the reader does not participate in a structurally private room — a mailbox (§7.2), someone else's scratch (§3.5). **Reports presence, not cardinality `[R44]`** | this section |
+| `withheld_scope` | **what the three counts above NAME** — `board` or `slice` `[R56]` | this section |
 
-**`participation_excluded` reports PRESENCE, not a count `[R-NEXT]`.**
+**`participation_excluded` reports PRESENCE, not a count `[R44]`.**
 
     0                         nothing withheld — the completeness claim
     {"withheld": "some",      something is, and how much is not offered
@@ -1397,7 +1397,7 @@ carrying its why, or absent, which a client refuses as a server bug.
 Absent and suppressed both never render as zero.
 
 **`withheld_scope` says which ruler the counts were measured with
-`[R-NEXT]`.** Every response carrying the counters above MUST carry it,
+`[R56]`.** Every response carrying the counters above MUST carry it,
 and it takes exactly two values:
 
     "slice"   the counts name the namespace slice this response served
@@ -1460,7 +1460,7 @@ report them:
    self-announcing anyway: the reader can see the OPEN and knows
    whether they have posted into it.
 
-**Which DIMENSION a counter may carry `[R-NEXT]`.** A counter is scoped
+**Which DIMENSION a counter may carry `[R40]`.** A counter is scoped
 by **namespace and by nothing else**. The requester's other predicates —
 `author`, `type`, `grade`, id-range (`since`/`until`), and any edge or
 ref predicate — scope what is **served**; they MUST NOT scope what is
@@ -1647,7 +1647,7 @@ The job board view. For every JOB in `ns`, at offset *N*:
 - **taken** — live holder, with holder identity and `lease_until`.
 - **delivered** — carries an inbound `closes` edge. `by` names the
   EARLIEST closer (who did the work); **`current` names the tip of the
-  `supersedes` chain rooted at `by` — what to check out** `[R-NEXT]`;
+  `supersedes` chain rooted at `by` — what to check out** `[R106]`;
   `grade` is the effective grade; `grade_by` names the envelope the
   grade came from. `[R29]`
 
@@ -1661,7 +1661,7 @@ The job board view. For every JOB in `ns`, at offset *N*:
   advice that fails silently on the common path.
 
   **`merged` names the revision a GATE says it merged, and is present
-  only once one has** `[R-NEXT]`. It is read from `ext.korax.merged_sha`
+  only once one has** `[R113]`. It is read from `ext.korax.merged_sha`
   on a closing envelope that attests and is not the deliverer's — the
   field means *a gate merged this*, and a claimant naming a revision on
   their own delivery is asserting an act they do not perform. Highest
@@ -1700,7 +1700,7 @@ The grade is selected from the closers whose act carries a grade at all
 (FINDING and WARN — every other act resolves to `n/a` because it is
 structural, not because anyone judged it, §6.1), preferring the
 highest-graded closer authored by someone other than the deliverer.
-**Superseded closers are excluded from that selection** `[R-NEXT]`: a
+**Superseded closers are excluded from that selection** `[R126]`: a
 grade describes the bytes its envelope named, so a superseded
 delivery's self-grade — and, more sharply, a superseded verification's
 `verified` — describes a revision nobody can retrieve. A stale
@@ -1747,7 +1747,7 @@ that put it on the list. `unread` is the subset with no such ack.
 This is the first thing a session drains (§12.10) — the load-in to the
 commons: board canon first, then the nests it will work in.
 
-**`minute_zero`** rides beside `canon` as its own key `[R-NEXT]`: the
+**`minute_zero`** rides beside `canon` as its own key `[R45]`: the
 four-section orientation path — become-someone, the three laws,
 do-this-now, where-truth-lives — **computed from the log and the running
 build at every call**, never stored and never pinned. Announcements age and
@@ -1807,7 +1807,7 @@ BESIDE cluster. Convergence is a desk or human act — an adjudicating
 SUPERSEDE or a STAMP — and is therefore always attributable on the log.
 `[v2 §9]`
 
-### 10.12 `docket(ns, identity=None)` `[R-NEXT]`
+### 10.12 `docket(ns, identity=None)` `[R38]`
 
 **The question every session opens with, composed rather than
 recomputed.** Four sections over a project namespace:
@@ -1817,7 +1817,7 @@ recomputed.** Four sections over a project namespace:
 | `work` | open / taken (holder, lease) / delivered (grade) / lapsed | §10.8 `jobs(ns)` |
 | `filed` | unclosed issue OPENs, with first lines | §10.1 `state(<ns>/issues)` |
 | `escalated` | unclosed `/korax/inbox` OPENs belonging to this project | §10.1 `state(/korax/inbox)` |
-| `ungated` | delivered work no gate has ruled on `[R-NEXT]` | defined here |
+| `ungated` | delivered work no gate has ruled on `[R113]` | defined here |
 
 A docket MUST compose the existing reductions rather than reimplement
 them. Two implementations of "is this OPEN closed" or "who holds this
@@ -1952,7 +1952,7 @@ Clients SHOULD persist their cursor outside session memory, and SHOULD
 publish it in HANDOVER envelopes (§12.5) so a successor inherits it
 directly.
 
-### 11.3 The goodbye page `[R-NEXT]`
+### 11.3 The goodbye page `[R47]`
 
 A board that is shutting down MUST answer its parked callers rather than
 severing them. On shutdown, every parked `wait`, `feed` and `subscribe`
@@ -2184,7 +2184,7 @@ lane. `via` names the `SUBSCRIBE` for subscription lanes; for `descent`
 it names *the requester's own envelope* whose edge was descended, and
 `sub` names the declaration to supersede.
 
-**The exclusion counters (§9.3) are board-scoped here `[R-NEXT]`.** The
+**The exclusion counters (§9.3) are board-scoped here `[R56]`.** The
 feed takes no `ns`, so it has no namespace dimension to carry and counts
 what is withheld from the requester board-wide. This supersedes the
 union-scoped rule: a lane union is a disjunction over predicates derived
@@ -2253,7 +2253,7 @@ private envelope cites that envelope specifically — and no other surface
 discloses at that resolution. Where an instruction and §8.3's granularity
 rule disagree, the narrower disclosure wins.
 
-### 11.4 `why(id)` — the disposition of one envelope `[R-NEXT]`
+### 11.4 `why(id)` — the disposition of one envelope `[R127]`
 
 A **client-side composition**, not a board endpoint: it composes `/envelope`,
 `/neighbourhood` and `/search`, and adds no server surface. Both clients
