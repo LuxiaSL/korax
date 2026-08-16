@@ -7573,3 +7573,74 @@ asked for without there being a check for it yet.
 
 Docs and one test; no server, client or perch behaviour changes,
 nothing to deploy.
+
+## R-NEXT — the live-feed test asserts DWELL, and the instrument states its own parameters (#2897, JOB #2966)
+
+**This changes what a test means (#2337).** `test_the_feed_goes_live_and_survives_a_restart`
+sampled `#feedLive[data-state]` every 300 ms and asserted that `restarting`
+was PRESENT. Both halves were wrong, and one CI red (run 31940108170) was the
+occasion for finding out.
+
+**The sampler was blind in a measured way.** A state displayed for less than
+the sampling interval is missed at a rate tracking `1 - dwell/300ms`: over 15
+trials per cell with the phase swept across a full interval, a displayed 60 ms
+state was missed 80% of the time and a 150 ms state 47%, while a
+MutationObserver caught it 15/15 in every cell. The old failure text —
+*"no 'restarting' state was ever shown — the goodbye page lost its race with
+the dying socket"* — asserted a cause no sampler can observe, and in the only
+instance measured end to end it was false twice over: the goodbye arrived as a
+200 carrying `system_notice` and it rendered. It was then overwritten six
+milliseconds later by the second of two concurrent poll loops (ISSUE #2909,
+fixed separately under JOB #2967).
+
+**And PRESENCE was standing in for the property.** #1639 §2's advantage over
+SSE/WS is that an operator LEARNS the board is restarting. A 6 ms flash
+satisfies presence and tells nobody anything — so "record the transitions and
+keep asserting presence" would have converted a real, user-visible failure
+into a green. That design was refused on argument and then on data.
+
+**What lands:**
+
+* **Transitions are recorded**, not sampled — a MutationObserver on
+  `#feedLive`, attached before the signal. The driver's remaining poll decides
+  only when to STOP WATCHING, so its interval bounds patience rather than
+  perception.
+* **The assertion is on dwell**, floored at 2 s. The floor is argued in the
+  test from the two measured populations: legitimate dwell is
+  `[retry_after_s, 1.5 x retry_after_s]` by the client's own jitter, which at
+  the server default of 30 s gives `[30 s, 45 s]` and matched 62 runs; the
+  failure population is one point at 6 ms. The floor sits at the low end of
+  the brief's 1-10 s bracket because the costs are asymmetric — too high fails
+  a correct board that honestly advertises a short `retry_after_s`.
+* **Ordering is asserted relatively**, `restarting` before `reconnecting`,
+  rather than at a fixed index 0. The old form only worked because sampling
+  began after the signal; a recorder attaches earlier and legitimately sees
+  the healthy states first.
+* **`test_report_18_adjudicates_the_three_candidate_designs`** runs all three
+  candidate designs against the real recording of the one observed failure,
+  and needs no browser. It carries its own control: the simulated 300 ms
+  sampler must first reproduce what the shipped design actually recorded on
+  that run. The refused design is executed and shown passing a 6 ms flash,
+  which is the refusal made observable rather than cited.
+* **The instrument states its own parameters** on every browser run —
+  observation mode, poll interval and its purpose, iteration cap and whether
+  it was exhausted, dwell, and BOTH cpu counts (`os.cpu_count()` and
+  `len(os.sched_getaffinity(0))`, which differ exactly when someone pins, and
+  it was the pinned number that mattered). They ride
+  `pytest_terminal_summary`, the one hook that survives `-q`, beside the tree
+  line and for the same recorded reason. Silent by construction on runs where
+  the browser leg did not execute.
+* **A capture that exhausted its cap now says so.** Patience exhausted and a
+  stable end state are different facts and the old loop fused them.
+* **CI's browser leg gains `--durations=0`.** Run 31940108170 is permanently
+  unattributable partly because per-test timing was absent, and no arithmetic
+  recovers it: the leg is latency-bound, so its total is within 4% at 2 and 6
+  CPUs and carries no information about either.
+
+**Flag day (#2337).** A branch cut before this and merged after meets a leg
+that observes differently; a browser leg that passed yesterday may fail today
+on a short dwell that was always there. That is the new instrument working,
+not a regression in either delivery.
+
+**Attribution of run 31940108170 stays permanently open (#2950)** — repaired,
+never attributed.

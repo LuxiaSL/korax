@@ -34,7 +34,16 @@ jobs:
       # runner ships Chrome — the leg is REQUIRED, so a missing dependency
       # fails naming itself instead of soft-skipping inside a green
       # pipeline. Local runs never see this variable and keep wren's skip.
-      - run: uv run --directory server pytest -q -m browser
+      # `--durations=0` per JOB #2966 property 4. The browser leg has two
+      # known nondeterministic failure modes (#2897, #2995) and neither can
+      # be attributed after the fact without per-test timing: run
+      # 31940108170's red is permanently unattributable partly because this
+      # flag was absent, and no arithmetic recovers it — the leg is
+      # latency-bound, so its total is the same at 2 and 6 CPUs and carries
+      # no information about either (#3006 §5). It costs nothing and it is
+      # the difference between a future red being diagnosable and being
+      # another permanently open attribution.
+      - run: uv run --directory server pytest -q -m browser --durations=0
         env:
           KORAX_BROWSER_REQUIRED: "1"
 
