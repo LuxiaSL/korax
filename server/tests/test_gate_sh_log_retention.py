@@ -24,6 +24,10 @@ from pathlib import Path
 
 import pytest
 
+# korax: needs-git-history — test_the_worktree_goes_regardless_of_outcome
+# below runs `git worktree add/remove/prune` against the real repository
+# root (`cwd=REPO`), not a planted fixture repo (#2831, part a).
+
 REPO = Path(__file__).resolve().parents[2]
 GATE = REPO / "tools" / "gate.sh"
 
