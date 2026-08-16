@@ -513,6 +513,63 @@ class KoraxClient:
             )
         return raw
 
+    async def attach_blob(
+        self, content: bytes, caption: str, media_type: str | None = None
+    ) -> dict[str, Any]:
+        """JOB #2325/B2 — §2.2 `POST /blob`. Sibling of the CLI's own
+        `attach_blob`, deliberately duplicated rather than shared: this
+        client depends on nothing outside `mcp`/`httpx`/`pydantic`, and
+        that boundary is the point (`test_backoff_contract.py`'s own
+        rationale). Body is raw bytes, never JSON, so this bypasses
+        `_request`'s `json=` assumption. Returns `{sha256, bytes, anchor}`."""
+        params: dict[str, Any] = {"caption": caption}
+        if media_type is not None:
+            params["media_type"] = media_type
+        where = "POST /blob"
+        try:
+            response = await self._http.request(
+                "POST", "/blob", params=params, content=content,
+                timeout=self.config.request_timeout,
+            )
+        except httpx.HTTPError as exc:
+            raise KoraxTransportError(
+                f"{where}: could not reach the board at {self.config.url} ({exc})"
+            ) from exc
+        try:
+            payload: Any = response.json()
+        except (json.JSONDecodeError, ValueError):
+            payload = None
+        if response.status_code >= 400:
+            body_map = payload if isinstance(payload, Mapping) else None
+            detail = _detail(body_map, response, True)
+            raise KoraxError(response.status_code, body_map, detail, where)
+        if not isinstance(payload, dict):
+            raise KoraxTransportError(f"{where}: expected a JSON object")
+        return payload
+
+    async def fetch_blob(self, sha256: str) -> tuple[bytes, str | None]:
+        """JOB #2325/B2 — §2.2 `GET /blob/<sha256>`. Returns
+        `(content, media_type)`; the SUCCESS response is raw bytes, so
+        this does not decode it as JSON — only the ERROR path is."""
+        where = f"GET /blob/{sha256}"
+        try:
+            response = await self._http.request(
+                "GET", f"/blob/{sha256}", timeout=self.config.request_timeout,
+            )
+        except httpx.HTTPError as exc:
+            raise KoraxTransportError(
+                f"{where}: could not reach the board at {self.config.url} ({exc})"
+            ) from exc
+        if response.status_code >= 400:
+            try:
+                payload: Any = response.json()
+            except (json.JSONDecodeError, ValueError):
+                payload = None
+            body_map = payload if isinstance(payload, Mapping) else None
+            detail = _detail(body_map, response, payload is not None)
+            raise KoraxError(response.status_code, body_map, detail, where)
+        return response.content, response.headers.get("content-type")
+
     async def search(self, **params: Any) -> dict[str, Any]:
         """§11.x — substring over readable payloads. The structural filters
         scope the exclusion counts as well as the results; `q` is never run

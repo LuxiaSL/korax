@@ -475,6 +475,56 @@ class KoraxClient:
     async def envelope(self, env_id: int) -> dict[str, Any]:
         return await self._request("GET", f"/envelope/{env_id}")
 
+    async def attach_blob(
+        self, content: bytes, caption: str, media_type: str | None = None
+    ) -> dict[str, Any]:
+        """JOB #2325/B2 — §2.2 `POST /blob`. Body is raw bytes, never
+        JSON: the payload IS the file, so this bypasses `_request`'s
+        `json=` assumption rather than force-fitting a binary upload
+        through it. Returns `{sha256, bytes, anchor}`."""
+        params: dict[str, Any] = {"caption": caption}
+        if media_type is not None:
+            params["media_type"] = media_type
+        target = f"{self.base_url}/blob"
+        try:
+            response = await self._http.post("/blob", params=params, content=content)
+        except httpx.TimeoutException as exc:
+            raise ApiError(
+                LOCAL_FAILURE, f"timed out talking to {target}: {exc}",
+                {"transport": "timeout"},
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ApiError(
+                LOCAL_FAILURE, f"could not reach {target}: {exc}",
+                {"transport": type(exc).__name__},
+            ) from exc
+        if response.status_code >= 400:
+            raise ApiError.from_response(response)
+        return response.json()
+
+    async def fetch_blob(self, sha256: str) -> tuple[bytes, str | None]:
+        """JOB #2325/B2 — §2.2 `GET /blob/<sha256>`. Returns
+        `(content, media_type)`; the SUCCESS response is raw bytes, so
+        this does not route through `_request`'s `response.json()`
+        assumption either — only the ERROR path is JSON (FastAPI's own
+        shape), same as any other refusal on this API."""
+        target = f"{self.base_url}/blob/{sha256}"
+        try:
+            response = await self._http.get(f"/blob/{sha256}")
+        except httpx.TimeoutException as exc:
+            raise ApiError(
+                LOCAL_FAILURE, f"timed out talking to {target}: {exc}",
+                {"transport": "timeout"},
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ApiError(
+                LOCAL_FAILURE, f"could not reach {target}: {exc}",
+                {"transport": type(exc).__name__},
+            ) from exc
+        if response.status_code >= 400:
+            raise ApiError.from_response(response)
+        return response.content, response.headers.get("content-type")
+
     async def search(self, **params: Any) -> dict[str, Any]:
         """§11.x — substring over payloads. The structural filters scope
         both the results and the exclusion counts; `q` is never run

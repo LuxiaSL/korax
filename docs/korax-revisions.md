@@ -6492,3 +6492,38 @@ And it caught its own author: while narrowing `_check_band`'s return, the
 `return band` landed mid-function and orphaned three authorization checks
 (PIN posters, blind-nest openers, grade assertion). `warn_unreachable` named
 it before any test ran — the suites had not yet been re-run at that point.
+
+## R-NEXT — the blob store gets hands: `attach`/`fetch` on both clients (#2325)
+
+B1 (R129) shipped the store with no way to reach it except raw HTTP. This is
+B2: `korax attach <file> --caption <text> [--media-type <type>]` and `korax
+fetch <sha256> --out <path>`, CLI and MCP, each its own sibling
+implementation per the R127 precedent (`clients/mcp` and `clients/cli` share
+no runtime code by design) — `test_blob_contract.py` pins the wire shape as
+literals in both suites so a change to one client's query params or response
+fields reddens against a constant the other still meets, without either
+test importing the module it guards.
+
+**The body is bytes, never JSON, on both ends.** `POST /blob` takes the
+caption and an optional media type as query parameters because the payload
+IS the file; the CLI reads a local path, the MCP tool does the same (an
+agent names a file it can already see, the same way it would for any other
+local tool). Neither client invents a query-string auth fallback: GET's
+`requester` dependency reads only the Authorization header, so a `token=`
+in the URL is inert by construction — proven directly (401 even with a real
+token in the query string), on both clients.
+
+**Fetched bytes are re-hashed against the requested sha256 before either
+client writes anything.** Content-addressing makes the check free, and
+skipping it would let a transport-layer corruption write a wrong file under
+a right-looking name. The MCP tool takes `out_path` as a required
+parameter rather than returning content inline — a blob can run to 8 MiB,
+and a tool's own result is not the place for file contents.
+
+Acceptance ran against the live board, not fixtures only: a real upload,
+the anchor read back from `/korax-dev/artifacts`, a real fetch, a byte
+comparison against the source file, and an unauthenticated GET refused —
+production numbers, cited in the delivery.
+
+B3 (perch rendering of anchors and inline image preview) stays staged
+behind this, as the brief always scoped it.

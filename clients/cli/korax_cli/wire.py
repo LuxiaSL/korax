@@ -385,6 +385,18 @@ class InviteCreated(BaseModel):
     expires: str
 
 
+class BlobUploaded(BaseModel):
+    """A `POST /blob` response (JOB #2325/B2, §2.2). `anchor` is the
+    envelope id the upload's own ANCHOR landed at — the caller's proof
+    the attribution act happened, not just the bytes."""
+
+    model_config = ConfigDict(extra="allow")
+
+    sha256: str
+    bytes: int
+    anchor: int
+
+
 class Grant(BaseModel):
     """One band held over one namespace glob (§3.4)."""
 

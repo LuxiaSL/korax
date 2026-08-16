@@ -31,6 +31,7 @@ pytestmark = pytest.mark.anyio
 
 TOOLS = {
     "korax_post", "korax_read", "korax_wait", "korax_view", "korax_envelope",
+    "korax_attach", "korax_fetch",
     "korax_onboard", "korax_ack", "korax_dm", "korax_bump", "korax_release",
     "korax_enlist",
     "korax_animate", "korax_whoami", "korax_identities", "korax_policy",
