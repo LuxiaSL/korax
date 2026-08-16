@@ -118,6 +118,12 @@ readonly PERCH_PATHS=(
 declare -A LEG_STATUS=()   # name -> PASS | FAIL | SKIP
 declare -A LEG_DETAIL=()   # name -> one-line summary or reason
 declare -A LEG_OWED=()     # name -> owed | unowed  (only when it RAN)
+#: Process GROUPS this script created, one per leg. Teardown reaps these
+#: and nothing else — the same rule `server/tests/perch_rig.py` follows,
+#: and for the same reason: an early probe for that work identified a
+#: tree by SESSION and killed the shell running it (#2633). `killpg` is
+#: safe here only because these groups are ours by construction.
+LEG_PGIDS=()
 LEDGER_LINES=()
 
 TARGET_SHA=""
@@ -218,8 +224,19 @@ run_leg() {
   printf '  %-12s ... ' "$name" >&2
   local env_args=()
   [ "$MERGE_TARGET" -eq 1 ] && env_args=(KORAX_MERGE_TARGET=1)
-  ( cd "$WT" && env "${env_args[@]}" "$@" ) > "$LOGDIR/$name.log" 2>&1
+  # `set -m` puts the background job in its OWN process group whose pgid
+  # equals its pid, which is what makes `kill -- -$pid` reach the whole
+  # leg — pytest, the server it spawns, and Chrome's ~14 descendants.
+  # Without it an interrupted gate leaves the tree running AND deletes
+  # its scratch dir out from under it (#2611).
+  set -m
+  ( cd "$WT" && env "${env_args[@]}" "$@" ) > "$LOGDIR/$name.log" 2>&1 &
+  local leg_pid=$!
+  LEG_PGIDS+=("$leg_pid")
+  wait "$leg_pid"
   local rc=$?
+  set +m
+  forget_leg "$leg_pid"
   LEG_OWED[$name]="$owed"
   if [ $rc -eq 0 ]; then
     LEG_STATUS[$name]=PASS
@@ -269,8 +286,14 @@ browser_is_owed() {
 # ── the type lane: ONE command, TWO legs ──────────────────────────────
 run_lane_legs() {
   printf '  %-12s ... ' "ruff+mypy" >&2
-  ( cd "$WT" && uv run tools/type_lane.py ) > "$LOGDIR/type-lane.log" 2>&1
+  set -m
+  ( cd "$WT" && uv run tools/type_lane.py ) > "$LOGDIR/type-lane.log" 2>&1 &
+  local lane_pid=$!
+  LEG_PGIDS+=("$lane_pid")
+  wait "$lane_pid"
   local rc=$?
+  set +m
+  forget_leg "$lane_pid"
   LEG_OWED[ruff]=owed
   LEG_OWED[mypy]=owed
 
@@ -356,9 +379,15 @@ run_shallow_leg() {
     return
   fi
 
+  set -m
   ( cd "$shallow" && uv run --project . pytest -q clients/cli/tests ) \
-      > "$LOGDIR/shallow.log" 2>&1
+      > "$LOGDIR/shallow.log" 2>&1 &
+  local shallow_pid=$!
+  LEG_PGIDS+=("$shallow_pid")
+  wait "$shallow_pid"
   rc=$?
+  set +m
+  forget_leg "$shallow_pid"
   local ctl="control: bare path ${n_control:-?} of ${n_source:-?} commits (--depth ignored locally, as it must be)"
   if [ $rc -eq 0 ]; then
     LEG_STATUS[shallow]=PASS
@@ -546,7 +575,37 @@ report() {
   echo
 }
 
+#: REAP FIRST, THEN DELETE. The bounced-then-gated first cut removed the
+#: worktree and `rm -rf`'d the scratch tree while an interrupted leg's
+#: processes were still running — deleting a live Chrome's profile dir
+#: out from under it, which is strictly worse than doing nothing
+#: (#2611, disclosed at the R144 gate #2663).
+#: Drop a leg's group once it has been waited. NOT tidiness — a pgid
+#: whose leg has exited is a number the kernel is free to hand to
+#: somebody else, and `cleanup` runs on the NORMAL exit path too. Left
+#: in, this list would have teardown `kill -KILL -- -<pgid>` a group
+#: that by then belongs to a stranger, on a host the charter calls
+#: shared. Only groups believed to be running are ever signalled.
+forget_leg() {
+  local gone="$1" keep=() p
+  for p in "${LEG_PGIDS[@]}"; do
+    [ "$p" = "$gone" ] || keep+=("$p")
+  done
+  LEG_PGIDS=("${keep[@]}")
+}
+
+reap_legs() {
+  local pgid
+  for pgid in "${LEG_PGIDS[@]}"; do
+    [ -z "$pgid" ] && continue
+    [ "$pgid" = "$$" ] && continue          # never our own group
+    kill -KILL -- "-$pgid" 2>/dev/null
+  done
+  LEG_PGIDS=()
+}
+
 cleanup() {
+  reap_legs
   [ $KEEP -eq 1 ] && return 0
   if [ -n "$WT" ] && [ -d "$WT" ]; then
     git -C "$REPO_ROOT" worktree remove --force "$WT" >/dev/null 2>&1
@@ -559,7 +618,10 @@ cleanup() {
 main() {
   parse_args "$@"
   setup_worktree
-  trap cleanup EXIT
+  # INT and TERM as well as EXIT: an interrupted gate is the path
+  # that leaked, and an EXIT-only trap does not cover a Ctrl-C that
+  # kills the shell before it unwinds.
+  trap cleanup EXIT INT TERM
   run_battery
   run_ledger_checks
   report
