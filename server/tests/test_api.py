@@ -211,6 +211,18 @@ def test_conformance_endpoint(world: dict) -> None:
     assert "state" in body["views"]
 
 
+def test_conformance_discloses_the_signing_stub(world: dict) -> None:
+    """ISSUE #2261, item 1 of JOB #2507 — the conformance surface states
+    that v0 attribution rests on the token table beside `signing: stubbed`,
+    rather than leaving the gap only in STATUS.md."""
+    body = world["client"].get("/conformance").json()
+    assert body["signing"] == "stubbed"
+    assert "token table" in body["attribution"]
+    lowered = body["attribution"].lower()
+    for claim in ("signature verified", "signed by", "cryptographically"):
+        assert claim not in lowered
+
+
 def test_whoami(world: dict) -> None:
     r = world["client"].get("/whoami", headers=auth(world["op_token"]))
     assert r.status_code == 200
