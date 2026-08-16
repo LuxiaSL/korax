@@ -39,6 +39,9 @@ rig made the group*; it would be dangerous the moment somebody pointed
 this at a process they did not spawn.
 """
 
+# korax: spawns-deliberately — this module IS the shared spawning and
+# reaping core; every other site routes through it (#2608).
+
 from __future__ import annotations
 
 import ctypes

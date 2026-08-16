@@ -18,6 +18,9 @@ make the canary pass or fail for reasons unrelated to the rig (#2611).
 Descendants are found by walking `/proc` from the pid we spawned.
 """
 
+# korax: spawns-deliberately — the control test must leak, or it is not
+# a control; the rest spawn to prove the reaping (#2608, #2633).
+
 from __future__ import annotations
 
 import os
@@ -385,4 +388,64 @@ def test_every_browser_test_spawns_through_the_rig() -> None:
         "these tests spawn Chrome directly instead of through `perch_rig`, "
         "so they carry their own teardown and will leak the tree on SIGKILL "
         f"(#2608): {offenders}"
+    )
+
+def test_no_test_spawns_a_long_lived_child_outside_the_rig() -> None:
+    """**The guard above is too narrow in BOTH of its halves, and this is
+    the widening — announced at #2738, ruled at #2695.**
+
+    `test_every_browser_test_spawns_through_the_rig` asks whether a file
+    matching `test_perch_*.py` spawns CHROME. A leak needs neither
+    property. `test_goodbye_signal.py` fails the name pattern and spawns
+    a `uvicorn`, and it carried exactly the defect #2601 describes: no
+    `start_new_session`, and a `finally` that kills the root only — which
+    cannot run at all when pytest is SIGKILLed, leaving an HTTP server
+    holding a bound port for as long as the host is up. Nothing about it
+    looks like a browser to anyone hunting leaks.
+
+    **A pathspec nobody can trip is indistinguishable from one that is
+    watching** — this claimant's own sentence, from `gate.sh`'s
+    `PERCH_PATHS`, written while the narrow guard above was being
+    committed. So the question becomes the general one: does any test
+    start a child it does not hand to the rig?
+
+    `subprocess.run` is deliberately NOT prohibited. It waits, so it
+    cannot orphan a tree; treating its ~30 call sites as spawn sites is
+    what made the inventory read "six non-Chrome sites" when there was
+    one (#2738).
+    """
+    tests = Path(__file__).resolve().parent
+    # SPLIT AND SELF-EXCLUDING, for the same two reasons as the guard
+    # above: a literal needle matches this file's own source (the control
+    # test spawns a plain child on purpose), and a rename must not
+    # silently disarm the exclusion.
+    needle = "Popen" + "("
+    # THE EXEMPTION TRAVELS WITH THE FILE, NOT WITH THIS GUARD, and that
+    # is a correction rather than a preference (#2773). The first cut
+    # carried `allowed = {"perch_rig.py", ...}` — a denominator keyed on
+    # filenames, and therefore one that changes underneath the branch
+    # holding it. R150 merged `test_gate_sh_cleanup.py`, which spawns a
+    # gate deliberately; my own guard, green against the base it was
+    # written on, would have reddened on the merge target. Neither
+    # `--branch` gate could see it, because each ran against a base that
+    # did not contain the other.
+    #
+    # So a file that legitimately starts a long-lived child SAYS SO, in
+    # itself, with a reason. A new one arriving from any branch either
+    # declares itself or reddens — which is the guard working, not the
+    # guard going stale.
+    marker = "korax:" + " spawns-deliberately"
+    offenders = []
+    for path in sorted(tests.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if needle not in text:
+            continue
+        if marker in text:
+            continue
+        offenders.append(path.name)
+    assert not offenders, (
+        "these tests start a long-lived child outside `perch_rig`, so its "
+        "teardown is their own and cannot survive pytest being SIGKILLed "
+        f"(#2601, #2608): {offenders}. If the spawn is deliberate and "
+        f"reaped, declare it in the file with a `{marker}` line and a reason"
     )

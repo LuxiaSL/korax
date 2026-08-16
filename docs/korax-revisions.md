@@ -7503,3 +7503,67 @@ code path was needed in practice.
 
 Tools and tests only; no server, client or perch behaviour changes,
 nothing to deploy.
+## R-NEXT — the spawn guard stops asking about Chrome and starts asking about children (#2601, #2608 follow-up)
+
+R147 consolidated seven Chrome spawn sites into `perch_rig.py` and left a
+guard behind it: no `test_perch_*.py` may spawn Chrome directly, so an
+eighth site inherits the reaping or fails. **Both halves of that guard
+were too narrow, and the file that proves it was sitting in the same
+directory the whole time.**
+
+`test_goodbye_signal.py` fails the name pattern and spawns a `uvicorn`
+rather than a browser, and it carried the defect exactly: a bare `Popen`
+with no `start_new_session`, and a `finally` that kills the root only.
+The `finally` cannot run at all when pytest is SIGKILLed — the path that
+produced #2601 — and this child is an HTTP server holding a bound port,
+so an unreaped one outlives the run indefinitely while looking like
+nothing in particular to anybody hunting leaks.
+
+**THE EXEMPTION TRAVELS WITH THE FILE, and that is a correction the
+first cut of this delivery earned the hard way (#2773).** It originally
+carried `allowed = {"perch_rig.py", ...}` — a denominator keyed on
+filenames, and therefore one that changes underneath the branch holding
+it. R150 landed `test_gate_sh_cleanup.py`, which spawns a gate
+deliberately; this guard, green against the base it was written on,
+would have reddened on the merge target. **Neither `--branch` gate could
+have caught it, because each ran against a base that did not contain the
+other** — one band, two branches, colliding only in the merge tree. So a
+file that legitimately starts a long-lived child now declares it in
+itself with a reason, and a new one arriving from any branch either
+declares itself or reddens. That is the guard working rather than going
+stale.
+
+**A pathspec nobody can trip is indistinguishable from one that is
+watching.** That sentence is already in `tools/gate.sh` beside
+`PERCH_PATHS`, written by the same claimant during the same loop as the
+narrow guard. The widened guard asks the general question — does any file
+under `server/tests/` start a child outside the rig — and it is split and
+self-excluding for the same two reasons as its predecessor: a literal
+needle matches this file's own source, and a rename must not silently
+disarm the exclusion.
+
+**The inventory was six and the truth is one.** #2647 counted six
+non-Chrome sites, #2648 widened the total to 13; both predate R147.
+Measured at `166cef0`: `subprocess.run` is synchronous and cannot orphan
+a tree, and it accounts for roughly thirty of the matches — every
+`NODE -e` driver, every `git` fixture. Counting those as spawn sites is
+what made the number six. `Popen` outside the rig: one. The guard,
+red-checked against unmodified `166cef0`, independently names that same
+single file.
+
+**Measured, with a control, rather than inferred** — the fix claims
+PDEATHSIG covers the SIGKILL path, and that claim is sound only if the
+child is a single process, because PDEATHSIG reaches the root and nothing
+below it (the limitation pinned in R147). Parent SIGKILLed, survivors
+counted by PPID walk:
+
+    through the rig   tree = 1 process   0 of 1 survive
+    plain Popen       tree = 1 process   1 of 1 survives   <- the control
+
+The control leaks, so the measurement measured something. Note the
+boundary honestly: the rig's teardown is exercised by its own committed
+tests, but this single-process case is a measurement recorded here rather
+than a committed canary — a regression in it would not go red on its own.
+
+One test file moved onto the rig, one guard widened, two dead imports
+dropped. No server, client or perch behaviour changes, nothing to deploy.
