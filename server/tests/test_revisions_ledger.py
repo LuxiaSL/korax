@@ -262,3 +262,103 @@ def test_no_r_next_on_the_merge_target(headings: list[Heading]) -> None:
         "number at merge, where the ordering is finally known. Replace the "
         "token with the next free revision number."
     )
+
+
+# ---------------------------------------------------------------------------
+# The inline tag, everywhere else a shipping revision gets cited
+# (ISSUE #2400/#2403) — a DIFFERENT convention from the heading above, and
+# a different failure. `## R-NEXT` marks a whole ledger ENTRY, substituted
+# at merge by the desk's own ritual and guarded since JOB #715. `[R-NEXT]`
+# marks one CLAIM beside a rule, wherever that rule lives in prose — and
+# nothing had ever looked, in any file, for up to ~90 revisions:
+# `docs/korax-protocol.md` alone carried 18 unsubstituted instances at
+# discovery, 13 of them mid-sentence rather than headings, which is exactly
+# the shape a heading-anchored pattern cannot see (#2403's own gate-ritual
+# gap: `grep -cE '^## R-NEXT'` reported this file clean nine times running).
+# ---------------------------------------------------------------------------
+
+#: The bracketed form. Deliberately distinct from `_HEADING`'s pattern (no
+#: `##`, no em-dash) so this can never match the ledger's own heading
+#: convention — the two tags coexist in the same repo on purpose and must
+#: stay distinguishable by shape alone, not by which file they are in.
+_INLINE_TAG = "[R-NEXT]"
+
+
+def _docs_dir() -> Path:
+    return _repo_root() / "docs"
+
+
+def _markdown_files(root: Path) -> list[Path]:
+    return sorted(root.rglob("*.md"))
+
+
+def _find_inline_tags(files: list[Path]) -> list[tuple[Path, int, str]]:
+    """Every line across `files` carrying the literal `[R-NEXT]` tag.
+
+    Scans every `docs/**.md` file, never just the ledger — the defect this
+    guards against was found in prose, not in a heading, and there is no
+    reason to believe `korax-protocol.md` is the only document that can
+    grow one.
+    """
+    offenders: list[tuple[Path, int, str]] = []
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            if _INLINE_TAG in line:
+                offenders.append((path, line_no, line.strip()))
+    return offenders
+
+
+@pytest.mark.skipif(
+    not _merge_target(),
+    reason=(
+        f"{_MERGE_TARGET_ENV} is unset: an inline {_INLINE_TAG} tag is "
+        "CORRECT on an in-flight branch (the shipping revision is not "
+        "known until merge) — the same shape as the ledger's own heading "
+        "check, so this strict half runs only against the merge target too."
+    ),
+)
+def test_no_inline_r_next_tag_in_docs_on_the_merge_target() -> None:
+    """The substitution pass's own guard (#2400/#2403), so the 18-tag
+    backlog this delivery clears cannot silently reaccrue."""
+    offenders = _find_inline_tags(_markdown_files(_docs_dir()))
+    assert not offenders, (
+        f"inline {_INLINE_TAG} tag(s) reached the merge target — each "
+        "marks a rule whose shipping revision was never substituted for "
+        "the real one (#2400):\n"
+        + "\n".join(
+            f"  {p.relative_to(_repo_root())}:{n}: {line}"
+            for p, n, line in offenders
+        )
+    )
+
+
+def test_the_inline_tag_scan_can_fail(tmp_path: Path) -> None:
+    """Canary, red direction (#112). Both shapes #2403 distinguished — a
+    tag on a heading line and one mid-sentence — must actually be found,
+    or the guard above is silently vacuous on the shape that matters most
+    (13 of the 18 real instances were mid-sentence, not headings)."""
+    heading_doc = tmp_path / "heading.md"
+    heading_doc.write_text("### 1.1 A heading `[R-NEXT]`\n", encoding="utf-8")
+    inline_doc = tmp_path / "inline.md"
+    inline_doc.write_text(
+        "A claim, scoped `[R-NEXT]` mid-sentence.\n", encoding="utf-8"
+    )
+    found = _find_inline_tags([heading_doc, inline_doc])
+    assert len(found) == 2
+    assert found[0][0] == heading_doc and found[0][1] == 1
+    assert found[1][0] == inline_doc and found[1][1] == 1
+
+
+def test_the_inline_tag_scan_stays_quiet_on_a_clean_doc(tmp_path: Path) -> None:
+    """Canary, green direction. Real prose that mentions the ledger's own
+    `R-NEXT` convention BY NAME, unbracketed, must never trip this guard —
+    a scan keyed on the bare word would refuse the ledger's own preamble
+    explaining the convention, and every future reference to it."""
+    clean_doc = tmp_path / "clean.md"
+    clean_doc.write_text(
+        "This section shipped in R42. The next revision (written R-NEXT "
+        "in the ledger's own heading convention) is not this one.\n",
+        encoding="utf-8",
+    )
+    assert _find_inline_tags([clean_doc]) == []
