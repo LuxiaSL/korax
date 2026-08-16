@@ -68,7 +68,13 @@ def _mkrepo(root: Path) -> Path:
         "# Revisions\n\n## R1 — the beginning\n\nsome text\n"
     )
     (repo / "src" / "app.py").write_text("baseline\n")
-    _git(repo, "init", "-q", ".")
+    # `-b main` EXPLICIT (#2817): `git init`'s default branch name comes
+    # from `init.defaultBranch`, which is `main` on some hosts and
+    # `master` on others (CI's runner is `master`) — a fixture that
+    # relies on the ambient default is environment-dependent by
+    # construction and was invisible to every band who develops on a
+    # host configured `main`.
+    _git(repo, "init", "-q", "-b", "main", ".")
     _git(repo, "config", "user.email", "canary@example.invalid")
     _git(repo, "config", "user.name", "canary")
     _git(repo, "add", "-A")
@@ -271,14 +277,74 @@ def test_entry_added_recognises_a_merge_target_numbered_heading(repo: Path) -> N
     )
 
 
-def test_entry_added_was_red_on_the_real_unfixed_gate_sh(repo: Path) -> None:
-    """Red-first against the ACTUAL pre-fix source, not a restated
-    pattern — checks out `tools/gate.sh` as it shipped at R151
-    (`52f0261`, this branch's own ancestor), sources THAT file's real
-    `ledger_disposition_entry_added`, and proves it misses the same
-    merge-target fixture the fixed version (tested above) catches. The
-    old function still took (repo, base, target); base=target^1 here
-    keeps the call shape valid for both versions."""
+# #2817's diagnosis, cause 1: `git show 52f0261:tools/gate.sh` needs
+# 52f0261 reachable, which a depth-1 CI checkout does not have (#2409,
+# again). The PRE-FIX function is planted here as a literal string — a
+# fixture that keeps its meaning in a shallow clone, per the desk's
+# ruled hybrid (#2818) — and the git-history read below is kept as an
+# ADDITIONAL, declared-skip-on-absence assertion: the strongest form of
+# red-first (reproduced from the actual shipped bytes) wherever history
+# is available, never a silent gap where it is not.
+_PRE_FIX_ENTRY_ADDED = '''
+ledger_disposition_entry_added() {
+  local repo="$1" base_sha="$2" target_sha="$3"
+  git -C "$repo" diff "$base_sha" "$target_sha" -- docs/korax-revisions.md 2>/dev/null \\
+    | grep -qE '^\\+##[[:space:]]+R-NEXT\\b'
+}
+'''
+
+
+def test_entry_added_was_red_on_the_pre_fix_function(repo: Path) -> None:
+    """Red-first against the pre-fix `entry_added`, planted as a fixture
+    so this runs identically in a shallow CI clone: the R151 shape
+    (`R-NEXT` only) must MISS a numbered heading, which is the exact
+    defect #2777 found and this delivery fixes."""
+    old_script = repo.parent / "pre-fix-entry-added.sh"
+    old_script.write_text(_PRE_FIX_ENTRY_ADDED)
+
+    base = _head(repo)
+    (repo / "src" / "app.py").write_text("changed\n")
+    with (repo / "docs" / "korax-revisions.md").open("a") as f:
+        f.write("\n## R150 — a fixture entry, already numbered\n\nfixture\n")
+    _git(repo, "commit", "-qam", "simulates a desk merge: the heading arrives numbered")
+    target = _head(repo)
+
+    proc = subprocess.run(
+        ["bash", "-c",
+         f'source "{old_script}"\nledger_disposition_entry_added "$@"',
+         "ledger_disposition_entry_added", str(repo), base, target],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode != 0, (
+        "the planted PRE-FIX function was expected to MISS a numbered "
+        "heading — if it now matches, the planted fixture no longer "
+        "represents the R151 shape this test documents"
+    )
+
+
+def test_entry_added_was_red_on_the_real_unfixed_gate_sh_where_history_exists(
+    repo: Path,
+) -> None:
+    """The stronger form of the test above: reproduced from the ACTUAL
+    shipped bytes at R151 (`52f0261`) via a real `git show`, not a
+    hand-copied string — but only where that history is reachable.
+    `actions/checkout@v4` clones at depth 1, so `52f0261` does not exist
+    in CI's checkout (#2409); this declares a SKIP by name there rather
+    than failing on an environment gap or silently passing on nothing
+    (#2682's principle), and runs for real in any full clone, including
+    every local dev run."""
+    probe = subprocess.run(
+        ["git", "cat-file", "-e", "52f0261"],
+        cwd=REPO, capture_output=True, text=True, check=False,
+    )
+    if probe.returncode != 0:
+        pytest.skip(
+            "52f0261 is not reachable in this checkout (shallow clone, "
+            "e.g. CI's actions/checkout@v4 at depth 1, #2409) — see the "
+            "planted-fixture form of this test for the shallow-safe "
+            "coverage"
+        )
+
     old_gate = subprocess.run(
         ["git", "show", "52f0261:tools/gate.sh"],
         cwd=REPO, capture_output=True, text=True, check=True,
