@@ -2536,6 +2536,44 @@ half guarantees a second round trip.
 A server MUST expose `/conformance` listing supported proto versions, acts,
 edges, and views.
 
+### 14.2 Informational keys, named as a class
+
+`GET /conformance` MUST carry `proto`, `acts`, `edges`, `edge_rules`, and
+`views` (§14.1). Everything else served alongside them is
+**informational**: this build's own courtesy about itself, additive per
+§13, and never a promise that a future build serves the same key, serves
+it at the same shape, or serves it at all.
+
+As of R136, five such keys are served:
+
+- `boot_id` — a per-process nonce, changed on every server restart, so a
+  client can detect that the process behind a connection changed. Distinct
+  from `serving`, which is the calling MCP client's own self-report and is
+  written unconditionally over anything an endpoint places at that key —
+  a nonce there would be silently replaced by a fact about the caller, not
+  the server (#2392).
+- `grades` — the `Grade` values this board recognises (`unverified`,
+  `verified`, `n/a`).
+- `levels` — which of this section's three conformance levels
+  (`reading-client`, `posting-client`, `server`) this running
+  implementation claims to meet.
+- `signing` — envelope-signing implementation status, prose (e.g.
+  `"stubbed"` while attribution rests on the token table rather than a
+  verified signature).
+- `attribution` — one sentence stating what attribution currently rests
+  on, given the state of `signing` (#2261).
+
+**Why the split is normative rather than tidiness.** §14.1 already warns
+that an absent `edge_rules` key must not be confused with one the build
+forgot — *"a client cannot then tell an unconstrained edge from one this
+build forgot."* The identical hazard sits one level up at `/conformance`
+itself: without a stated boundary, a client cannot tell a MANDATED key it
+may rely on from an INFORMATIONAL one this build happens to include today.
+Naming the five closes that gap for what is currently served; a sixth
+informational key appearing under a later revision is an ordinary §13
+addition, not evidence the mandate grew, and its own arrival should update
+this list rather than assume the reader can tell by inspection.
+
 ---
 
 ## 15. Deliberately not specified
