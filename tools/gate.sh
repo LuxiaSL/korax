@@ -46,13 +46,21 @@
 # authored act, and diff-reading — the `_annotate` control in #2478,
 # the UNKNOWN semantics in #2481 — stays human work no script does.
 #
-# TEN LEGS, NINE COMMANDS. #2478's table counts ruff and mypy
+# ELEVEN LEGS, TEN COMMANDS. #2478's table counts ruff and mypy
 # separately and the gavel settled M = 10 at #2514. Since R135/#2379,
 # `uv run tools/type_lane.py` IS the lane and the bare commands are not
 # citable as delivery evidence — so ONE invocation reports TWO legs,
 # attributed from the wrapper's own `lane FAILED: <names>` line. If that
 # line cannot be parsed the failure is attributed to BOTH, because
 # guessing which checker passed is the one direction that fails green.
+#
+# LEG 11 IS THE LEDGER-DISPOSITION GUARD (#2680 → #2682). A delivery
+# that owes a ledger entry and brings none passed all nine tests in
+# `test_revisions_ledger.py` — every one of them is a property of a
+# heading that IS present, and none can observe an entry that was never
+# written (`214a776`, #2671/#2673). M moves 10 → 11 for exactly that
+# reason, and it is a deliberate act named at this leg's own delivery,
+# not a side effect (#2680's own framing, applied to itself).
 #
 # USAGE
 #   tools/gate.sh <merge-target-sha> [--base <ref>] [--keep] [--branch]
@@ -96,6 +104,7 @@ readonly LEG_NAMES=(
   ruff
   mypy
   shallow
+  ledger-disposition
 )
 readonly LEG_COUNT=${#LEG_NAMES[@]}
 
@@ -266,6 +275,44 @@ browser_is_owed() {
   [ -n "$changed" ]
 }
 
+# ── the ledger-disposition primitives (#2680 → #2682) ─────────────────
+# Each takes REPO/BASE/TARGET as explicit arguments, unlike
+# browser_is_owed above — this leg's own decision logic (four cases over
+# two signals, one of them a contradiction) is complex enough that a
+# test reimplementing it in Python risks silently agreeing with a bug in
+# the real one (#2668's canary rule). Parameterized, the acceptance
+# suite calls THESE functions directly, against planted fixture repos,
+# instead of restating their logic.
+ledger_disposition_is_owed() {
+  local repo="$1" base_sha="$2" target_sha="$3" changed
+  changed="$(git -C "$repo" diff --name-only "$base_sha" "$target_sha" 2>/dev/null)"
+  [ -n "$changed" ] || return 1
+  printf '%s\n' "$changed" | grep -qvE '^docs/'
+}
+
+# THE ENTRY MUST ARRIVE IN THE RANGE, NOT BE INHERITED (#2688's
+# sharpening on the brief): a branch that merely carries a base's own
+# pre-existing `## R-NEXT` heading through, untouched, has brought
+# nothing new. Grepping the DIFF's ADDED lines — never the file's
+# resting content at target — is what keeps that true.
+ledger_disposition_entry_added() {
+  local repo="$1" base_sha="$2" target_sha="$3"
+  git -C "$repo" diff "$base_sha" "$target_sha" -- docs/korax-revisions.md 2>/dev/null \
+    | grep -qE '^\+##[[:space:]]+R-NEXT\b'
+}
+
+# THE ESCAPE IS A COMMIT TRAILER, NEVER SILENCE (#2682 ruling 2): a
+# delivery legitimately owing no entry (a tightening repair, #2550's
+# criterion) states so IN THE ARTIFACT. The exact spelling is this
+# leg's to fix (ruled) — `Ledger: none` as a trailer-shaped line,
+# anywhere in any commit's body across the whole range, is read as
+# present regardless of which commit carries it.
+ledger_disposition_trailer_present() {
+  local repo="$1" base_sha="$2" target_sha="$3"
+  git -C "$repo" log --format=%B "${base_sha}..${target_sha}" 2>/dev/null \
+    | grep -qE '^Ledger:[[:space:]]*none\b'
+}
+
 # ── the type lane: ONE command, TWO legs ──────────────────────────────
 run_lane_legs() {
   printf '  %-12s ... ' "ruff+mypy" >&2
@@ -371,6 +418,71 @@ run_shallow_leg() {
   fi
 }
 
+# ── the ledger-disposition leg: LEG 11, a GUARD not an echo ───────────
+# Cut from the mill's own routing (#2680), ruled at #2682. The four
+# LEDGER_LINES `run_ledger_checks` prints below are unchanged display
+# echoes of the suite's own guards (#2635); this is the exit-code-
+# bearing check that makes an OWED-BUT-SILENT delivery a red gate
+# instead of a near-miss two seats happened to catch by hand in the
+# same ten minutes (`214a776`, #2671/#2673).
+#
+# DISPOSITION MUST BE EXACTLY ONE (#2682 ruling 3). Owed means the
+# base..target diff touches any path outside docs/. When owed, exactly
+# one of {an added `## R-NEXT` heading in the ledger diff, a
+# `Ledger: none` trailer in base..target} must be present — zero of
+# either is the `214a776` shape; BOTH at once is also red, because an
+# entry that also claims to be none is a contradiction, not a stronger
+# green.
+#
+# NO FALLBACK WITHOUT --base, UNLIKE THE BROWSER LEG. browser_is_owed
+# can run its whole suite without a base (worst case: an unowed run);
+# this leg's OWN CHECK, not just its owed-ness, is a question about a
+# RANGE — with no base there is nothing to scan, so it skips rather
+# than guessing at ownership.
+run_ledger_disposition_leg() {
+  if [ -z "$BASE_REF" ]; then
+    skip_leg ledger-disposition "no --base given — this leg's own check needs the range, not just its owed-ness"
+    return
+  fi
+
+  local base_sha
+  base_sha="$(git -C "$REPO_ROOT" rev-parse --verify "${BASE_REF}^{commit}" 2>/dev/null)"
+  if [ -z "$base_sha" ]; then
+    skip_leg ledger-disposition "--base ${BASE_REF} does not resolve to a commit in this repo"
+    return
+  fi
+
+  if ! ledger_disposition_is_owed "$REPO_ROOT" "$base_sha" "$TARGET_SHA"; then
+    skip_leg ledger-disposition "diff against ${BASE_REF} touches only docs/ (or nothing) — not owed"
+    return
+  fi
+
+  printf '  %-12s ... ' "ledger-disposition" >&2
+  local entry_added=0 trailer_present=0
+  ledger_disposition_entry_added "$REPO_ROOT" "$base_sha" "$TARGET_SHA" && entry_added=1
+  ledger_disposition_trailer_present "$REPO_ROOT" "$base_sha" "$TARGET_SHA" && trailer_present=1
+
+  LEG_OWED[ledger-disposition]=owed
+  case $((entry_added + trailer_present)) in
+    1)
+      LEG_STATUS[ledger-disposition]=PASS
+      if [ $entry_added -eq 1 ]; then
+        LEG_DETAIL[ledger-disposition]="disposition: ## R-NEXT entry added in docs/korax-revisions.md"
+      else
+        LEG_DETAIL[ledger-disposition]="disposition: Ledger: none trailer present in ${BASE_REF}..${TARGET_SHA:0:12}"
+      fi
+      printf 'PASS\n' >&2 ;;
+    0)
+      LEG_STATUS[ledger-disposition]=FAIL
+      LEG_DETAIL[ledger-disposition]="owed (diff touches paths outside docs/) but neither an added ledger entry nor a Ledger: none trailer is present"
+      printf 'FAIL (no entry, no trailer)\n' >&2 ;;
+    2)
+      LEG_STATUS[ledger-disposition]=FAIL
+      LEG_DETAIL[ledger-disposition]="both an added ledger entry AND a Ledger: none trailer are present — contradiction, a stated none alongside a real entry"
+      printf 'FAIL (both entry and trailer)\n' >&2 ;;
+  esac
+}
+
 # ── the battery ───────────────────────────────────────────────────────
 run_battery() {
   printf 'running %d legs against %s\n' "$LEG_COUNT" "${TARGET_SHA:0:12}" >&2
@@ -406,6 +518,7 @@ run_battery() {
 
   run_lane_legs
   run_shallow_leg
+  run_ledger_disposition_leg
 }
 
 # ── the ledger checks ─────────────────────────────────────────────────
@@ -532,7 +645,7 @@ report() {
     done
     echo "  not owed ${u} — run anyway, deliberate over-measurement"
   fi
-  echo "  commands  $LEG_COUNT legs from 9 invocations (the type lane is one"
+  echo "  commands  $LEG_COUNT legs from 10 invocations (the type lane is one"
   echo "            command reporting ruff and mypy since R135/#2379)"
   echo
 
@@ -556,6 +669,13 @@ cleanup() {
   return 0
 }
 
+# Sourcing guard, so the acceptance suite can `source` this file and
+# call the ledger-disposition primitives directly against a planted
+# fixture repo — the leg's OWN LOGIC under real execution, at a cost
+# far below running all ten of the other legs per fixture (#2682's
+# acceptance: real invocations, not a reimplementation). Standard bash
+# idiom; changes nothing about `bash tools/gate.sh ...`, where
+# BASH_SOURCE[0] already equals $0.
 main() {
   parse_args "$@"
   setup_worktree
@@ -573,4 +693,6 @@ main() {
   return 0
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

@@ -107,16 +107,20 @@ def test_every_leg_captures_the_exit_code_on_the_next_line() -> None:
 
 # ── the denominator (#2485, #2514) ────────────────────────────────────
 
-def test_the_battery_declares_ten_legs() -> None:
+def test_the_battery_declares_eleven_legs() -> None:
     """M comes from the DECLARATION, which is the whole point.
 
     The gavel settled M = 10 at #2514: 3 suites + browser + 3 CI-parity
-    + 2 lane + shallow. A report that counted what it happened to run
-    could not tell a shrunken battery from a whole one (#2482).
+    + 2 lane + shallow. #2680/#2682 cut an eleventh, ledger-disposition,
+    and named the denominator move as a deliberate act rather than a
+    side effect — this assertion is that act, restated as a check. A
+    report that counted what it happened to run could not tell a
+    shrunken battery from a whole one (#2482).
     """
     legs = _bash_array("LEG_NAMES")
-    assert len(legs) == 10, f"expected 10 declared legs, found {len(legs)}: {legs}"
+    assert len(legs) == 11, f"expected 11 declared legs, found {len(legs)}: {legs}"
     assert len(set(legs)) == len(legs), f"duplicate leg name in {legs}"
+    assert "ledger-disposition" in legs
 
 
 def test_ruff_and_mypy_are_separate_legs_though_one_command_runs_them() -> None:
