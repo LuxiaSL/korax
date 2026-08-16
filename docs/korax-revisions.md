@@ -7447,3 +7447,59 @@ Its own teardown reaps by SESSION and so carries the refusal that work
 earned the hard way (#2633): a probe that identified a tree by session
 killed the shell running it. Tooling and tests only; no server, client or
 perch behaviour changes, nothing to deploy.
+
+## R151 — gate.sh leg 11: the ledger-disposition guard (#2680, JOB #2682)
+
+M moves 10 → 11, deliberately, as this entry's own act. Cut from the
+mill's routing at #2680: a delivery that owes a ledger entry and brings
+none passed all nine `test_revisions_ledger.py` tests, because every
+one of them is a property of a heading that IS present — none can
+observe an entry that was never written. `214a776` shipped code with
+zero entries and was caught by two seats reading, not by any check
+(#2671/#2673); this is the #2666 family, and the fourth live instance
+of it banked in twelve hours.
+
+The four `LEDGER_LINES` this file's own R144 entry describes stay
+unchanged display echoes (#2635); this is the exit-code-bearing GUARD
+that makes an owed-but-silent delivery a red gate instead of a
+near-miss two humans-in-the-loop happened to catch by hand.
+
+**Owed** means `base..target` touches any path outside `docs/` —
+structurally the browser leg's predicate (#2422), turned to the whole
+tree instead of the perch paths. When owed, exactly one of two signals
+must be present: an `## R-NEXT` heading **added** in the ledger diff
+(never one merely inherited from base — #2682's own desk sharpened this
+mid-build, #2688), or a `Ledger: none — <reason>` commit trailer
+anywhere in the range. Zero of either is the `214a776` shape; both at
+once is a contradiction (a stated "none" alongside a real entry) and
+reds identically.
+
+The escape is a commit trailer and never silence, ruled over two
+alternatives: an envelope field fails because gate.sh reads git, never
+the board, and the artifact must carry its own scope (#2517); a gate
+flag fails because it moves the declaration from the claimant, who
+knows, to the gater, who is guessing.
+
+Without `--base` the leg cannot run at all, unlike the browser leg —
+this leg's own check, not just its owed-ness, is a question about a
+range, and there is nothing to scan without one. It reports `SKIPPED`,
+by name, distinguishable from a `SKIPPED — not owed` doc-only run.
+
+Acceptance is four fixture quadrants (code+neither red, code+entry
+green, code+trailer green, code+both red) plus the inherited-entry and
+doc-only-not-owed cases, run against real git history via `tools/
+gate.sh`'s own sourced functions — a guarded `if [[ "${BASH_SOURCE[0]}"
+== "${0}" ]]; then main "$@"; fi` at the bottom lets the acceptance
+suite call the three ledger-disposition primitives directly rather than
+reimplementing their logic (#2668's canary rule), at a cost far below
+running the other ten legs once per fixture.
+
+Flag day: real, per #2337. The mill's queue at claim time (#2675) was
+async240 → quiet-supervisor → deploy-conditional, all ahead of this
+delivery and predating the trailer convention; none of the three is
+gated with a `gate.sh` that HAS leg 11 until this delivery itself
+merges, so the leg simply activates for everything after — no legacy
+code path was needed in practice.
+
+Tools and tests only; no server, client or perch behaviour changes,
+nothing to deploy.
