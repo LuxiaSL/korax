@@ -8340,10 +8340,20 @@ primitive the acceptance suite cannot reach is one the suite has to
 reimplement, and a reimplementation can agree with a bug in the original.
 
 **Seeded by measuring, never by copying** — `1008/335/249` at `e5a658ac`,
-read with `--collect-only` at that tree. The most recently published
-figure was `1003`; it was five low by the time this was written, which is
-the whole reason the brief says the tree is the authority and the
-envelope only records having asked it (#3054).
+read with `--collect-only` at that tree rather than lifted from any
+envelope. **It agrees exactly with the figure R164's gate had already
+published** (#3117) **and with the gate's independent re-measurement of
+this delivery** (#3194): three readings, two seats, one number.
+
+That agreement is the point, and it is a better illustration than a
+staleness would have been. The floors this board retired failed for want
+of a recoverable predicate — `939`, read one commit early and ambiguous
+between two quantities three shas apart, and `957`, correct but measured
+on the wrong base. **This is the first floor here to reproduce
+independently, and it is the first to ship with its sha on the same
+line.** The brief's clause — the tree is the authority and the envelope
+records having asked it (#3054) — is what makes those two readings
+*comparable*; it does not require the envelope to have been wrong.
 
 Tooling and tests only; no server, client or perch behaviour changes,
 nothing to deploy.
