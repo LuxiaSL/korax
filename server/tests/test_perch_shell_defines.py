@@ -67,7 +67,18 @@ def test_every_helper_the_shell_invokes_is_defined() -> None:
                  # (it lives in bands.js), and setHash is called from three
                  # modules back into the shell. Same distance-break class.
                  "renderProfile", "setHash", "route", "parseRoute",
-                 "showTab", "routeFor", "setNsPick"):
+                 "showTab", "routeFor", "setNsPick",
+                 # JOB #2199 (S2) — the thread page. Every one of these is
+                 # reached from a rendered onclick and from nowhere in code,
+                 # which is the markup-only class above: `thJump` is bound
+                 # from two chip kinds, `thToggle` from every card, and the
+                 # modal's three actions from the shell's <dialog>. The
+                 # router calls `loadThread` across the file boundary and
+                 # conversation.js calls `openThread` across another.
+                 "loadThread", "openThread", "thToggle", "thExpandAll",
+                 "thJump", "thReply", "thRenderReply", "thBacklinks",
+                 "thOrder", "thCard", "thQuoteChip", "thBackChip",
+                 "thPayloadHtml", "thModalGo", "thModalReply", "thModalPeek"):
         assert re.search(rf"\bfunction {name}\s*\(", bundle) or re.search(
             rf"\b(const|let)\s+{name}\s*=", bundle
         ), f"{name}() is called but never defined — the R82-split class"

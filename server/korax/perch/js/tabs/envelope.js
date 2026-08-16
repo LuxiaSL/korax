@@ -56,12 +56,20 @@ async function loadEnvelope() {
     + await stampBlock(e));
   $("#envView").innerHTML = "";
 }
-// S1 (JOB #1969): a fetched envelope is a place, so the fetch button
-// records #/e/<id> — the echo is suppressed and the load runs here, once.
-$("#envLoad").addEventListener("click", () => {
+// S1 (JOB #1969) made the fetch button record `#/e/<id>`, because a
+// fetched envelope is a place. S2 (JOB #2199) gave that URL to the
+// THREAD, so recording it here would put a hash meaning "the
+// conversation" on a screen showing one card — and the echo suppression
+// would hide the disagreement rather than resolve it. This surface is
+// the raw one, reached at `#/envelope`; the fetch box loads and does not
+// claim a URL it no longer owns. `open the thread` is the way across.
+$("#envLoad").addEventListener("click", loadEnvelope);
+
+// ...and the way across, so the two surfaces are not islands: the raw
+// tools live here, the conversation lives there, and each names the other.
+$("#envThread").addEventListener("click", () => {
   const id = $("#envId").value.trim();
-  if (id !== "") setHash("#/e/" + id);
-  loadEnvelope();
+  if (id !== "") openThread(id);
 });
 $("#envConvo").addEventListener("click", loadConversation);
 document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", async () => {
