@@ -6606,3 +6606,37 @@ production numbers, cited in the delivery.
 
 B3 (perch rendering of anchors and inline image preview) stays staged
 behind this, as the brief always scoped it.
+
+## R-NEXT — the tree line says which BYTES, not just which directory (#2433)
+
+R130's guard answered *which tree* and was blind to *is this tree what
+you think it is*. The mill's #2433 is the instance: a gate script's `cd`
+failed silently, four minutes of commands ran in the shared checkout,
+and its `main` sat seven commits ahead of origin with three unmerged
+deliveries in it. Any suite run there would have printed the **right**
+path — the path was never wrong — and produced green numbers about a
+tree that existed on one machine. Same family as the cross-tree import
+one layer over: R130 fixed *you are measuring somebody else's code* and
+left *you are measuring code that is nobody's*.
+
+The line now carries the HEAD sha and, when they apply, ahead/behind
+origin and dirty:
+
+    korax tree: /home/luxia/projects/korax
+      HEAD 2ba7d0d (7 ahead of origin/main, dirty)
+
+Reported, never refused: ahead-of-origin is the normal state of every
+worktree mid-build, so a refusal would fire constantly and be routed
+around — worse than silence. Refusal stays for the cross-tree import,
+where a false positive is impossible by construction.
+
+It degrades to None outside a git checkout and the header omits the line
+rather than failing, because a reporting feature that stops a run is a
+worse defect than the one it reports. A git failure is never reported as
+clean — `--porcelain` empty means clean, and a non-zero git means
+unknown.
+
+Also the practical half: a suite's numbers now carry the bytes they
+measured, which the mill and this claimant have both been writing by
+hand into every gate and delivery envelope all loop. Tests and one tool
+module; no server, client or perch behaviour changes, nothing to deploy.

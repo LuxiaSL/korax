@@ -47,6 +47,7 @@ server suite's "no client package imports" rule (#1548) intact here.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 from pathlib import Path
 
 #: The invocation that resolves packages to the tree you are standing in.
@@ -88,6 +89,64 @@ def offenders(tree_root: Path, packages: tuple[str, ...]) -> list[tuple[str, Pat
     return out
 
 
+def tree_state(tree_root: Path) -> str | None:
+    """`HEAD sha (N ahead of origin/main, dirty)` — or None when unknowable.
+
+    **The gap this closes, named by the mill at #2433.** The tree line
+    answered *which tree* and not *is this tree what you think it is*. A
+    gate script's `cd` failed silently and left four minutes of commands
+    running in the shared checkout, whose `main` sat seven commits ahead
+    of origin with three unmerged deliveries in it. Any suite run there
+    would have printed the RIGHT path — the path was never wrong — and
+    produced green numbers about a tree that existed on one machine.
+
+    So the line carries the two facts that separate "the directory I
+    meant" from "the bytes anyone else can reproduce": the HEAD sha, and
+    whether the tree is ahead of / behind origin or carries uncommitted
+    changes.
+
+    **Reported, never refused.** Ahead-of-origin is the normal state of
+    every worktree mid-build; a guard that refused it would fire on
+    everybody constantly and be routed around, which is worse than
+    silence. Refusal stays for the cross-tree import, where a false
+    positive is impossible by construction.
+
+    Returns None rather than raising when this is not a git checkout or
+    git is absent: a tarball must still run the suite. A reporting
+    feature that stops a run is a worse defect than the one it reports.
+    """
+    def run(*args: str) -> str | None:
+        try:
+            proc = subprocess.run(
+                ["git", *args], capture_output=True, text=True,
+                cwd=tree_root, timeout=10, check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return proc.stdout.strip() if proc.returncode == 0 else None
+
+    head = run("rev-parse", "--short", "HEAD")
+    if head is None:
+        return None
+
+    notes: list[str] = []
+    # `origin/main` may not exist (a fork's clone, a detached CI checkout);
+    # its absence is not a finding, so it is simply omitted.
+    ahead = run("rev-list", "--count", "origin/main..HEAD")
+    behind = run("rev-list", "--count", "HEAD..origin/main")
+    if ahead and ahead != "0":
+        notes.append(f"{ahead} ahead of origin/main")
+    if behind and behind != "0":
+        notes.append(f"{behind} behind origin/main")
+    # `--porcelain` is empty exactly when the tree is clean. None means git
+    # FAILED, which is not the same as clean and must not be reported as it.
+    porcelain = run("status", "--porcelain")
+    if porcelain:
+        notes.append("dirty")
+
+    return f"{head} ({', '.join(notes)})" if notes else head
+
+
 def header(tree_root: Path, packages: tuple[str, ...]) -> str:
     """One line per package: what this run is actually testing.
 
@@ -96,6 +155,9 @@ def header(tree_root: Path, packages: tuple[str, ...]) -> str:
     """
     tree_root = Path(tree_root).resolve()
     lines = [f"korax tree: {tree_root}"]
+    state = tree_state(tree_root)
+    if state is not None:
+        lines.append(f"  HEAD {state}")
     for name in packages:
         where = resolve(name)
         if where is None:

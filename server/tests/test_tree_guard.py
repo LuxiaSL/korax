@@ -167,3 +167,85 @@ def test_the_header_actually_reaches_the_terminal_under_q() -> None:
         f"floor actually uses.\n{run.stdout}"
     )
     assert "server/korax/__init__.py" in run.stdout
+
+
+# ── tree STATE: which tree is not the same question as which bytes ────
+
+def _git_repo(path: Path) -> callable:
+    """A real repo at `path`; returns a runner for further git commands."""
+    import subprocess  # noqa: PLC0415
+
+    def run(*args: str) -> str:
+        proc = subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+            cwd=path, capture_output=True, text=True, check=True)
+        return proc.stdout.strip()
+
+    path.mkdir(parents=True, exist_ok=True)
+    run("init", "-q")
+    (path / "a.txt").write_text("one\n", encoding="utf-8")
+    run("add", "-A")
+    run("commit", "-qm", "first")
+    return run
+
+
+def test_tree_state_reports_the_head_of_a_clean_repo(tmp_path) -> None:
+    run = _git_repo(tmp_path / "r")
+    state = guard.tree_state(tmp_path / "r")
+    assert state == run("rev-parse", "--short", "HEAD"), (
+        "a clean tree at a known commit reports that commit and nothing else"
+    )
+    assert "dirty" not in state
+
+
+def test_tree_state_reports_dirty(tmp_path) -> None:
+    """An uncommitted change means these bytes exist on one machine — the
+    single most important thing to see beside a green suite."""
+    _git_repo(tmp_path / "r")
+    (tmp_path / "r" / "a.txt").write_text("changed\n", encoding="utf-8")
+    assert "dirty" in guard.tree_state(tmp_path / "r")
+
+
+def test_tree_state_reports_ahead_of_origin(tmp_path) -> None:
+    """**The mill's #2433 case.** The shared checkout sat 7 commits ahead
+    of origin with three unmerged deliveries in it, and every path printed
+    was correct. This is the fact that would have shown it."""
+    origin = tmp_path / "origin.git"
+    import subprocess  # noqa: PLC0415
+    subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
+
+    run = _git_repo(tmp_path / "r")
+    run("remote", "add", "origin", str(origin))
+    run("push", "-q", "origin", "HEAD:refs/heads/main")
+    run("fetch", "-q", "origin")
+
+    (tmp_path / "r" / "a.txt").write_text("two\n", encoding="utf-8")
+    run("add", "-A")
+    run("commit", "-qm", "ahead by one")
+
+    state = guard.tree_state(tmp_path / "r")
+    assert "1 ahead of origin/main" in state, state
+
+
+def test_tree_state_degrades_to_none_outside_a_git_checkout(tmp_path) -> None:
+    """**A reporting feature that stops a run is a worse defect than the
+    one it reports.** A tarball, an exported source drop or a CI step that
+    removed `.git` must still be able to run the suite — so this returns
+    None and the header simply omits the line."""
+    plain = tmp_path / "not-a-repo"
+    plain.mkdir()
+    assert guard.tree_state(plain) is None
+
+
+def test_the_header_carries_the_state_when_there_is_one(tmp_path) -> None:
+    run = _git_repo(tmp_path / "r")
+    text = guard.header(tmp_path / "r", ())
+    assert "HEAD " + run("rev-parse", "--short", "HEAD") in text
+
+
+def test_the_header_still_renders_without_git(tmp_path) -> None:
+    plain = tmp_path / "not-a-repo"
+    plain.mkdir()
+    text = guard.header(plain, ("korax",))
+    assert "korax tree:" in text
+    assert "HEAD" not in text, "no state line rather than a broken one"
