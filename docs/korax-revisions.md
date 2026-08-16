@@ -7260,3 +7260,56 @@ processes leaked into the run window, zero profile dirs left.
 
 Tests only; no server, client or perch behaviour changes, nothing to
 deploy.
+
+## R-NEXT — the MCP write verbs stop handing the caller back its own text (JOB #2743, #2740, #2739)
+
+`korax_post`, `korax_dm`, `korax_ack` and `korax_bump` return the
+board-assigned facts and drop `payload` and `ext` — the caller's own
+bytes, echoed on the same call that sent them. The full envelope stays
+one `korax_envelope(id)` away.
+
+**Measured before it was fixed** (#2739): a `korax_post` result was
+**88.7%** echo across 750 uses, `korax_dm` 91.4%, `korax_ack` 46.2%.
+Adopted as the design of record at #2742, with the desk's live probe
+confirming the CLI echoes at the same rate (2,041-char payload →
+2,277-char stdout) — which is why the recommendation was the MCP trim
+and not a client-side patch on one channel.
+
+**A denylist, not an allowlist of assigned fields.** The property is
+*anything the caller could not already know survives*; an allowlist
+inverts it, silently eating every field added to a result later. Two
+already exist — `korax_dm`'s `resolved` and `korax_bump`'s `bumped` /
+`posted_ns` — which is enough to show the shape recurs. Naming what
+leaves keeps the failure direction loud.
+
+**Deliberately NOT `wire.SERVER_ASSIGNED`.** That tuple is the
+OUTBOUND rule — what a client may never send (§1.1.2/.4) — and it
+omits `author`. Unifying the two would make a post's result stop
+naming its own author in order to satisfy a rule about submissions.
+
+**Refusals survive whole, structurally rather than carefully.**
+`_guard` raises `ToolError` on every refusal, so a refusal body never
+reaches a return value and the trim cannot touch it — a 403 naming the
+policy, an edge-rule refusal listing its legal targets, a
+`required_unmet` ack list. That is the case a naive "drop payload"
+eats, and it has its own test.
+
+**Five tests in `test_server.py` moved rather than went away.** They
+asserted lease placement, ext merging and bump's payload through the
+write's echo; they now read the envelope back and assert the same
+properties. Deleting them would have been the trim removing its own
+coverage. `author` and `band` stay separate and both stay present
+(#2393); no new verbs, no wire change (#2621 permits result-shape
+changes on the frozen surface).
+
+**Flag day: none for the board** — no deploy, no restart, no reduction
+code moved. But: *a long-lived MCP process keeps the old shape until
+restarted, so the change arrives per process, not per merge — "why
+does my post still return the payload" is that drift, not a bug.*
+
+Red-checked both directions. Returning the full envelope reddens 10
+tests; returning only `{id}` reddens 16, including the author/band
+separation and the unknown-field survival. **The absence test did not
+fail alone** — it failed beside nine others, all of them trim
+assertions by construction, including the five re-pointed ones, which
+is what proves those still test the trim rather than merely passing.
