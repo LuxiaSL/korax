@@ -7573,3 +7573,79 @@ asked for without there being a check for it yet.
 
 Docs and one test; no server, client or perch behaviour changes,
 nothing to deploy.
+
+## R154 — the live feed's duplicate poller: a generation token, not a flag (#2909)
+
+`feedLiveStop` sets `FEED_LIVE = false` but cannot cancel the in-flight
+`/feed` long poll (no `AbortController` anywhere under `perch/js/`).
+`feedLiveLoop` re-tested only `FEED_LIVE` after that poll's up-to-50s
+await returned, and a pause followed by a resume inside that window
+set the flag back to `true` before the old loop's recheck ran — so it
+did not break, and kept polling forever beside the loop the resume
+started. Reachable by an operator with two clicks; 40/40 instrumented
+runs (#2909) had two `/feed` polls open at once, both writing
+`#feedLive`'s status and sharing the `FEED_FAILURES` backoff counter
+(defeating #1370's herd-avoidance), each doubling the parked-poll load
+#1395 measured as the board's dominant cost.
+
+**The fix is a generation token, not a second flag.** `feedLiveStart`
+mints a new `FEED_GENERATION` on every start; `feedLiveLoop` captures
+the value it was born with and compares against the current one both
+in its `while` condition and in its post-await recheck — a stale
+loop's own generation goes out of date the moment a resume starts a
+new one, and it exits on its own next tick without needing to be
+cancelled. `FEED_LIVE` still gates whether any loop should be running
+at all; `FEED_GENERATION` answers the question `FEED_LIVE` cannot —
+*is this particular loop still the current one*.
+
+**Property, red-first** (`server/tests/test_perch_live_feed.py`):
+`test_a_pause_resume_inside_a_poll_window_leaves_exactly_one_live_loop`
+drives `feedLiveTick` through a `fetch` mock held pending until
+released by hand, forces a pause/resume to land while a poll is still
+in flight, and counts `/feed` calls rather than asserting on internal
+state — a still-alive stale loop announces itself with a third call
+after the first two are already accounted for. Confirmed red against
+the pre-fix source (3 calls) before the fix landed, green after (2).
+`test_the_generation_guard_is_canaried_broken` reverts both the
+`while` condition and the post-await check to their pre-fix,
+`FEED_LIVE`-only form and confirms the property test above would have
+caught it — reproducing the pre-fix bug through this harness takes
+breaking both sites together, since with `wait === 0` every path back
+to `feedLiveTick` crosses both checks and either one alone already
+stops the stale loop; that redundancy is the fix's own shape, not
+slack in the canary.
+
+**This delivery does not claim to fix CI's flake on
+`test_the_feed_goes_live_and_survives_a_restart` (#2897), and does not
+close it.** #2897's measurement thread (#2908/#2930) found that in the
+one captured red, the ZOMBIE loop — the one this fix retires — was the
+one that supplied the goodbye the tab displayed, while the loop a fix
+keeps had its socket die first; fixing the duplicate poller without
+first fixing the sampler could as easily convert a sampler-blindness
+red into a no-goodbye red as remove it. So the acceptance measurement
+here is scoped to a question #2897 does not answer: does the goodbye
+still reach a poll of the SAME AGE as the one this fix's single
+surviving loop presents at shutdown? Ad hoc (not committed — matching
+the #2897 campaign's own scratch-probe convention), fresh-loop
+construction (reload, go live, ~1200ms wait — a navigation destroys
+all JS state, guaranteeing exactly one loop as young as the sleep),
+under 2-CPU pinning (the scarcity #2897/#2909 both need to fire): 12
+runs, `NO_GOODBYE_RECEIVED = 0`, poll age at signal 1204-1217ms
+(median 1208ms, against the ~1206ms target), exactly one `/feed` call
+in flight at every signal. Read as a BEFORE/consistency check on this
+delivery's own poll shape, not as evidence about #2897 either way.
+
+Suites at `ef56d3e` plus this delivery: server 942 selected (940
+baseline + 2 new), `--branch` mode 940 passed + 2 skipped, merge-target
+mode 942 passed + 0 skipped — both closing `passed + skipped == 942`;
+cli 335; mcp 237. Floors of record for server/cli/mcp are 940/335/237
+on SELECTED per #2994/#2998, adopted here rather than the prior (and
+now-retired) 939. The existing browser leg
+(`test_perch_live_feed_browser.py::test_the_feed_goes_live_and_survives_a_restart`)
+passed 5/5 under 2-CPU pinning against this fix — offered as a local
+sanity check only, not as evidence about #2897's flake rate in either
+direction.
+
+Client-side JS only; deploy's client legs pull, no server restart
+(#261). Open tabs run the old JS until reloaded — the fix arrives per
+tab-reload, not per merge.
