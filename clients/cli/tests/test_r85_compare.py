@@ -50,23 +50,31 @@ class FakeRunner:
     Deliberately NOT permissive: an unknown probe raises rather than
     returning empty bytes, because a runner that answers everything would
     let a test pass while the tool asked for something nonsensical.
+
+    `head` is answered separately because `whoami` is a PRECONDITION input,
+    not a probe (#2332) — and driving it independently is what lets the
+    liveness canary move the board without touching the probe payloads.
     """
 
-    def __init__(self, answers: dict[str, bytes]) -> None:
+    def __init__(self, answers: dict[str, bytes], head: int = 100) -> None:
         self.answers = answers
+        self.head = head
         self.calls: list[list[str]] = []
 
     def __call__(self, argv: Sequence[str]) -> bytes:
         self.calls.append(list(argv))
-        key = argv[-3] if argv[-2] == "--at" else argv[-1]
+        if argv[-1] == "whoami":
+            return json.dumps(
+                {"head": self.head, "board_ts": f"2026-08-16T00:00:{self.head:02d}Z"}
+            ).encode()
         for name, payload in self.answers.items():
             if name in " ".join(argv):
                 return payload
-        raise AssertionError(f"unexpected probe: {argv} (key {key})")
+        raise AssertionError(f"unexpected probe: {argv}")
 
 
-def _uniform(payload: bytes = b'{"stable": true}') -> FakeRunner:
-    return FakeRunner({"": payload})
+def _uniform(payload: bytes = b'{"stable": true}', head: int = 100) -> FakeRunner:
+    return FakeRunner({"": payload}, head=head)
 
 
 # ── the precondition, which is the instrument ─────────────────────────
@@ -83,7 +91,7 @@ def test_compare_refuses_when_reductions_moved(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         r85, "reductions_moved", lambda pre, post: [r85.REDUCTIONS])
     with pytest.raises(r85.ReductionsMoved) as excinfo:
-        r85.compare(window, runner=_uniform(), post_sha="bbbbbbbbbbbb")
+        r85.compare(window, runner=_uniform(head=101), post_sha="bbbbbbbbbbbb")
 
     message = str(excinfo.value)
     assert "REFUSING" in message
@@ -101,7 +109,7 @@ def test_compare_runs_when_reductions_did_not_move(tmp_path, monkeypatch) -> Non
     r85.capture(window, 2300, "someband", runner=_uniform(), now=lambda: "T0")
 
     monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [])
-    result = r85.compare(window, runner=_uniform(), now=lambda: "T1",
+    result = r85.compare(window, runner=_uniform(head=101), now=lambda: "T1",
                          post_sha="bbbbbbbbbbbb")
     assert result.failures == ()
     assert len(result.rows) == len(r85.PROBES)
@@ -132,7 +140,7 @@ def test_compare_refuses_a_window_that_was_never_captured(tmp_path) -> None:
     """The failure the post-only rig produced: you cannot start a window
     after the restart it measures — the pre-side state is gone."""
     with pytest.raises(r85.R85Error) as excinfo:
-        r85.compare(tmp_path / "never", runner=_uniform())
+        r85.compare(tmp_path / "never", runner=_uniform(head=101))
     assert "cannot be started after the restart" in str(excinfo.value)
 
 
@@ -188,8 +196,8 @@ def test_a_difference_is_reported_as_an_r85_defect_not_a_delivery_fault(
     monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [])
     r85.capture(window, 2300, "someband", runner=_uniform(b"before"), now=lambda: "T0")
 
-    result = r85.compare(window, runner=_uniform(b"AFTER"), now=lambda: "T1",
-                         post_sha="bbbbbbbbbbbb")
+    result = r85.compare(window, runner=_uniform(b"AFTER", head=101),
+                         now=lambda: "T1", post_sha="bbbbbbbbbbbb")
     assert len(result.failures) == len(r85.PROBES)
     rendered = result.render()
     assert "DIFFERS" in rendered
@@ -207,12 +215,74 @@ def test_main_exits_two_on_a_refusal_and_one_on_a_difference(
     make an untrustworthy window look like a defect."""
     window = tmp_path / "w"
     monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
-    monkeypatch.setattr(r85, "_default_runner", _uniform())
+    runner = _uniform(head=100)
+    monkeypatch.setattr(r85, "_default_runner", runner)
     monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [])
     assert r85.main(["capture", "--window", str(window), "--at", "2300",
                      "--as", "someband"]) == 0
+
+    # the board moves, as it does across any real restart — without this the
+    # liveness precondition correctly refuses, which is itself the canary
+    runner.head = 101
     assert r85.main(["compare", "--window", str(window)]) == 0
 
     monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [r85.REDUCTIONS])
     assert r85.main(["compare", "--window", str(window)]) == 2
     assert "REFUSING" in capsys.readouterr().err
+
+
+# ── liveness: a replay and a perfect run look identical ───────────────
+
+def test_compare_refuses_when_the_board_has_not_moved(tmp_path, monkeypatch) -> None:
+    """**quill's #2332, and it is the failure the exit codes could not see.**
+
+    Nine identical digests is what a clean measurement looks like AND what
+    a replay of the captured files looks like. Without a liveness check a
+    `compare` that never reached the board reports 0 — measured-and-equal —
+    when the honest answer is 2, not measured at all. The head advancing is
+    the cheapest proof the post side read the board rather than the disk.
+    """
+    window = tmp_path / "w"
+    monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
+    monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [])
+    r85.capture(window, 2300, "someband", runner=_uniform(head=100), now=lambda: "T0")
+
+    with pytest.raises(r85.NotLive) as excinfo:
+        r85.compare(window, runner=_uniform(head=100), post_sha="bbbbbbbbbbbb")
+    message = str(excinfo.value)
+    assert "has not moved since capture" in message
+    assert "100" in message, "the refusal must show the head it compared"
+    assert "REPLAY" in message
+
+
+def test_a_head_that_went_backwards_is_also_refused(tmp_path, monkeypatch) -> None:
+    """Not merely `!=`: a head BELOW the captured one is a different board or
+    a restored backup, which is worse than a quiet one, not better."""
+    window = tmp_path / "w"
+    monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
+    monkeypatch.setattr(r85, "reductions_moved", lambda pre, post: [])
+    r85.capture(window, 2300, "someband", runner=_uniform(head=100), now=lambda: "T0")
+    with pytest.raises(r85.NotLive):
+        r85.compare(window, runner=_uniform(head=99), post_sha="bbbbbbbbbbbb")
+
+
+def test_the_head_is_recorded_at_capture_and_is_not_a_probe(
+    tmp_path, monkeypatch
+) -> None:
+    """The fields left `None` in the first cut are filled now — and the call
+    that fills them stays OUT of `PROBES`, because a precondition reads
+    current state by necessity while every probe pins. Keeping it out of the
+    probe set was right; keeping it out of the tool was one step short."""
+    window = tmp_path / "w"
+    monkeypatch.setattr(r85, "head_sha", lambda: "aaaaaaaaaaaa")
+    runner = _uniform(head=2325)
+    r85.capture(window, 2300, "someband", runner=runner, now=lambda: "T0")
+
+    saved = json.loads((window / "manifest.json").read_text())
+    assert saved["head"] == 2325
+    assert saved["board_ts"].startswith("2026-08-16T")
+    assert not any(p.name == "whoami" for p in r85.PROBES), (
+        "the head read is a precondition, never a probe — it cannot pin"
+    )
+    # ...and it was read AFTER the probes, so the bound covers what they saw
+    assert runner.calls[-1][-1] == "whoami"

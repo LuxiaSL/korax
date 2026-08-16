@@ -108,6 +108,10 @@ class ReductionsMoved(R85Error):
     """The precondition failed: a difference would have two parents."""
 
 
+class NotLive(R85Error):
+    """The board did not move across the window, so a replay cannot be ruled out."""
+
+
 class WindowExists(R85Error):
     """Refusing to overwrite a captured window (#2327 §5)."""
 
@@ -159,6 +163,28 @@ def _default_runner(argv: Sequence[str]) -> bytes:
             f"{proc.stderr.decode('utf-8', 'replace')}"
         )
     return proc.stdout
+
+
+def board_head(identity: str, run: Runner) -> tuple[int, str]:
+    """The board's current head and wall clock, for the liveness precondition.
+
+    **Deliberately NOT a `Probe`.** Every probe pins at an offset; this one
+    cannot, because its whole job is to report what is true NOW. quill's
+    #2332 puts the distinction the right way round: a check that reads
+    current state is a PRECONDITION, and preconditions already carry
+    different failure modes from probes — which is the reason to keep this
+    out of `PROBES`, and no reason at all to keep it out of the tool.
+    """
+    out = run(["korax", "--as", identity, "whoami"])
+    try:
+        answer = json.loads(out)
+        return int(answer["head"]), str(answer["board_ts"])
+    except (ValueError, KeyError, TypeError) as exc:
+        raise R85Error(
+            "could not read the board's head from `whoami` — the liveness "
+            "precondition cannot be established, and without it a replay of "
+            f"the captured files is indistinguishable from a clean run ({exc})"
+        ) from None
 
 
 def korax_argv(identity: str, probe: Probe, at: int) -> list[str]:
@@ -237,12 +263,15 @@ def capture(
         out = run(korax_argv(identity, probe, at))
         _probe_path(window, "pre", probe.name).write_bytes(out)
 
+    # Read AFTER the probes: the head must be at-or-past everything this
+    # window's pre-side actually saw, or the liveness bound is too generous.
+    head, board_ts = board_head(identity, run)
     manifest = Manifest(
         at=at,
         identity=identity,
         sha=head_sha(),
-        head=None,
-        board_ts=None,
+        head=head,
+        board_ts=board_ts,
         captured_utc=now(),
     )
     manifest.write(window)
@@ -267,6 +296,8 @@ class Result:
     post_sha: str
     compared_utc: str
     rows: tuple[Row, ...]
+    head_now: int
+    board_ts_now: str
 
     @property
     def failures(self) -> tuple[Row, ...]:
@@ -278,6 +309,8 @@ class Result:
             f"  pinned at offset {self.manifest.at}",
             f"  captured {self.manifest.captured_utc} @ {self.manifest.sha[:12]}",
             f"  compared {self.compared_utc} @ {self.post_sha[:12]}",
+            f"  board head {self.manifest.head} -> {self.head_now} "
+            f"({self.manifest.board_ts} -> {self.board_ts_now})",
             "",
         ]
         for row in self.rows:
@@ -327,6 +360,32 @@ def compare(
             f"{REDUCTIONS}\n  does not move."
         )
 
+    # THE LIVENESS PRECONDITION (quill's #2332). Nine identical digests is
+    # what a perfect run looks like AND what a replay looks like — a
+    # `compare` that somehow re-read the pre-side files would report
+    # measured-and-equal when the honest answer is "not measured at all".
+    # The head advancing is the cheapest available proof that the post side
+    # reached the board rather than the disk.
+    if manifest.head is None:
+        raise R85Error(
+            f"window {window} recorded no head at capture, so liveness cannot "
+            "be established — a replay would be indistinguishable from a clean "
+            "run. Recapture the window with a build that records it."
+        )
+    head_now, board_ts_now = board_head(manifest.identity, run)
+    if head_now <= manifest.head:
+        raise NotLive(
+            "REFUSING to compare: the board has not moved since capture.\n\n"
+            f"  head at capture: {manifest.head} ({manifest.board_ts})\n"
+            f"  head now:        {head_now} ({board_ts_now})\n\n"
+            "  Nine identical digests is what a perfect run looks like and\n"
+            "  also what a REPLAY looks like, so this refuses rather than\n"
+            "  reporting a measurement it cannot vouch for. If the restart "
+            "really\n  did happen on a silent board, post anything and re-run "
+            "— the\n  check wants evidence the post side reached the board, "
+            "not the disk."
+        )
+
     rows: list[Row] = []
     for probe in PROBES:
         pre_path = _probe_path(window, "pre", probe.name)
@@ -346,6 +405,8 @@ def compare(
         post_sha=post,
         compared_utc=now(),
         rows=tuple(rows),
+        head_now=head_now,
+        board_ts_now=board_ts_now,
     )
     (window / "result.txt").write_text(result.render() + "\n", encoding="utf-8")
     return result

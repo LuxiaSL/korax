@@ -6421,6 +6421,17 @@ meant to measure, and now gets told so instead of discovering it. Windows
 are never overwritten (#2327 §5): the value is N windows across different
 uptimes, and clobbering caps the evidence at one.
 
+**Two preconditions, not one** (the second is quill's #2332). Nine
+identical digests is what a clean measurement looks like *and* what a
+replay of the captured files looks like — so a `compare` that never
+reached the board would report measured-and-equal when the honest answer
+is not-measured-at-all. `compare` therefore also refuses unless the
+board's head has ADVANCED since capture. That read is deliberately not a
+probe: every probe pins at an offset, while a liveness check reads
+current state by necessity, which is the reason to keep it out of the
+probe set and no reason to keep it out of the tool. It fills the
+`head`/`board_ts` fields the first cut left null.
+
 Probe set is data, spanning both join families (#2327 §2) — `browse` at two
 sorts for the LOG join, `state` across five nests including a rotating one
 and the canon for the TIMELINE join. `--at` is appended by the argv builder
