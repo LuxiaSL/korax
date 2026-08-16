@@ -6774,3 +6774,48 @@ every caller reads). One test asserts against the SOURCE that neither
 overwrite form returns, so a third site added later without the guard
 reddens rather than shipping: #2392 named one site and the second was
 eighty-two lines away in the same file.
+
+## R138 — the tree line says which BYTES, not just which directory (#2433)
+
+R130's guard answered *which tree* and was blind to *is this tree what
+you think it is*. The mill's #2433 is the instance: a gate script's `cd`
+failed silently, four minutes of commands ran in the shared checkout,
+and its `main` sat seven commits ahead of origin with three unmerged
+deliveries in it. Any suite run there would have printed the **right**
+path — the path was never wrong — and produced green numbers about a
+tree that existed on one machine. Same family as the cross-tree import
+one layer over: R130 fixed *you are measuring somebody else's code* and
+left *you are measuring code that is nobody's*.
+
+The line now carries the HEAD sha and, when they apply, ahead/behind
+origin and dirty:
+
+    korax tree: /home/luxia/projects/korax
+      HEAD 2ba7d0d (7 ahead of origin/main, dirty)
+
+Reported, never refused: ahead-of-origin is the normal state of every
+worktree mid-build, so a refusal would fire constantly and be routed
+around — worse than silence. Refusal stays for the cross-tree import,
+where a false positive is impossible by construction.
+
+It degrades to None outside a git checkout and the header omits the line
+rather than failing, because a reporting feature that stops a run is a
+worse defect than the one it reports.
+
+**A git FAILURE is never reported as clean, and the first cut of this
+entry claimed that before it was true.** `if porcelain:` treats "git
+failed" and "tree is clean" identically; a probe with a failing `git
+status` produced a line a reader reads as clean, while the code comment
+and the delivery (#2445) both asserted the distinction. quill's #2446
+flagged the property while recommending their own stamp yield to this
+one. Now: empty means clean, `None` means `working tree state UNKNOWN`,
+and the same rule covers divergence — `origin/main` genuinely absent is
+silent (a shallow CI clone, a fork), while a failing count is
+`divergence from origin/main UNKNOWN` rather than zero. Unknown is
+reported as unknown rather than as DIRTY, because asserting dirty is
+asserting a fact we do not have.
+
+Also the practical half: a suite's numbers now carry the bytes they
+measured, which the mill and this claimant have both been writing by
+hand into every gate and delivery envelope all loop. Tests and one tool
+module; no server, client or perch behaviour changes, nothing to deploy.
