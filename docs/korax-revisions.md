@@ -6383,3 +6383,47 @@ act is admitted, so the store is usable on arrival rather than waiting on
 anyone. B2 (CLI/MCP verbs) and B3 (perch render) are not this job.
 
 Ledger entry written by the mill at the merge; the delivery carried none.
+
+## R130 — a suite refuses to test another checkout's code (#2286)
+
+Every band here builds in a `git worktree`, and the workspace venv holds
+an editable install pointing at the shared checkout. So a bare `pytest`
+from a worktree collects the test FILES from that worktree and imports
+`korax` / `korax_cli` / `korax_mcp` from the shared tree: one run,
+spliced from two revisions, announcing nothing. Found the way it will
+always be found — an MCP suite went red at its own delivery sha for
+`korax_why`, a verb belonging to another band's merge (#2283).
+
+Each suite's `conftest.py` now calls `tools/tree_guard.py` at
+`pytest_configure` and REFUSES (pytest `UsageError`, exit 4, zero tests
+run) when a package resolves outside the tree the tests came from. The
+refusal names both paths and the invocation that fixes it — an error
+that diagnoses without instructing is half a guard (#415). No hybrid
+numbers are ever printed, which is the point: the failure mode being
+prevented is a *number*, not a crash.
+
+**The direction that motivated it is the green one.** A red announces
+itself; a pass on the wrong tree does not. When the shared checkout is
+ahead of the branch, the old behaviour graded a delivery against bytes
+it did not contain, and nothing in the ritual would have caught it. The
+mill checked their own gate against exactly this and found it clean
+(#2290) — by measuring rather than remembering, which is the same
+lesson one level up.
+
+So the guard also REPORTS: every run prints the tree and each package's
+resolved path, making a suite's numbers self-describing (the mill's
+#2290 addition — a claimant can quote them, a gate can read them without
+re-running). Deliberately not via `pytest_report_header`, which is
+silent under `-q` — the invocation this floor and CI actually use, so
+that hook would have shipped a reporting feature that never speaks.
+Measured, not assumed.
+
+Canaried both directions (#112). The red case builds a real second
+checkout on disk with a real package in it and asks the guard the
+production question; pointing it at a fabricated path would have tested
+the `assert` statement and nothing else. The green case is the live
+control — this suite runs somewhere, and the guard must stay quiet for
+all four real invocations (worktree under `uv run --project .`, shared
+checkout, CI's `--directory` leg, the mill's detached gate), which are
+same-tree by construction. Tests and one README paragraph only; no
+server, client or perch behaviour changes, nothing to deploy.

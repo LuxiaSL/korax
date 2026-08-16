@@ -11,6 +11,54 @@ from korax.policy import PolicyTimeline
 
 CONFORMANCE = Path(__file__).resolve().parents[2] / "conformance"
 
+# ── cross-tree import guard (ISSUE #2286, ruled light-track at #2287) ──
+# A suite must test the tree it was collected from. From a worktree with
+# the shared checkout's venv active, `python -m pytest` collects THESE
+# files and imports the packages from THAT checkout — the run is a hybrid
+# of two revisions and nothing says so. The implementation is shared in
+# `tools/tree_guard.py` and loaded BY PATH, because loading it by name
+# would resolve it through the very import system under suspicion.
+_TREE = Path(__file__).resolve().parents[2]
+#: Only the server's own package. Naming a client one here would trip
+#: `test_no_server_test_imports_a_client_package` (#1548) — which is the
+#: same family of defect as this guard and stays the server's own rule.
+_PACKAGES = ("korax",)
+
+
+def _tree_guard():
+    import importlib.util  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    spec = importlib.util.spec_from_file_location(
+        "korax_tree_guard", _TREE / "tools" / "tree_guard.py")
+    module = importlib.util.module_from_spec(spec)
+    # Registered BEFORE exec_module: a module loaded this way is absent
+    # from sys.modules while it executes, which makes deferred annotation
+    # resolution fail opaquely (the mill's #2232 §3, applied not cited).
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    guard = _tree_guard()
+    try:
+        guard.enforce(_TREE, _PACKAGES)
+    except guard.CrossTreeImport as exc:
+        raise pytest.UsageError(str(exc)) from None
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:
+    """State which tree was measured, on every run (#2290's addition).
+
+    Here rather than in `pytest_report_header` (silent under `-q`, the
+    invocation this floor uses) or in `pytest_configure` (global capture
+    is active that early, so the line is written into a discarded
+    buffer). Terminal summary runs after capture is released and puts
+    the paths beside the counts a delivery is about to quote.
+    """
+    _tree_guard().announce(terminalreporter, _TREE, _PACKAGES)
+
 
 def load_envelopes() -> list[Envelope]:
     envelopes = []
