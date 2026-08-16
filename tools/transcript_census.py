@@ -16,11 +16,18 @@ of emitting a payload body rather than careful not to:
   * No accumulator in this file has a `str` payload field. Every counter
     holds ints, and every key is a bounded label.
   * Text reaches exactly three functions — `_bash_label`, `_tool_label`,
-    `_envelope_ids` — each of which returns a bounded label, an id, or a
-    length, and none of which returns the text it was given.
+    `_record_envelopes` — each of which returns a bounded label, an id, or
+    a length, and none of which returns the text it was given.
   * `_bash_label` whitelists its output against `_SAFE_LABEL`; anything else
     becomes `<non-identifier>`. A command carrying a path, a token or a
     quoted payload cannot round-trip through it.
+  * `_record_envelopes` PARSES the result rather than scraping it (ISSUE
+    #3175). That is the one function here that holds structure, and it holds
+    it in a local: it reads `envelope["id"]` and a serialised LENGTH off each
+    record, stores ints, and returns None. **It never touches
+    `envelope["payload"]`** — which is also why it cannot be fooled by a
+    payload that quotes the JSON form, the defect the regex it replaced had
+    only by luck of escaping (#3181).
 
 That is the property to check if you review this: grep for a field that
 holds text. There should be none.
@@ -73,11 +80,6 @@ NEAR_MATCH_THRESHOLD = 0.80
 # Bounded label alphabet. A command token that is not a plain identifier
 # never reaches the report.
 _SAFE_LABEL = re.compile(r"^[A-Za-z0-9._-]+$")
-
-# Envelope ids inside a drained result. Ids are NAMES, not bodies: this
-# yields ints and never the surrounding text.
-_ENVELOPE_ID = re.compile(r'"id"\s*:\s*(\d{1,9})')
-
 
 # ─────────────────────────────────────────────────────────────────────────
 # accumulators — every field is an int or a Counter of ints. No text.
@@ -306,12 +308,6 @@ def _tool_label(name: str) -> tuple[str, str | None]:
             return (f"mcp:{bits[1]}", "__".join(bits[2:]))
         return ("mcp:?", name)
     return ("builtin", name)
-
-
-def _envelope_ids(text: str) -> list[int]:
-    """Envelope ids mentioned in a drained result. Returns INTS; the text is
-    discarded on return. An id is a name, not a body."""
-    return [int(m) for m in _ENVELOPE_ID.findall(text)]
 
 
 def _iter_strings(node: Any, depth: int = 0) -> Iterator[str]:
@@ -689,11 +685,64 @@ def _record_result(
     census.drain_results += 1
     census.drain_out_chars += out_chars
     if isinstance(raw, str):
-        ids = _envelope_ids(raw)
-        census.envelope_deliveries += len(ids)
-        for eid in ids:
-            census.envelope_sessions[eid].add(session)
-        _record_envelope_bytes(census, raw, session, out_chars)
+        _record_envelopes(census, raw, session, out_chars)
+
+
+def _record_envelopes(
+    census: Census, raw: str, session: str, out_chars: int
+) -> None:
+    """Count deliveries and weigh them, from ONE parse of the result.
+
+    **THIS REPLACES A REGEX THAT COUNTED `refs` EDGE TARGETS AS DELIVERIES**
+    (ISSUE #3175). `_ENVELOPE_ID` matched `"id"\\s*:\\s*N` anywhere in the
+    serialised text, and an envelope's `refs` entries are `{"edge": …,
+    "id": N}` — so every citation an envelope carried was counted as a
+    delivery of the cited envelope. Measured inflation on a 57-file corpus:
+    **24,022 naive deliveries against 7,236 real ones, 232.6%**, which moved
+    the duplicate-delivery rate from a reported 27.7% to a true 58.0%.
+
+    **The deeper defect was that this file had TWO extractions.** The byte
+    path already recognised envelopes by SHAPE and was correct from the day
+    it landed; the count path used the regex and was wrong for four hours in
+    the same file over the same results, **and nothing here could notice the
+    disagreement.** One extraction cannot silently disagree with itself, so
+    both measurements now come from one walk over one parse.
+
+    **Not "cleaner" — the regex is correct only by accident of an escaping
+    convention it does not know about.** A payload quoting the JSON form
+    serialises as `\\"id\\": N` and happens not to match; a surface that ever
+    delivered text pre-unescaped would inject phantoms and nothing would
+    announce it. Reading `envelope["id"]` off a parsed record cannot see
+    inside a payload at all, because a payload is a string VALUE and not a
+    container. Immune by construction rather than by convention (#3181).
+
+    **The seam is unchanged and is re-demonstrated, not inherited:** this
+    parses into locals, reads ints and lengths off them, and retains
+    neither. No accumulator here holds text.
+    """
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        # A result that cannot be read structurally contributes NOTHING and
+        # is counted, never apportioned or regex-scraped as a fallback. A
+        # fallback would reintroduce exactly the defect above on precisely
+        # the inputs nobody is checking.
+        census.weight_unreadable_results += 1
+        census.weight_unreadable_chars += out_chars
+        return
+    census.weight_readable_results += 1
+    census.weight_readable_chars += out_chars
+
+    for env in _envelope_records(parsed):
+        eid = env.get("id")
+        if not isinstance(eid, int):
+            continue
+        census.envelope_deliveries += 1
+        census.envelope_sessions[eid].add(session)
+        size = len(json.dumps(env, ensure_ascii=False))
+        key = (eid, session)
+        if size > census.envelope_bytes.get(key, 0):
+            census.envelope_bytes[key] = size
 
 
 def _envelope_records(node: Any) -> Iterator[dict[str, Any]]:
@@ -716,49 +765,6 @@ def _envelope_records(node: Any) -> Iterator[dict[str, Any]]:
     elif isinstance(node, list):
         for item in node:
             yield from _envelope_records(item)
-
-
-def _record_envelope_bytes(
-    census: Census, raw: str, session: str, out_chars: int
-) -> None:
-    """Measure what each envelope in this result ACTUALLY cost to deliver.
-
-    **The size is the envelope record's own JSON serialisation, not a share
-    of the result.** Apportioning `out_chars` across the ids would make every
-    envelope in a page the same size, which is precisely the assumption
-    #2751 exists to remove: this board's envelopes span a 24-char median to a
-    47,922-char tail, and WHICH ids are duplicated decides the answer.
-
-    **This is what makes the summary/full distinction fall out rather than
-    need special-casing.** A `summary=true` record genuinely has no `payload`
-    — it carries `payload_bytes` instead — so it serialises smaller, and the
-    same envelope delivered both ways is correctly two different weights.
-    `size_of(envelope) x (N-1)` would inflate every summary duplicate into a
-    full-body cost.
-
-    **Known systematic bound, stated rather than buried:** re-serialisation
-    is not byte-identical to the wire (indentation and key order differ), so
-    these are envelope-intrinsic sizes, not transport bytes. That offset
-    applies equally to every delivery and so cancels in the RATIO this
-    exists to compute; it would not cancel in an absolute transport figure,
-    and nobody should quote it as one.
-    """
-    try:
-        parsed = json.loads(raw)
-    except (ValueError, TypeError):
-        census.weight_unreadable_results += 1
-        census.weight_unreadable_chars += out_chars
-        return
-    census.weight_readable_results += 1
-    census.weight_readable_chars += out_chars
-    for env in _envelope_records(parsed):
-        eid = env.get("id")
-        if not isinstance(eid, int):
-            continue
-        size = len(json.dumps(env, ensure_ascii=False))
-        key = (eid, session)
-        if size > census.envelope_bytes.get(key, 0):
-            census.envelope_bytes[key] = size
 
 
 def run(root: Path) -> Census:

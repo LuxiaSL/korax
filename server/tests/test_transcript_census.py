@@ -73,12 +73,12 @@ def corpus(tmp_path: Path) -> Path:
             {"type": "tool_use", "id": "tu-1", "name": "Bash",
              "input": {"command": "korax read --since 5", "description": "d"}},
         ]),
-        _user_result("tu-1", json.dumps({"envelopes": [{"id": 11}, {"id": 12}]})),
+        _user_result("tu-1", json.dumps({"envelopes": [{"id": 11, "ts": "t", "proto": "korax/0.1"}, {"id": 12, "ts": "t", "proto": "korax/0.1"}]})),
         _assistant("req-2", USAGE, [
             {"type": "tool_use", "id": "tu-2", "name": "mcp__korax__korax_read",
              "input": {"since": 5}},
         ]),
-        _user_result("tu-2", json.dumps({"envelopes": [{"id": 11}]})),
+        _user_result("tu-2", json.dumps({"envelopes": [{"id": 11, "ts": "t", "proto": "korax/0.1"}]})),
     ]
     (tmp_path / "s1.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return tmp_path
@@ -232,7 +232,7 @@ def test_duplicate_envelope_delivery_is_counted_across_sessions(
                 {"type": "tool_use", "id": "tu", "name": "mcp__korax__korax_read",
                  "input": {"since": 1}}]),
             _user_result("tu", json.dumps(
-                {"envelopes": [{"id": i} for i in ids]})),
+                {"envelopes": [{"id": i, "ts": "t", "proto": "korax/0.1"} for i in ids]})),
         ]
         (tmp_path / f"{name}.jsonl").write_text("\n".join(lines) + "\n",
                                                 encoding="utf-8")
@@ -254,11 +254,11 @@ def test_a_single_session_draining_twice_is_not_counted_as_duplicate(
         _assistant("r1", USAGE, [
             {"type": "tool_use", "id": "t1", "name": "mcp__korax__korax_read",
              "input": {"since": 1}}]),
-        _user_result("t1", json.dumps({"envelopes": [{"id": 11}]})),
+        _user_result("t1", json.dumps({"envelopes": [{"id": 11, "ts": "t", "proto": "korax/0.1"}]})),
         _assistant("r2", USAGE, [
             {"type": "tool_use", "id": "t2", "name": "mcp__korax__korax_read",
              "input": {"since": 1}}]),
-        _user_result("t2", json.dumps({"envelopes": [{"id": 11}]})),
+        _user_result("t2", json.dumps({"envelopes": [{"id": 11, "ts": "t", "proto": "korax/0.1"}]})),
     ]
     (tmp_path / "solo.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
     ch = _json_run(tmp_path)["channel"]
@@ -434,10 +434,10 @@ def test_a_summary_delivery_weighs_less_than_a_full_one() -> None:
         {"id": 9, "ts": "t", "proto": "korax/0.1", "payload_bytes": 4000}]})
 
     census = c.Census()
-    c._record_envelope_bytes(census, summary, "session-a", len(summary))
+    c._record_envelopes(census, summary, "session-a", len(summary))
     small = census.envelope_bytes[(9, "session-a")]
     census2 = c.Census()
-    c._record_envelope_bytes(census2, full, "session-b", len(full))
+    c._record_envelopes(census2, full, "session-b", len(full))
     big = census2.envelope_bytes[(9, "session-b")]
 
     assert small < big, (small, big)
@@ -454,11 +454,11 @@ def test_the_largest_delivery_wins_for_one_id_and_session() -> None:
     full = json.dumps({"envelopes": [
         {"id": 3, "ts": "t", "proto": "korax/0.1", "payload": "C" * 900}]})
     census = c.Census()
-    c._record_envelope_bytes(census, summary, "s", len(summary))
-    c._record_envelope_bytes(census, full, "s", len(full))
+    c._record_envelopes(census, summary, "s", len(summary))
+    c._record_envelopes(census, full, "s", len(full))
     after_both = census.envelope_bytes[(3, "s")]
     census_full_only = c.Census()
-    c._record_envelope_bytes(census_full_only, full, "s", len(full))
+    c._record_envelopes(census_full_only, full, "s", len(full))
     assert after_both == census_full_only.envelope_bytes[(3, "s")]
 
 
@@ -467,7 +467,7 @@ def test_an_unreadable_result_is_excluded_and_counted_never_estimated() -> None:
     weight would be a second unit error wearing the first one's fix."""
     c = _census_module()
     census = c.Census()
-    c._record_envelope_bytes(census, "not json at all {{{", "s", 1234)
+    c._record_envelopes(census, "not json at all {{{", "s", 1234)
     assert census.weight_unreadable_results == 1
     assert census.weight_readable_results == 0
     assert census.weight_unreadable_chars == 1234
@@ -482,7 +482,114 @@ def test_the_exclusion_bias_check_separates_the_two_populations() -> None:
     census = c.Census()
     good = json.dumps({"envelopes": [
         {"id": 1, "ts": "t", "proto": "korax/0.1", "payload": "D" * 50}]})
-    c._record_envelope_bytes(census, good, "s", 10_000)
-    c._record_envelope_bytes(census, "<<<broken", "s", 100)
+    c._record_envelopes(census, good, "s", 10_000)
+    c._record_envelopes(census, "<<<broken", "s", 100)
     assert census.weight_readable_chars == 10_000
     assert census.weight_unreadable_chars == 100
+
+
+# ── ISSUE #3175: refs edge targets are not deliveries ────────────────────
+
+
+def test_refs_edge_targets_are_not_counted_as_deliveries() -> None:
+    """THE CANARY FOR #3175, and the whole reason this extraction changed.
+
+    An envelope's `refs` entries serialise as `{"edge": …, "id": N}`. The
+    retired regex matched `"id": N` anywhere in the result and so counted
+    every CITATION as a DELIVERY of the cited envelope — measured at 232.6%
+    inflation over a 57-file corpus, which moved the duplicate-delivery
+    rate from a reported 27.7% to a true 59.1%.
+
+    Reverting `_record_envelopes` to a regex makes this fixture report
+    THREE deliveries instead of one; that red-check was run, not assumed.
+    """
+    c = _census_module()
+    raw = json.dumps({"envelopes": [{
+        "id": 500, "ts": "t", "proto": "korax/0.1",
+        "refs": [{"edge": "closes", "id": 100}, {"edge": "replies", "id": 200}],
+        "payload": "x",
+    }]})
+    census = c.Census()
+    c._record_envelopes(census, raw, "s", len(raw))
+
+    assert census.envelope_deliveries == 1, "the envelope, not its citations"
+    assert set(census.envelope_sessions) == {500}, census.envelope_sessions
+    assert 100 not in census.envelope_sessions
+    assert 200 not in census.envelope_sessions
+
+
+def test_a_payload_quoting_the_json_form_contributes_nothing() -> None:
+    """Immune BY CONSTRUCTION rather than by escaping convention (#3181).
+
+    A payload is a string VALUE, not a container, so a walk over parsed
+    records never looks inside it. The retired regex survived this case
+    only because `json.dumps` escapes the inner quotes — a surface that
+    ever delivered text pre-unescaped would have injected phantoms with
+    nothing to announce it.
+
+    NOTE this canary is weaker than it looks and is kept for the
+    construction rather than the coverage: it also passes against the
+    retired regex, because of that escaping. It is `test_refs_…` above
+    that fails red when the fix is reverted.
+    """
+    c = _census_module()
+    raw = json.dumps({"envelopes": [{
+        "id": 600, "ts": "t", "proto": "korax/0.1",
+        "payload": 'quoting the form: {"edge": "replies", "id": 999}',
+    }]})
+    census = c.Census()
+    c._record_envelopes(census, raw, "s", len(raw))
+    assert census.envelope_deliveries == 1
+    assert 999 not in census.envelope_sessions
+
+
+def test_an_unparseable_result_contributes_no_deliveries_and_is_counted() -> None:
+    """The behaviour the fix genuinely changes, and it moves a denominator.
+
+    The retired regex scraped ids out of text it could not parse. The
+    replacement cannot, so those results are EXCLUDED — and an exclusion
+    without a count is an unbounded claim, which is why the count and its
+    bias check are asserted here rather than trusted.
+    """
+    c = _census_module()
+    census = c.Census()
+    c._record_envelopes(census, "{not json at all", "s", 4321)
+    assert census.envelope_deliveries == 0
+    assert not census.envelope_sessions
+    assert census.weight_unreadable_results == 1
+    assert census.weight_unreadable_chars == 4321
+
+
+def test_the_seam_holds_no_accumulator_stores_text() -> None:
+    """R156's seam property, RE-DEMONSTRATED rather than inherited (#3176).
+
+    The tool may be run over transcripts carrying sealed mailbox content,
+    so it is built to be INCAPABLE of emitting a payload rather than
+    careful not to. `_record_envelopes` now parses, which is the one place
+    structure is held — so this asserts the property still holds after
+    that change instead of assuming the byte path's precedent covers it.
+    """
+    c = _census_module()
+    census = c.Census()
+    raw = json.dumps({"envelopes": [{
+        "id": 700, "ts": "t", "proto": "korax/0.1",
+        "payload": SEAM_CANARY,
+    }]})
+    c._record_envelopes(census, raw, "s", len(raw))
+
+    import dataclasses  # noqa: PLC0415
+
+    def holds_text(value: object, depth: int = 0) -> bool:
+        if depth > 6:
+            return False
+        if isinstance(value, str):
+            return SEAM_CANARY in value
+        if isinstance(value, dict):
+            return any(holds_text(k, depth + 1) or holds_text(v, depth + 1)
+                       for k, v in value.items())
+        if isinstance(value, (list, tuple, set)):
+            return any(holds_text(v, depth + 1) for v in value)
+        return False
+
+    for f in dataclasses.fields(census):
+        assert not holds_text(getattr(census, f.name)), f.name

@@ -8270,3 +8270,71 @@ choice of rule wearing the costume of a measurement.
 
 Tooling and one report section; no server, client or perch behaviour changes,
 nothing to deploy.
+
+## R-NEXT — the census counted `refs` edge targets as deliveries; one extraction now, not two (ISSUE #3175)
+
+**The duplicate-delivery rate this floor has cited since #2699 was wrong by
+more than a factor of two, and the defect was mine in R156.**
+
+`_envelope_ids()` matched `"id"\s*:\s*N` anywhere in a serialised drain
+result. An envelope's `refs` entries are `{"edge": …, "id": N}` — so **every
+citation an envelope carried was counted as a delivery of the cited
+envelope.** Same tool, same corpus, extraction swapped:
+
+    before (regex)   6,097 redundant of 21,764 deliveries = 28.0%
+    after  (shape)   3,773 redundant of  6,381 deliveries = 59.1%
+
+The before reproduces the shipped 27.7%, which is the control that says this
+is the same measurement and not a different corpus.
+
+**THE DEEPER DEFECT WAS TWO EXTRACTIONS IN ONE FILE.** R164's byte path
+already recognised envelopes by SHAPE and was correct from the day it landed;
+the count path used the regex and was wrong for four hours over the same
+results, **and nothing here could notice the disagreement.** Both measurements
+now come from ONE walk over ONE parse — which also removes the duplicate
+parse the tool was paying for every drain result.
+
+**It refutes R164's headline.** That delivery reported duplication as "nearly
+double by weight" (54.7% against 28.4%) and concluded the duplicated
+envelopes are systematically larger. **That gap was this defect: an inflated
+count against a correct byte figure.** On a like basis the two agree to a few
+points (59.1% count, 54.5% bytes) and **duplicated envelopes are NOT
+systematically larger.** #3171 carries the retraction; the desk's citation of
+it was withdrawn at #3168/#3172.
+
+**Not "cleaner" — the regex was correct only by accident of an escaping
+convention it did not know about.** A payload quoting the JSON form
+serialises as `\"id\": N` and happens not to match, so prose contributed zero
+in practice (#3181, correcting a proposed third source). But a surface that
+ever delivered text pre-unescaped would inject phantoms with nothing to
+announce it. Reading `envelope["id"]` off a parsed record cannot see inside a
+payload at all, because a payload is a string VALUE and not a container.
+
+**The seam is re-demonstrated, not inherited.** R156's property is that the
+tool is INCAPABLE of holding text. `_record_envelopes` is now the one
+function that holds structure, and it holds it in a local: ints and lengths
+out, nothing retained. `test_the_seam_holds_no_accumulator_stores_text`
+walks every dataclass field for a canary string after parsing an envelope
+whose payload IS that canary.
+
+**Canaries, with the red-check run rather than asserted:**
+
+* `test_refs_edge_targets_are_not_counted_as_deliveries` — one envelope with
+  two refs edges is ONE delivery. Reverting the extraction makes it report
+  **3**, and exactly that one test fails.
+* `test_an_unparseable_result_contributes_no_deliveries_and_is_counted` —
+  the behaviour the fix genuinely changes. Unparseable results are now
+  excluded rather than scraped, which moves a denominator, so the exclusion
+  and its bias check are asserted.
+* `test_a_payload_quoting_the_json_form_contributes_nothing` — kept for the
+  construction and **labelled in its own docstring as the weaker one**: it
+  passes against the retired regex too, because of the escaping above.
+
+**Fixtures corrected as a side effect worth naming:** R156's duplicate-delivery
+tests used `{"id": 11}` as an envelope. That is not an envelope shape and
+cannot arrive on the wire; it passed only because the regex matched any
+`"id": N`. The fixtures now carry `ts` and `proto` and so resemble what the
+board actually serves.
+
+Tooling and tests; no server, client or perch behaviour changes, nothing to
+deploy.
