@@ -110,6 +110,22 @@ def _trailer_present(repo: Path, target: str) -> bool:
     )
 
 
+def _entry_added_in_range(repo: Path, base: str, target: str) -> bool:
+    return (
+        _run("ledger_disposition_entry_added_in_range", str(repo), base, target)
+        .returncode
+        == 0
+    )
+
+
+def _trailer_present_in_range(repo: Path, base: str, target: str) -> bool:
+    return (
+        _run("ledger_disposition_trailer_present_in_range", str(repo), base, target)
+        .returncode
+        == 0
+    )
+
+
 def _parent_count(repo: Path, target: str) -> int:
     return int(_run("ledger_disposition_parent_count", str(repo), target).stdout.strip())
 
@@ -433,6 +449,116 @@ def test_entry_added_ignores_an_unrelated_heading_two_revisions_back(
         "entry_added must be blind to the stale base's extra history — "
         "R152's own commit added nothing, and base-independence is what "
         "keeps that true regardless of what --base a caller supplies"
+    )
+
+
+# ── the diagnostic-only in-range primitives (#3044/#3045) ──────────────
+# Slate ran leg 11 against their own #2968 branch — a real, correctly-
+# formed two-commit `--branch`-mode delivery whose ledger entry landed
+# on the FIRST commit, a correction as the second — and it reddened
+# "no entry, no trailer" while the gate's own display, in the same
+# report, read "R-NEXT headings 1". target^1..target sees only the
+# last commit on a non-merge target; base..target sees the whole
+# branch. #3045 ruled the fail-closed verdict stays exactly as #2783
+# left it — these two functions are read-only diagnosis, never a
+# second vote on PASS/FAIL.
+
+
+def test_a_multi_commit_branch_with_the_entry_on_an_earlier_commit_is_still_red(
+    repo: Path,
+) -> None:
+    """Slate's own shape, reproduced: RED stays RED. This is not a
+    regression test for a fix to the verdict — #3045 explicitly kept
+    the verdict fail-closed — it is the fixture that proves the
+    diagnostic primitives below have something real to find."""
+    base = _head(repo)
+    with (repo / "docs" / "korax-revisions.md").open("a") as f:
+        f.write("\n## R-NEXT — the ledger entry, on the first commit\n\nfixture\n")
+    (repo / "src" / "app.py").write_text("first change\n")
+    _git(repo, "commit", "-qam", "commit 1: code plus the ledger entry")
+    (repo / "src" / "app.py").write_text("second change\n")
+    _git(repo, "commit", "-qam", "commit 2: a correction, no ledger touch")
+    target = _head(repo)
+
+    assert _owed(repo, base, target)
+    assert not _entry_added(repo, target), (
+        "target^1..target is commit 2 alone — the entry is invisible from "
+        "there, which is the exact red slate measured, kept as-is"
+    )
+    assert not _trailer_present(repo, target)
+
+
+def test_the_in_range_primitives_see_what_the_narrow_check_misses(repo: Path) -> None:
+    """The diagnostic's whole reason to exist: on the SAME fixture as
+    above, base..target (the caller's own --base) DOES see the entry —
+    which is what lets the FAIL message name the multi-commit-branch
+    property instead of leaving a claimant to discover it by reading
+    gate.sh's source, the way slate did."""
+    base = _head(repo)
+    with (repo / "docs" / "korax-revisions.md").open("a") as f:
+        f.write("\n## R-NEXT — the ledger entry, on the first commit\n\nfixture\n")
+    (repo / "src" / "app.py").write_text("first change\n")
+    _git(repo, "commit", "-qam", "commit 1: code plus the ledger entry")
+    (repo / "src" / "app.py").write_text("second change\n")
+    _git(repo, "commit", "-qam", "commit 2: a correction, no ledger touch")
+    target = _head(repo)
+
+    assert not _entry_added(repo, target)
+    assert _entry_added_in_range(repo, base, target), (
+        "the wide range must see the entry the narrow one cannot — "
+        "otherwise the diagnostic has nothing to report and the FAIL "
+        "message stays uninformative"
+    )
+
+
+def test_the_in_range_trailer_primitive_sees_an_earlier_commits_escape(
+    repo: Path,
+) -> None:
+    """The trailer form of the same property, so both signals the FAIL
+    branch checks are exercised, not just one."""
+    base = _head(repo)
+    _git(repo, "commit", "--allow-empty", "-qm",
+         "Ledger: none — the escape, on the first commit")
+    (repo / "src" / "app.py").write_text("changed\n")
+    _git(repo, "commit", "-qam", "second commit: the actual code, no trailer here")
+    target = _head(repo)
+
+    assert not _trailer_present(repo, target)
+    assert _trailer_present_in_range(repo, base, target)
+
+
+def test_the_in_range_primitives_stay_silent_when_there_is_genuinely_nothing(
+    repo: Path,
+) -> None:
+    """The negative control: a branch that owes an entry and truly never
+    brought one anywhere, on any commit — the diagnostic must not
+    manufacture a reason where none exists (the 214a776 shape itself,
+    walked with the wide primitives instead of the narrow ones)."""
+    base = _head(repo)
+    (repo / "src" / "app.py").write_text("first change\n")
+    _git(repo, "commit", "-qam", "commit 1: code, no ledger entry anywhere")
+    (repo / "src" / "app.py").write_text("second change\n")
+    _git(repo, "commit", "-qam", "commit 2: more code, still no ledger entry")
+    target = _head(repo)
+
+    assert not _entry_added_in_range(repo, base, target)
+    assert not _trailer_present_in_range(repo, base, target)
+
+
+def test_the_diagnostic_functions_are_wired_into_the_fail_branch() -> None:
+    """Structural check that the FAIL(0) branch actually calls the
+    diagnostic primitives — the wrapper itself is not directly callable
+    against a fixture repo (REPO_ROOT is readonly), matching the
+    existing convention for wrapper-level assertions in this file."""
+    text = GATE.read_text(encoding="utf-8")
+    assert "ledger_disposition_entry_added_in_range" in text
+    assert "ledger_disposition_trailer_present_in_range" in text
+    assert text.count("ledger_disposition_entry_added_in_range") >= 2, (
+        "must be both defined and called"
+    )
+    assert "FINAL commit" in text, (
+        "the FAIL message must name the multi-commit-branch property in "
+        "words, not just compute the diagnostic silently"
     )
 
 

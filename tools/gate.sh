@@ -318,10 +318,14 @@ ledger_disposition_is_owed() {
 # heading property. For a real two-parent merge, target^1 IS the
 # accurate pre-merge mainline regardless of how many commits the
 # feature branch carried — a TREE diff, unlike a commit-by-commit walk,
-# cannot miss intermediate commits. For a non-merge target (a direct or
-# `--branch`-mode commit), target^1 is its own true predecessor, which
-# is the right question there too (#2783 ruling 2) — no special case
-# needed. owed() below deliberately does NOT move: over-triggering
+# cannot miss intermediate commits. For a non-merge target in
+# `--branch` mode, target^1 is only the immediately preceding commit on
+# that branch, not the branch's fork point — so a multi-commit branch
+# whose ledger disposition sits anywhere but the FINAL commit is
+# correctly-formed but invisible to this check (#3044/#3045: found by
+# slate, ruled by the desk — the fail-closed direction is kept, and the
+# FAIL message below is what tells a multi-commit claimant why). owed()
+# below deliberately does NOT move: over-triggering
 # `owed` from a too-far-back base is the same safe direction
 # browser_is_owed already accepts (asks for more than strictly needed,
 # never less); only entry/trailer have a defect-HIDING failure mode, so
@@ -371,6 +375,27 @@ ledger_disposition_entry_added() {
 ledger_disposition_trailer_present() {
   local repo="$1" target_sha="$2"
   git -C "$repo" log --format=%B "${target_sha}^1..${target_sha}" 2>/dev/null \
+    | grep -qE '^Ledger:[[:space:]]*none\b'
+}
+
+# DIAGNOSTIC ONLY — never called by owed()/entry_added()/trailer_present()
+# and never consulted for the PASS/FAIL verdict (#3045's ruling: the
+# fail-closed first-parent design stays exactly as #2783 left it). These
+# two ask the same questions against the caller's --base instead of
+# target^1, so a FAIL in `--branch` mode can say WHY when the answer
+# differs: a multi-commit branch whose ledger disposition landed on an
+# earlier commit than the last one reads "no entry, no trailer" from
+# target^1..target and "entry present" from base..target, and only the
+# second range explains the contradiction in words a claimant can act on.
+ledger_disposition_entry_added_in_range() {
+  local repo="$1" base_sha="$2" target_sha="$3"
+  git -C "$repo" diff "$base_sha" "$target_sha" -- docs/korax-revisions.md 2>/dev/null \
+    | grep -qE '^\+##[[:space:]]+R(-NEXT|[0-9]+)\b'
+}
+
+ledger_disposition_trailer_present_in_range() {
+  local repo="$1" base_sha="$2" target_sha="$3"
+  git -C "$repo" log --format=%B "${base_sha}..${target_sha}" 2>/dev/null \
     | grep -qE '^Ledger:[[:space:]]*none\b'
 }
 
@@ -567,7 +592,12 @@ run_ledger_disposition_leg() {
       printf 'PASS\n' >&2 ;;
     0)
       LEG_STATUS[ledger-disposition]=FAIL
-      LEG_DETAIL[ledger-disposition]="owed (diff touches paths outside docs/) but neither an added ledger entry nor a Ledger: none trailer is present"
+      local diag=""
+      if ledger_disposition_entry_added_in_range "$REPO_ROOT" "$base_sha" "$TARGET_SHA" \
+         || ledger_disposition_trailer_present_in_range "$REPO_ROOT" "$base_sha" "$TARGET_SHA"; then
+        diag=" — but an added entry or Ledger: none trailer DOES exist in ${BASE_REF}..${TARGET_SHA:0:12} (just not in ${TARGET_SHA:0:12}^1..${TARGET_SHA:0:12}): on a multi-commit branch the ledger disposition must be in the FINAL commit, or squash before delivering"
+      fi
+      LEG_DETAIL[ledger-disposition]="owed (diff touches paths outside docs/) but neither an added ledger entry nor a Ledger: none trailer is present in the target commit's own diff${diag}"
       printf 'FAIL (no entry, no trailer)\n' >&2 ;;
     2)
       LEG_STATUS[ledger-disposition]=FAIL
