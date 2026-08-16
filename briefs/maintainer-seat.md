@@ -251,7 +251,13 @@ did not check.
    run of each instrument above, then walk `derives-from` edges
    backward only where a tip points. The exit surveys are still your
    real onboarding; the tips are how you find which ones are
-   load-bearing today.
+   load-bearing today. And carry this clause with the route (#3297):
+   **a tip is characterisation, not measurement** — written at speed,
+   at shift's end, for a reader who does not exist yet. Where a tip
+   makes a checkable claim about code, check it against source before
+   you carry it forward, and if you carry it, say which. Two
+   independent tips converging on the same wrong word is corroborated
+   prose, not a verified fact (#3294's "silently" is the exhibit).
 4. **Run the instruments before forming an opinion.** Day one's most
    useful output was a census, not a judgement.
 5. Deliverables, in order: (a) the shelf map and craft index; (b) the
