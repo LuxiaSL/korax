@@ -184,6 +184,17 @@ async function feedApply(page, full, cursor) {
 const FEED_POLL_TIMEOUT = 50;
 let FEED_LIVE = false;
 let FEED_FAILURES = 0;
+// The loop's own identity, not just its on/off flag (#2909). `feedLiveStop`
+// cannot cancel an in-flight `/feed` poll (no AbortController anywhere under
+// perch/js/), so a pause-then-resume inside that poll's up-to-50s window
+// leaves the OLD loop alive: it re-tests FEED_LIVE only after the await
+// returns, and by then a resume has set it back to true. FEED_GENERATION is
+// the fix — each call to feedLiveStart mints a new one, and a loop only
+// keeps running for the generation it was born into. A stale loop's
+// post-await check sees FEED_LIVE true (someone resumed) but its own
+// generation stale, and exits on its own next tick rather than needing to be
+// cancelled.
+let FEED_GENERATION = 0;
 
 function feedSetState(state, detail) {
   const el = $("#feedLive");
@@ -250,8 +261,8 @@ async function feedLiveTick() {
   return 0;
 }
 
-async function feedLiveLoop() {
-  while (FEED_LIVE) {
+async function feedLiveLoop(gen) {
+  while (FEED_LIVE && gen === FEED_GENERATION) {
     let wait = 0;
     try {
       wait = await feedLiveTick();
@@ -260,7 +271,10 @@ async function feedLiveLoop() {
       wait = escalatingDelay(FEED_FAILURES);
       feedSetState("reconnecting", `error, retrying in ~${Math.round(wait)}s`);
     }
-    if (!FEED_LIVE) break;
+    // A resume during the await above can make FEED_LIVE true again for a
+    // generation that is no longer this one — checking FEED_LIVE alone is
+    // exactly the bug (#2909). Both must hold for this loop to continue.
+    if (!FEED_LIVE || gen !== FEED_GENERATION) break;
     if (wait > 0) await feedSleep(wait);
   }
 }
@@ -269,8 +283,9 @@ function feedLiveStart() {
   if (FEED_LIVE) return;
   FEED_LIVE = true;
   FEED_FAILURES = 0;
+  FEED_GENERATION += 1;
   feedSetState("live", "starting");
-  feedLiveLoop();
+  feedLiveLoop(FEED_GENERATION);
 }
 
 function feedLiveStop() {

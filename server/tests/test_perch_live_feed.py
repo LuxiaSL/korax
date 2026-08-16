@@ -341,3 +341,97 @@ def test_a_goodbye_does_not_escalate_the_backoff() -> None:
         "the goodbye branch does not reset the failure count"
     )
     assert "FEED_FAILURES += 1" not in goodbye_branch
+
+
+# --------------------------------------------------------------------------
+# A PAUSE/RESUME INSIDE A POLL WINDOW LEAVES EXACTLY ONE LIVE LOOP (#2909)
+# --------------------------------------------------------------------------
+#
+# `feedLiveStop` cannot cancel the in-flight `/feed` poll (no AbortController
+# anywhere under perch/js/), so the old loop keeps awaiting it. Without a
+# generation check, that old loop's post-await recheck sees only `FEED_LIVE`,
+# which a resume has already set back to true — so it does not break, and it
+# keeps polling forever beside the loop the resume started. This drives
+# `feedLiveTick` through a `fetch` mock that stays pending until released by
+# hand, so the pause/resume can be forced to land WHILE a poll is in flight —
+# the exact window a real browser only hits by timing, which is why the
+# shipped driver's own toggle (#2909) reproduces it 40/40 rather than never.
+
+_LIVE_LOOP_HARNESS = r"""
+function tick(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+const calls = [];
+const resolvers = [];
+globalThis.fetch = (path) => {
+  const i = calls.length;
+  calls.push(path);
+  return new Promise((res) => { resolvers[i] = res; });
+};
+function respondQuiet(i) {
+  resolvers[i]({ status: 200, ok: true, json: async () => ({ envelopes: [] }) });
+}
+
+feedLiveStart();
+await tick(5);           // loop A's first poll registers (calls[0]), suspended
+feedLiveStop();
+feedLiveStart();          // resume WHILE loop A is still awaiting its poll
+await tick(5);            // loop B's first poll registers (calls[1]), suspended
+
+respondQuiet(0);           // release loop A's in-flight poll
+await tick(30);            // let loop A's post-await recheck run (or not)
+
+const callsAfterFirstResolve = calls.length;
+
+// cleanup: resolve everything so no promise is left dangling
+for (let i = 0; i < calls.length; i++) respondQuiet(i);
+feedLiveStop();
+await tick(30);
+
+console.log(JSON.stringify({ callsAfterFirstResolve, totalCalls: calls.length }));
+"""
+
+
+def test_a_pause_resume_inside_a_poll_window_leaves_exactly_one_live_loop() -> None:
+    """The property #2909 asks for, proven by counting `/feed` calls rather
+    than by asserting on internal state the fix does not expose: a second,
+    still-alive loop announces itself by placing a THIRD `fetch` call after
+    the first two are already accounted for; a loop that correctly exited
+    does not.
+    """
+    out = _run_js(_LIVE_LOOP_HARNESS)
+    assert out["callsAfterFirstResolve"] == 2, (
+        "a stale loop kept polling after its own poll resolved: "
+        f"{out['callsAfterFirstResolve']} calls in flight where 2 (one per "
+        "loop, ever) is correct — the old loop did not recognise a resume "
+        "had moved on without it"
+    )
+
+
+def test_the_generation_guard_is_canaried_broken() -> None:
+    """Reintroduce exactly the bug #2909 reports — both the `while` and the
+    post-await check reading only `FEED_LIVE` — and confirm the property
+    test above would have caught it.
+
+    Breaking either check alone is not enough to observe the leak through
+    this harness: with `wait === 0` (the quiet-page response both loops get
+    here) every path back to `feedLiveTick` crosses BOTH checks, so either
+    one intact stops the stale loop before a third `fetch` call. That is the
+    fix's own belt-and-suspenders shape (the brief's own design: both sites
+    compare against current), not a weakness in this canary — it just means
+    reproducing the pre-fix bug takes reverting both lines together, exactly
+    as they were before #2909's fix.
+    """
+    broken = script().replace(
+        "  while (FEED_LIVE && gen === FEED_GENERATION) {",
+        "  while (FEED_LIVE) {",
+    ).replace(
+        "    if (!FEED_LIVE || gen !== FEED_GENERATION) break;",
+        "    if (!FEED_LIVE) break;",
+    )
+    assert broken != script(), "the canary patched nothing — the guard moved"
+    out = _run_js(_LIVE_LOOP_HARNESS, source=broken)
+    assert out["callsAfterFirstResolve"] == 3, (
+        "the deliberately broken guard did not produce a third call, so the "
+        f"property test above is not testing the generation check (got "
+        f"{out['callsAfterFirstResolve']})"
+    )
