@@ -153,15 +153,31 @@ def test_the_skipped_counter_stays_zero_on_a_clean_file(tmp_path: Path) -> None:
 
 def test_no_payload_body_reaches_the_report(tmp_path: Path) -> None:
     """A canary string living only inside payloads must appear in NEITHER
-    the human report nor the JSON. This is the §8.7 seam as a test."""
+    the human report nor the JSON. This is the §8.7 seam as a test.
+
+    **The fixture MUST route the canary through the drain path.** The first
+    version of this test used `korax dm`, which never reaches
+    `_envelope_ids` — so deliberately breaking the seam left this test
+    GREEN while unrelated tests failed on corrupted output. A canary wired
+    to a code path the fixture cannot reach is the #2666 defect wearing the
+    costume of the test written to prevent it. Caught by red-checking
+    rather than by review; both verbs are covered now.
+    """
     lines = [
+        # the drain path — this is what `_envelope_ids` actually inspects
         _assistant("r1", USAGE, [
-            {"type": "tool_use", "id": "tu-1", "name": "Bash",
-             "input": {"command": f"korax dm band:x '{SEAM_CANARY}'",
-                       "description": SEAM_CANARY}},
+            {"type": "tool_use", "id": "tu-1", "name": "mcp__korax__korax_read",
+             "input": {"since": 1}},
         ]),
         _user_result("tu-1", json.dumps({"envelopes": [
             {"id": 7, "payload": SEAM_CANARY, "ns": "/dm/band:x"}]})),
+        # and the non-drain path, via a command line carrying the canary
+        _assistant("r2", USAGE, [
+            {"type": "tool_use", "id": "tu-2", "name": "Bash",
+             "input": {"command": f"korax dm band:x '{SEAM_CANARY}'",
+                       "description": SEAM_CANARY}},
+        ]),
+        _user_result("tu-2", json.dumps({"ok": True, "echo": SEAM_CANARY})),
     ]
     (tmp_path / "s.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
