@@ -108,6 +108,59 @@ readonly LEG_NAMES=(
 )
 readonly LEG_COUNT=${#LEG_NAMES[@]}
 
+# ── the count contract (#2953 → #2954 → #2963; floors named at #2994) ──
+# gate.sh used to DISPLAY every suite count and assert none, so a filter
+# silently narrowing 940 tests to 200 yielded a green gate truthfully
+# reporting `200 passed`, checked by nobody. Zero-match is caught by
+# pytest's exit 5; PARTIAL narrowing was invisible.
+#
+# THE FLOOR IS ON `selected`, NOT ON `passed`, and that is a measured
+# decision rather than a taste (#2993, named by the desk at #2994).
+# `passed` is SAMPLED and this battery flips its own mode: the two
+# `KORAX_MERGE_TARGET` guards in `test_revisions_ledger.py` run on a
+# merge target and skip under `--branch`, so the server suite is 940
+# passed in one of this tool's own configurations and 938 passed + 2
+# skipped in the other. A scalar floor on `passed` is wrong in one of
+# them by construction, and a floor that is wrong in a configuration the
+# instrument itself selects is not a floor.
+#
+# `selected` is mode-invariant (measured both ways) and DECIDED — it
+# comes from `--collect-only`, which reads the artifact, runs nothing,
+# and cannot flake.
+#
+# THE TWO SOURCES ARE THE POINT (#2954's two clauses):
+#   floor     selected >= FLOOR          decided; makes silent narrowing
+#                                        impossible
+#   identity  sum(outcomes) == selected  sampled vs decided CROSS-CHECK;
+#                                        makes a red diagnosable
+# Summing the run's own outcomes and calling that `selected` would make
+# the identity an arithmetic tautology — true of any output, evidence of
+# nothing. The collect is a SECOND, INDEPENDENT read, which is the only
+# reason the two can disagree, and their disagreeing is the signal.
+#
+# FLOORS MOVE ONLY BY THE NAMED-ACT PATH (#2680/#2979/#2994): measured,
+# proposed on the log, named by the desk. Never edited to match a run.
+# Of record at #2994, measured at 4292f14 (R153), whose server/tests
+# tree is byte-identical at ef56d3e.
+declare -A LEG_FLOOR=(
+  [suite-server]=940
+  [suite-cli]=335
+  [suite-mcp]=237
+  [ci-server]=940
+  [ci-cli]=335
+  [ci-mcp]=237
+)
+declare -A LEG_SELECTED=()   # name -> decided count, from --collect-only
+declare -A LEG_OUTCOMES=()   # name -> sampled sum, from the run's own output
+
+# ── the shallow leg's declarations (#2831, three states ruled #3017) ───
+# At file scope, not inside `run_shallow_leg`: the acceptance suite
+# sources this script to call its functions directly against planted
+# fixtures, and a `readonly` inside a function explodes on the second
+# call — a self-inflicted red that says nothing about the tree.
+readonly SHALLOW_MARKER='korax: needs-git-history'
+readonly SHALLOW_REENTRANT='korax: invokes-the-gate'
+
 #: Where the perch actually lives. BOTH roots are load-bearing: the
 #: browser tests execute driver `.js` files that sit in `server/tests/`
 #: (`test_perch_smoke.py:43` -> `perch_smoke_driver.js`), so a
@@ -134,6 +187,7 @@ declare -A LEG_OWED=()     # name -> owed | unowed  (only when it RAN)
 #: safe here only because these groups are ours by construction.
 LEG_PGIDS=()
 LEDGER_LINES=()
+SHALLOW_SHAPE=""
 
 TARGET_SHA=""
 BASE_REF=""
@@ -256,6 +310,10 @@ run_leg() {
     LEG_DETAIL[$name]="rc=$rc — $(summarise "$LOGDIR/$name.log")"
     printf 'FAIL (rc=%d)\n' "$rc" >&2
   fi
+  # The count contract, with THIS leg's argv still in scope (#2963).
+  # Deliberately runs on a red leg too: "it was red anyway" is how a
+  # narrowing hides inside an unrelated failure.
+  assert_counts "$name" "$@"
 }
 
 skip_leg() {
@@ -279,6 +337,111 @@ summarise() {
   line="$(grep -aE '[0-9]+ (passed|failed|error)' "$log" 2>/dev/null | tail -n 1)"
   [ -n "$line" ] || line="$(grep -av '^[[:space:]]*$' "$log" 2>/dev/null | tail -n 1)"
   printf '%s' "${line:-(no output)}"
+}
+
+# ── the count contract's two reads ────────────────────────────────────
+# THE DECIDED READ. `--collect-only` imports the test modules and stops;
+# no server starts, no Chrome spawns, no clock matters. Two summary
+# shapes exist and both are handled explicitly, because the narrower one
+# is what a suite with NO deselection prints and reading only the wide
+# form would return empty exactly where the count is simplest:
+#   "940/948 tests collected (8 deselected) in 0.62s"   -> 940
+#   "335 tests collected in 0.18s"                      -> 335
+# Failure to parse is NOT zero (which would satisfy no floor and read as
+# catastrophic narrowing); it returns non-zero and the caller fails the
+# leg naming the parse, so an output-format change announces itself
+# instead of masquerading as a defect in the suite.
+#
+# ONLY `--collect-only` IS APPENDED, NEVER A VERBOSITY FLAG. Every
+# floored leg already passes `-q`, and appending a second one gives
+# pytest `-qq`, which suppresses the collected-count line entirely — the
+# collect then parses as nothing and the leg reddens for a reason that
+# has nothing to do with its tests. That is not a hypothetical: it is
+# what the first cut of this function did, and the CONTROL is what
+# caught it, because the narrowed arm and the unnarrowed arm went red
+# identically. A treatment that fails for the same reason as its control
+# has measured nothing (#2872).
+collect_selected() {
+  local out line n
+  out="$( cd "$WT" && "$@" --collect-only 2>&1 )"
+  line="$(printf '%s\n' "$out" | grep -aE '[0-9]+ tests? collected' | tail -n 1)"
+  [ -n "$line" ] || return 1
+  n="$(printf '%s' "$line" | sed -nE 's|^([0-9]+)/[0-9]+ tests? collected.*|\1|p')"
+  [ -n "$n" ] || n="$(printf '%s' "$line" | sed -nE 's|^([0-9]+) tests? collected.*|\1|p')"
+  [ -n "$n" ] || return 1
+  printf '%s' "$n"
+}
+
+# THE SAMPLED READ: what the run itself says happened, summed across
+# every outcome category. `deselected` is deliberately NOT summed — it
+# is the complement of `selected`, not an outcome — and neither are
+# `warnings`, which count events rather than tests.
+sum_outcomes() {
+  local log="$1" line total=0 n word
+  line="$(grep -aE '[0-9]+ (passed|failed|error|errors|skipped|xfailed|xpassed)' \
+          "$log" 2>/dev/null | tail -n 1)"
+  [ -n "$line" ] || return 1
+  while read -r n word; do
+    case "$word" in
+      passed|failed|error|errors|skipped|xfailed|xpassed)
+        total=$((total + n)) ;;
+    esac
+  done < <(printf '%s\n' "$line" | grep -aoE '[0-9]+ [a-z]+')
+  printf '%s' "$total"
+}
+
+# ADJACENT TO THE LEG, PER INVOCATION (#2963). A battery that checks
+# counts once in a preamble has the defect quill's v2 had by
+# construction: it asserts about a run other than the one it reports.
+# This is called from `run_leg` with that leg's own argv still in scope,
+# so the collect asks about exactly the invocation that just ran.
+#
+# A leg with no floor entry is not silently skipped — `report` names
+# every leg that carried no count contract, so "checked" and "not
+# checked" cannot be confused for one another.
+assert_counts() {
+  local name="$1"; shift
+  local floor="${LEG_FLOOR[$name]:-}"
+  [ -n "$floor" ] || return 0
+
+  local selected outcomes
+  selected="$(collect_selected "$@")"
+  if [ -z "$selected" ]; then
+    LEG_STATUS[$name]=FAIL
+    LEG_DETAIL[$name]="COUNT CONTRACT: could not parse a collected count — the floor was not checked, so this leg is red rather than green-by-unreadability"
+    printf '  %-12s ... FAIL (count: unparseable collect)\n' "$name" >&2
+    return
+  fi
+  LEG_SELECTED[$name]="$selected"
+
+  if [ "$selected" -lt "$floor" ]; then
+    LEG_STATUS[$name]=FAIL
+    LEG_DETAIL[$name]="COUNT FLOOR: $selected selected, floor $floor (#2994) — the run narrowed; ${LEG_DETAIL[$name]:-}"
+    printf '  %-12s ... FAIL (floor: %s < %s)\n' "$name" "$selected" "$floor" >&2
+    return
+  fi
+
+  outcomes="$(sum_outcomes "$LOGDIR/$name.log")"
+  if [ -z "$outcomes" ]; then
+    # Only meaningful where the leg actually reported. A leg that died
+    # before printing a summary is already FAIL on its rc, and saying
+    # so twice would double-count one defect.
+    [ "${LEG_STATUS[$name]}" = "PASS" ] || return 0
+    LEG_STATUS[$name]=FAIL
+    LEG_DETAIL[$name]="COUNT CONTRACT: leg exited 0 with no parseable outcome line — a pass nobody can account for"
+    printf '  %-12s ... FAIL (count: no outcome line)\n' "$name" >&2
+    return
+  fi
+  LEG_OUTCOMES[$name]="$outcomes"
+
+  if [ "$outcomes" != "$selected" ]; then
+    LEG_STATUS[$name]=FAIL
+    LEG_DETAIL[$name]="COUNT IDENTITY: $outcomes outcomes vs $selected selected — $(( selected - outcomes )) selected test(s) reported no result; ${LEG_DETAIL[$name]:-}"
+    printf '  %-12s ... FAIL (identity: %s != %s)\n' "$name" "$outcomes" "$selected" >&2
+    return
+  fi
+
+  LEG_DETAIL[$name]="${LEG_DETAIL[$name]:-} [counts: $selected selected >= $floor floor; $outcomes outcomes accounted]"
 }
 
 # ── is the browser leg owed? (#2422) ──────────────────────────────────
@@ -463,6 +626,43 @@ run_shallow_leg() {
     return
   fi
 
+  # ── SHAPE, NOT ONLY DEPTH (#2957 §3, part d) ────────────────────────
+  # `--depth 1` and `actions/checkout@v4` agree on how much HISTORY is
+  # present and disagree on what REFS are left lying around, because they
+  # are different operations: checkout@v4 is init + remote add + a
+  # single-branch `fetch --no-tags --depth=1` + `checkout -B`, while this
+  # is `git clone`, which additionally writes `refs/remotes/origin/HEAD`.
+  # A control proving `--depth` was honoured is not a control on tree
+  # shape, exactly as `open: 1` was not a control on poll identity
+  # (#2955).
+  #
+  # TWO KNOWN DIFFERENCES, REMOVED RATHER THAN DOCUMENTED — a difference
+  # you can delete is worth more than a difference you can describe, and
+  # this is the cheap end of the fix: `origin/HEAD` (clone writes it,
+  # checkout@v4 does not) and any tags (checkout@v4 fetches `--no-tags`).
+  # A test resolving either would pass here and fail on CI, which is the
+  # precise failure this leg exists to predict.
+  #
+  # WHAT IS NOT CLAIMED: that the result now matches CI's checkout
+  # exactly. THE CI SIDE IS UNMEASURED BY ME — the shape above is
+  # actions/checkout@v4's documented behaviour, not something observed on
+  # a runner from this host, and observing it would take a CI change this
+  # JOB does not scope. The residual is named in the report rather than
+  # implied to be zero.
+  local pruned=""
+  if git -C "$shallow" rev-parse --verify -q refs/remotes/origin/HEAD >/dev/null 2>&1; then
+    git -C "$shallow" update-ref -d refs/remotes/origin/HEAD 2>/dev/null && pruned="origin/HEAD"
+  fi
+  local n_tags
+  n_tags="$(git -C "$shallow" tag | grep -c . || true)"
+  if [ "${n_tags:-0}" -gt 0 ]; then
+    git -C "$shallow" tag | while read -r t; do
+      git -C "$shallow" tag -d "$t" >/dev/null 2>&1
+    done
+    pruned="${pruned:+$pruned, }$n_tags tag(s)"
+  fi
+  SHALLOW_SHAPE="refs pruned to CI's shape: ${pruned:-none present}; CI side documented, not measured here"
+
   if [ "$n_control" = "$n_shallow" ]; then
     LEG_STATUS[shallow]=FAIL
     LEG_DETAIL[shallow]="CONTROL FAILED: bare-path clone is also ${n_control} commit(s), so file:// is not what makes this shallow — leg is vacuous"
@@ -470,8 +670,55 @@ run_shallow_leg() {
     return
   fi
 
+  # ── THE DECLARED SET (#2831, ruled three-state at #3017) ────────────
+  # The leg used to run `clients/cli/tests` — a directory containing no
+  # history readers at all. It proved the clone was shallow and then
+  # exercised the one part of the tree that could never fail for being
+  # shallow, while the files that DO read real history sat outside its
+  # scope. SCOPE CHANGE NAMED AS THIS DELIVERY'S OWN ACT (#2680): the leg
+  # now runs exactly the declared set instead. The cli suite loses
+  # nothing it was providing — `suite-cli` and `ci-cli` run it in full at
+  # full depth, twice.
+  #
+  # NO SPLIT-STRING DANCE HERE, and the asymmetry is deliberate. The
+  # Python guard must assemble its markers because it greps the directory
+  # it lives in; this script greps `server/tests/` and does not live
+  # there, so its literals cannot match themselves. Splitting them anyway
+  # would be cargo cult — the counter-move belongs where the self-match
+  # is possible (#2694 §3).
+  local declared=() reentrant=() runnable=() f
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    declared+=("$f")
+    if grep -qF "$SHALLOW_REENTRANT" "$WT/$f" 2>/dev/null; then
+      reentrant+=("$f")
+    else
+      runnable+=("$f")
+    fi
+  done < <(cd "$WT" && grep -rlF "$SHALLOW_MARKER" server/tests \
+             --include='test_*.py' 2>/dev/null | sort)
+
+  # THREE STATES, EVERY ONE REPORTED (#3017). A leg that quietly omits
+  # the hard case reports a denominator it did not earn, which is the
+  # defect the battery's whole declaration discipline exists to retire.
+  local excluded_note=""
+  if [ ${#reentrant[@]} -gt 0 ]; then
+    excluded_note="; NOT RUN (re-entrant, would launch a nested battery): ${reentrant[*]}"
+  fi
+
+  # FAIL CLOSED ON AN EMPTY SET. Zero declared files is not "nothing to
+  # do" — it is the declarations having broken, and it is the one state
+  # that would let this leg go green having run nothing, which is the
+  # exact defect it was rebuilt to stop.
+  if [ ${#runnable[@]} -eq 0 ]; then
+    LEG_STATUS[shallow]=FAIL
+    LEG_DETAIL[shallow]="no runnable declared tests found (${#declared[@]} declared, ${#reentrant[@]} re-entrant) — the leg would run nothing and report green$excluded_note"
+    printf 'FAIL (empty declared set)\n' >&2
+    return
+  fi
+
   set -m
-  ( cd "$shallow" && uv run --project . pytest -q clients/cli/tests ) \
+  ( cd "$shallow" && uv run --project . pytest -q "${runnable[@]}" ) \
       > "$LOGDIR/shallow.log" 2>&1 &
   local shallow_pid=$!
   LEG_PGIDS+=("$shallow_pid")
@@ -479,14 +726,26 @@ run_shallow_leg() {
   rc=$?
   set +m
   forget_leg "$shallow_pid"
+
+  # pytest exit 5 is "no tests collected" — a zero-work run that exits
+  # non-zero. Named separately because "the files were there but nothing
+  # in them ran" is a different repair from "a test failed".
+  if [ $rc -eq 5 ]; then
+    LEG_STATUS[shallow]=FAIL
+    LEG_DETAIL[shallow]="the declared files collected NO tests inside the clone (pytest rc=5): ${runnable[*]}$excluded_note"
+    printf 'FAIL (declared set collected nothing)\n' >&2
+    return
+  fi
+
   local ctl="control: bare path ${n_control:-?} of ${n_source:-?} commits (--depth ignored locally, as it must be)"
+  local scope="declared ${#declared[@]}: ran ${runnable[*]}$excluded_note — ${SHALLOW_SHAPE}"
   if [ $rc -eq 0 ]; then
     LEG_STATUS[shallow]=PASS
-    LEG_DETAIL[shallow]="1-commit file:// clone; $(summarise "$LOGDIR/shallow.log") — $ctl"
+    LEG_DETAIL[shallow]="1-commit file:// clone; $(summarise "$LOGDIR/shallow.log") — $scope — $ctl"
     printf 'PASS\n' >&2
   else
     LEG_STATUS[shallow]=FAIL
-    LEG_DETAIL[shallow]="rc=$rc in 1-commit clone — $(summarise "$LOGDIR/shallow.log") — $ctl"
+    LEG_DETAIL[shallow]="rc=$rc in 1-commit clone — $(summarise "$LOGDIR/shallow.log") — $scope — $ctl"
     printf 'FAIL (rc=%d)\n' "$rc" >&2
   fi
 }
@@ -720,6 +979,35 @@ report() {
   # THE DENOMINATORS. Every count names what it is out of, and they are
   # reconciled against the DECLARED total so a shrunken battery cannot
   # render as a whole one (#2485, #2482).
+  # THE COUNT CONTRACT, PRINTED (#2874). The sampled quantity a check
+  # rides on goes in the report, not just in the assertion: the browser
+  # leg measured its Chrome tree size on every run for a day and threw
+  # the number away, which is how #2869's variance stayed invisible while
+  # being observed. `selected` is marked decided and the outcome sum
+  # sampled, so a reader knows which figure could have come out
+  # differently on a second run.
+  echo
+  echo "  counts    per leg — selected is DECIDED (--collect-only, cannot flake);"
+  echo "            outcomes is SAMPLED (this run). Floors of record: #2994."
+  local unchecked=""
+  for name in "${LEG_NAMES[@]}"; do
+    if [ -n "${LEG_FLOOR[$name]:-}" ]; then
+      case "${LEG_STATUS[$name]:-MISSING}" in
+        PASS|FAIL)
+          printf '    %-12s selected %-6s floor %-6s outcomes %s\n' \
+            "$name" "${LEG_SELECTED[$name]:-?}" "${LEG_FLOOR[$name]}" \
+            "${LEG_OUTCOMES[$name]:-?}" ;;
+        *) printf '    %-12s not run — no counts to report\n' "$name" ;;
+      esac
+    else
+      unchecked="$unchecked $name"
+    fi
+  done
+  # NAMED, NEVER SILENT: a leg outside the contract must not be
+  # indistinguishable from one that passed it. This is the same rule the
+  # leg table already applies to SKIPPED, one level down.
+  [ -n "$unchecked" ] && echo "    no floor:$unchecked — outside the count contract, deliberately"
+
   echo
   echo "  legs      $ran of $LEG_COUNT ran, $skipped skipped, $missing not reached"
   echo "  fail      $failed of $ran ran"

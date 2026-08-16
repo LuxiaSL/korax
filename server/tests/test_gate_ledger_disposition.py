@@ -43,6 +43,13 @@ from pathlib import Path
 
 import pytest
 
+# korax: needs-git-history — `test_entry_added_was_red_on_the_real_unfixed_
+# gate_sh_where_history_exists` reads `52f0261` out of the real repository.
+# It probes with `cat-file -e` first and SKIPS BY NAME where that sha is
+# unreachable, which is the shallow-safe shape: running it inside the
+# shallow leg's depth-1 clone is expected to produce that named skip, and
+# the leg reports it as `declared, skipped by name` — evidence the guard
+# fires, not an absence.
 REPO = Path(__file__).resolve().parents[2]
 GATE = REPO / "tools" / "gate.sh"
 

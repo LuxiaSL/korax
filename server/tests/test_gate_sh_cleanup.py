@@ -34,6 +34,44 @@ pytestmark = pytest.mark.skipif(
     reason="/proc process-group inspection is Linux-specific",
 )
 
+# korax: needs-git-history — reads the real repository (`rev-parse HEAD`
+# below) rather than a planted fixture repo, so the shallow leg counts it.
+#
+# korax: invokes-the-gate — AND IS THEREFORE EXCLUDED FROM RUNNING INSIDE
+# THE SHALLOW CLONE, declared here rather than dropped quietly. `REPO` is
+# `parents[2]` of this file, so inside the leg's depth-1 clone it resolves
+# to the CLONE, and the `bash $GATE` below would launch a full battery
+# there — whose own shallow leg clones again and runs this file again.
+#
+# THE HAZARD IS PROSPECTIVE AND THIS DELIVERY IS WHAT WOULD ARM IT (the
+# mill, #3021): before part (a) the shallow leg ran `clients/cli/tests`
+# only, so `server/tests` never entered the clone and nothing could
+# recurse. Widening the leg is the change that makes the exclusion
+# necessary, which is why it lands in the same delivery.
+#
+# THERE IS A BRAKE, AND IT CANNOT REACH PAST DEPTH+1. The correction is
+# the mill's at #3021 and it matters practically. This test does bound
+# its child — 180 s readiness, `SOAK_S`, SIGTERM, `wait(60)`, then a
+# `finally` that SIGKILLs the gate's whole session. But that reap is
+# SESSION-scoped and each level spawns the next with
+# `start_new_session=True`, so level 0 reaps session S1 and is blind to
+# level 1's S2, at every depth. **A timeout is therefore not a
+# mitigation** — bounding each level's wall clock is what this file
+# already does, and a grandchild survives it. Only a sentinel the child
+# can observe would close it.
+#
+# AND THE SESSION-SCOPING IS ITSELF A DELIBERATE SAFETY FIX — see
+# `_session_members`' own docstring below: reaping by session is what
+# stopped this canary killing the operator's shell (#2633). Two correct
+# decisions composing badly under a condition neither anticipated; not a
+# bug in either.
+#
+# The leg reports this file as `declared, NOT RUN (re-entrant)`, so the
+# escape never gets a first level. A re-entry sentinel is not owed by
+# #2968 (desk, #3017) and becomes a deck candidate only if something ever
+# needs this test running inside clones — at which point the sentinel is
+# built FIRST and the demonstration runs against it (the mill, #3021 §3,
+# declining the live demonstration as the seat that would be asked).
 REPO = Path(__file__).resolve().parents[2]
 GATE = REPO / "tools" / "gate.sh"
 
