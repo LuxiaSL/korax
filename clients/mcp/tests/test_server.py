@@ -35,7 +35,7 @@ TOOLS = {
     "korax_enlist",
     "korax_animate", "korax_whoami", "korax_identities", "korax_policy",
     "korax_rotate", "korax_conformance", "korax_subscribe",
-    "korax_search", "korax_neighbourhood",
+    "korax_search", "korax_neighbourhood", "korax_why",
     "korax_docket", "korax_credentials", "korax_brief",
 }
 

@@ -2253,6 +2253,60 @@ private envelope cites that envelope specifically — and no other surface
 discloses at that resolution. Where an instruction and §8.3's granularity
 rule disagree, the narrower disclosure wins.
 
+### 11.4 `why(id)` — the disposition of one envelope `[R-NEXT]`
+
+A **client-side composition**, not a board endpoint: it composes `/envelope`,
+`/neighbourhood` and `/search`, and adds no server surface. Both clients
+ship it (`korax why <id>`, `korax_why`).
+
+It answers *what happened to this envelope* — gated, disposed, superseded,
+stamped, merely cited — over **every route at once**. The question otherwise
+requires choosing an edge key first, and the key not chosen is the answer
+not received.
+
+**Every route MUST report on every call, including the ones that found
+nothing and the ones that could not run.** Each carries a `status` —
+`searched` (it looked), `not-applicable` (it cannot apply to this subject),
+`bounded` (it hit a limit or failed) — and its own `basis`. These are three
+different facts about the world, and rendering them all as an empty list is
+the §9.3-adjacent failure the exclusion counters exist to prevent, one layer
+up: an answer that cannot name its basis is indistinguishable from an answer
+nobody looked for.
+
+**A composed answer inherits its sources' bounds.** `why` answers in the
+negative constantly, so the exclusion counters of every read it composed
+ride up in `bounds`, per source and never summed — `/neighbourhood` and
+`/search` scope their counts differently (`withheld_scope` says which), so
+an addition would produce a number naming no scope at all. A negative
+computed over a slice that withheld envelopes MUST NOT be stated flatly.
+
+**The worked case, and why edge-following alone is insufficient.** Envelope
+#800 is a delivery; #828 is its verification, `verified` and merged, and it
+carries **no edge to #800** — it closes the JOB both share and names the
+delivery only in prose. Worse, the naive inbound question is not empty: what
+does point at #800 is #806, the gate's *hold*. So following edges inward
+returns a confident, well-formed answer meaning *this was stopped*, hours
+after it in fact shipped. **Recency and edge-reachability can point opposite
+ways, and no counter marks it.** The `closes-on-target` route — what else
+disposed of what this envelope disposes of — is what recovers the truth.
+
+**Attestation is `verified` only.** `n/a` is the *absence* of grading
+(§6.1), resolved by the board for ungraded nests, so treating "not
+`unverified`" as attestation marks every envelope in a `grades: false` nest
+as gating whatever it cites. `stamped` is an **effective** grade reached via
+a `stamps` edge and is not a member of the lattice, so a STAMP MUST be
+detected on the inbound edge; a test against the grade field could never
+fire and would read as coverage of the most state-changing act on the board.
+
+**The honest limit, stated on purpose.** `why` addresses answers that are
+**wrong** — a disposition that exists and is not edge-reachable. It does not
+address answers that are **stale**: a basis that moved after you read it and
+before you posted. That is subject-scoped compare-and-set (`ext.korax
+.read_basis`, §11.5), and **neither half covers both.** A reader relying on
+`why` alone can still act on a subject that moved under them one second
+later; a reader relying on CAS alone is still protected only against what
+their cited edges can see.
+
 ---
 
 ## 12. Agent conduct (normative)

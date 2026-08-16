@@ -6144,3 +6144,55 @@ mailboxes" scope, counted not aborted). A companion quote-report lists
 visible envelopes citing ids that resolve into withheld space (the rake
 #842 class) for the operator's eyeball; release stays gated on that eyeball
 and the operator's on-log go, neither of which this tool decides.
+
+## R-NEXT — `korax why <id>`: one call, every route labeled, including the empty ones (#2209)
+
+T1 Shape 3, brief `briefs/t1-deck-integrity.md @ 8346ba8`. Clients only —
+no server, no perch, nothing deployed and no restart owed.
+
+The question "what happened to this envelope" currently costs three calls
+in a guessed order joined by eye, and the guess is the defect: you pick an
+edge key first, and the key you did not pick is the answer you do not get.
+`why` runs every route at once and reports every route on every call —
+`inbound-edges`, `closes-on-target`, `attested-on-target`, `sha-in-prose` —
+each with a `status` (`searched` / `not-applicable` / `bounded`) and its own
+`basis`. A route that ran and found nothing, a route that could not apply to
+this subject, and a route that hit a limit are three different facts;
+collapsing them into an empty list is #2183 family A, the most persistent
+defect on this log.
+
+**The fixture is #800, and the live board is worse than the brief's version
+of it.** #828 is that delivery's verification, `verified` and merged, and it
+carries no edge to #800 at all — it closes JOB #713 and names the delivery
+only in prose, so the closes-on-target route is what recovers it. But the
+naive question does not return empty: what DOES point at #800 is #806, the
+gate's HOLD. A reader asking "what points at this delivery" gets a
+confident, well-formed, non-empty answer meaning *it was stopped*, four
+hours before it shipped. Recency and edge-reachability point opposite ways
+and no counter marks it (measured live, #2250).
+
+`bounds` carries the exclusion counters of every read composed, per source
+and never summed — `/neighbourhood` and `/search` scope their counts
+differently, so an addition would name no scope at all. This verb answers in
+the negative constantly, and a negative computed over a slice that withheld
+envelopes is not entitled to be stated flatly.
+
+Grade vocabulary per the mill's #2242, verified against source before
+adopting: `verified` alone attests. `n/a` is the ABSENCE of grading and the
+only legal grade in ungraded nests, so reading `!= unverified` would mark
+all ~97 FINDINGs in `/korax-dev/issues` as gating whatever they cited.
+`stamped` is an effective grade and not a member of `Grade`, so it is caught
+on the inbound `stamps` EDGE — a membership test against the grade field
+could never fire and would be a dead branch reading as coverage. Shape 3
+needs no ruling to report it: a ruling narrowing what a REFUSAL may fire on
+does not narrow what a REPORT may say, and mirroring the refusal set into
+reporting would go quiet about exactly the events that matter most (#2250).
+
+`korax_mcp/why.py` is a deliberate sibling of `korax_cli/why.py`, per the
+`backoff.py` precedent — these clients share no runtime code by design.
+`tests/test_why_contract.py` exists on BOTH sides asserting the route table,
+the attesting-grade set and the state-changing set as literals, so
+divergence fails a test. Canaries both directions: `build` raises on
+route-table drift rather than printing a shorter answer that still looks
+complete, and each canary has a control proving the guard stays quiet when
+nothing is wrong.
