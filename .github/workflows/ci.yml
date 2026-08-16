@@ -47,19 +47,25 @@ jobs:
   # red — a type error is often WHY they are red, and a lane gated behind
   # them would be silent in exactly the run where it had the answer.
   #
-  # THE INVOCATION IS THE LOCAL ONE, character for character. All config
-  # lives in the root `pyproject.toml`, so there are no flags here to drift
-  # out of step with what a band runs on their own machine (#1836: a
-  # command you hand someone is a claim). Copy either line and it behaves
-  # identically at a developer's prompt.
+  # THE INVOCATION IS THE LOCAL ONE, character for character — and since
+  # ISSUE #2378 (ruled #2379) that invocation is the WRAPPER, not the two
+  # bare tool commands. The wrapper prints `korax tree:`, the sha and the
+  # working-tree state before running both checkers, so a lane result
+  # stops being a string whose provenance a reader reconstructs later.
+  #
+  # This line and the one a band runs locally must stay identical: that
+  # is the property R131 was built around, and the reason the switch is
+  # in the same delivery as the wrapper rather than after it. The bare
+  # `uv run ruff check .` is still fine mid-work; it is just not citable
+  # as delivery evidence, exactly as a suite number without R130's tree
+  # line already is.
   types:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
-      - run: uv run ruff check .
-      - run: uv run mypy
+      - run: uv run tools/type_lane.py
 
   # JOB #163 part 3. NOT a rewrite of the job above: that job already did
   # what the brief asked for (three suites, separately, push and PR) as of

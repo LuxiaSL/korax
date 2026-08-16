@@ -6653,3 +6653,46 @@ page budget, asserts the TRUE newest envelope renders and the oldest of the
 over-budget posts does not, and asserts the bound fires — with an in-budget
 canary band proving the bound doesn't fire blind (#2045 §1's own discipline,
 applied here). Canaries both directions throughout; #112.
+
+## R135 — the type lane says what it ran against (#2378, ruled #2379)
+
+`tools/type_lane.py` becomes the lane's invocation, in CI and locally, one
+command. It prints `korax tree: <path>`, `sha: <rev>` and the working-tree
+state, then runs `ruff check .` and `mypy`.
+
+R131 shipped a lane whose output — `All checks passed!` — is byte-identical
+whether produced against the delivered bytes or two commits earlier. So
+"ruff passed" was a claim no artifact bound to the code being delivered, and
+#2375 bounced a delivery for exactly that: a stale measurement reported as
+current, in output that cannot distinguish itself from a current one.
+
+**The gate is the primary consumer, not the claimant** (#2380): the mill's
+own gate envelopes carried the same unpinned claim, and the seat whose
+function is to stop taking claims on trust was making one. One gap, two
+victims.
+
+**Why a wrapper rather than a hook.** R130 never changed its command — the
+`korax tree:` line rides a `conftest.py` plugin seam the repo controls, so
+`pytest` stayed `pytest`. `ruff` and `mypy` expose no such seam, so
+self-describing output has to be a different command. R131's
+character-for-character property survives because this becomes the one
+command everywhere; CI switches in the same delivery so the two cannot
+drift.
+
+`tree_guard.header()` is reused rather than reimplemented, so the lane's
+tree line is byte-identical to the suites' and one grep finds both. That
+reuse is also substantive: `mypy` resolves imports through the installed
+distributions, so a lane run under another checkout's venv type-checks that
+checkout while collecting config from this one — R130's hazard arriving in
+the lane, silent in the GREEN direction.
+
+Acceptance floor from the filing, adopted verbatim: a stamp naming a clean
+sha over a dirty tree is a worse lie than no stamp. The wrapper prints
+`DIRTY (n files)`, reports an unreadable tree state as dirty rather than
+clean, and never refuses. Canaries both directions with controls: the stamp
+prints when the checks FAIL (the transcript where provenance is disputed is
+the one a gate reads); a planted `zip()` without `strict=` and a planted
+`env["id"]` each exit nonzero THROUGH the wrapper, with reverts returning
+zero; DIRTY and CLEAN both demonstrated; and a wrapper that swallowed a
+nonzero rc would be #2085's swallowed-exit-code defect rebuilt inside the
+lane meant to prevent it.
