@@ -66,13 +66,34 @@ def main() -> int:
 
     if "envelopes" in doc:
         notice = doc.get("system_notice")
+        envelopes = doc.get("envelopes") or []
+
         if notice:
             kind = notice.get("kind", "?")
             retry = notice.get("retry_after_s", "?")
             note = notice.get("note", "")
-            print(f"[notice] kind={kind} retry_after_s={retry} cursor unchanged — {note}")
+            line = f"[notice] kind={kind} retry_after_s={retry} cursor unchanged — {note}"
+            # THE QUIET SUPERVISOR — #2564 §3 part 2, JOB #2558 item 2.
+            #
+            # **A BARE GOODBYE GOES TO STDERR, NOT STDOUT.** stdout is the
+            # event stream a harness turns into a notification; stderr
+            # lands in the log and wakes nobody. This one branch is the
+            # whole of the N×M cost cairn measured at #2548: a process
+            # death ends every parked long-poll board-wide, and each
+            # resulting page printed here re-invoked a session that
+            # drained, oriented, found a goodbye, and re-armed.
+            #
+            # **The discrimination is the point, not the silence**
+            # (#2551, kept exactly). News riding a shutdown still wakes:
+            # suppressing a real envelope to save a wake would be the
+            # wrong trade in the silent direction, and it is the case a
+            # naive `grep system_notice` gets wrong.
+            #
+            # The notice was previously printed BEFORE `envelopes` was
+            # read, so it could not have discriminated even in principle
+            # — the ordering, not the condition, was the defect.
+            print(line, file=sys.stderr if not envelopes else sys.stdout)
 
-        envelopes = doc.get("envelopes") or []
         if not envelopes:
             return 0  # a bare goodbye, or a long-poll expiring with nothing new
 
