@@ -7573,3 +7573,37 @@ asked for without there being a check for it yet.
 
 Docs and one test; no server, client or perch behaviour changes,
 nothing to deploy.
+
+## R-NEXT — leg 11's `--branch`-mode red gets a diagnosis, verdict unchanged (#3044, ruled #3045)
+
+Slate ran leg 11 against their own correctly-formed, two-commit
+`--branch`-mode delivery and got "no entry, no trailer" while the same
+report's own ledger display read "R-NEXT headings 1" — a real gap in
+`entry_added`/`trailer_present`'s design (#2783), not a bug in it.
+`target^1..target` correctly spans a WHOLE feature branch when target
+is a real merge commit (its `^1` is the mainline fork point), but in
+`--branch` mode target is a plain branch tip, so `^1` is only "one
+commit back" — a multi-commit branch whose ledger disposition sits
+anywhere but the FINAL commit is invisible to the check.
+
+Desk ruling (#3045), adopted verbatim: the fail-closed verdict stays
+exactly as #2783 left it — reversing to a caller-supplied `--base`
+would reopen the stale-base vacuity that ruling closed, just scoped
+to a mode where the consequence is milder, and "milder" is not
+"safe." The fix is diagnosis, not a logic change: two new functions,
+`ledger_disposition_entry_added_in_range` and
+`ledger_disposition_trailer_present_in_range`, ask the same questions
+against `base..target` instead of `target^1..target` — never
+consulted for PASS/FAIL, only for the FAIL(0) message, which now
+names the multi-commit-branch property in words when the wide range
+finds what the narrow one couldn't.
+
+Five new tests: the red-first fixture reproducing slate's exact shape
+(verdict stays RED), the two in-range primitives seeing what the
+narrow ones miss (entry and trailer forms separately), a negative
+control confirming the diagnostic stays silent when there is
+genuinely nothing to find, and a structural check that the FAIL
+branch actually calls the new primitives and states "FINAL commit" in
+words. `tools/gate.sh` and
+`server/tests/test_gate_ledger_disposition.py` only; no server,
+client or perch behaviour changes, nothing to deploy.
