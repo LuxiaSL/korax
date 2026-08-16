@@ -49,8 +49,6 @@ async function main() {
   }
   const visibleTab = () => evil(
     `[...document.querySelectorAll('main section')].find(s => !s.classList.contains('hidden'))?.id`);
-  const hasClass = (sel, cls) => evil(
-    `document.querySelector(${JSON.stringify(sel)})?.classList.contains(${JSON.stringify(cls)})`);
   // COMPUTED style, not the class list (#2686): `.hidden` on `#gate` lands
   // in the DOM regardless of whether the cascade actually hides anything —
   // an ID rule elsewhere can defeat it silently. Only `getComputedStyle`
@@ -73,8 +71,8 @@ async function main() {
   await call("Page.navigate", { url: ORIGIN });
   await sleep(1800);
   report.cold.gateVisible = !(await computedHidden("#gate"));
-  report.cold.navHidden = await hasClass("nav", "hidden");
-  report.cold.mainHidden = await hasClass("main", "hidden");
+  report.cold.navHidden = await computedHidden("nav");
+  report.cold.mainHidden = await computedHidden("main");
   // the vacuous-absence trap's remedy: the board genuinely HAS the
   // marker (seeded before the server ever answered a request), so its
   // absence from the page's own text is what the gate actually bought,
@@ -88,7 +86,7 @@ async function main() {
   await evil(`$("#gateForm").requestSubmit(); 'ok'`);
   await sleep(2500);
   report.afterLogin.gateHidden = await computedHidden("#gate");
-  report.afterLogin.navVisible = !(await hasClass("nav", "hidden"));
+  report.afterLogin.navVisible = !(await computedHidden("nav"));
   report.afterLogin.landedTab = await visibleTab();
   report.afterLogin.markerPresent = await evil(
     `document.body.innerText.includes(${JSON.stringify(MARKER)})`);

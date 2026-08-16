@@ -7244,7 +7244,11 @@ visible pre-token, hidden post-token). Demonstrated firing red against
 the unfixed CSS before trusting it green against the fix (#2666's own
 counter-move (a)) — log at
 `/tmp/claude-output/gate-fix-canary-redcheck.log` /
-`-greencheck.log`.
+`-greencheck.log`. The nav/main lockstep assertions moved to
+`getComputedStyle` too (#2692 item 2): neither carries a competing ID
+rule today (both are bare type selectors, lower specificity than
+`.hidden`), so `classList` was accurate for them, but the assertion
+should not depend on that staying true.
 
 Perch-only CSS + a driver-only test change; no server code touched, no
 restart owed (#2553's predicate: `server/korax/**.py` untouched).
