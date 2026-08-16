@@ -283,6 +283,18 @@ def test_no_r_next_on_the_merge_target(headings: list[Heading]) -> None:
 #: stay distinguishable by shape alone, not by which file they are in.
 _INLINE_TAG = "[R-NEXT]"
 
+#: `_INLINE_TAG` as an exact substring missed the COMBINED shape — a
+#: section that already shipped one revision and was amended by a later
+#: one writes `[R131, R-NEXT]`, not `[R-NEXT]` alone, and
+#: `"[R-NEXT]" in "[R131, R-NEXT]"` is False (ISSUE #2510, found live: the
+#: guard reported this file clean on the merge commit that carried the
+#: exact tag it exists to catch). Anchored to ONE bracket pair — never
+#: matches across two — so unbracketed prose naming the convention by
+#: word stays outside it, same discipline as `_HEADING` above; a bracket
+#: pair with something else inside (`[3]`) and R-NEXT unbracketed
+#: elsewhere on the same line must not match either.
+_INLINE_TAG_RE = re.compile(r"\[[^\[\]]*\bR-NEXT\b[^\[\]]*\]")
+
 
 def _docs_dir() -> Path:
     return _repo_root() / "docs"
@@ -293,7 +305,9 @@ def _markdown_files(root: Path) -> list[Path]:
 
 
 def _find_inline_tags(files: list[Path]) -> list[tuple[Path, int, str]]:
-    """Every line across `files` carrying the literal `[R-NEXT]` tag.
+    """Every line across `files` carrying an inline `R-NEXT` tag, bare
+    (`[R-NEXT]`) or combined with an already-shipped revision beside it
+    (`[R131, R-NEXT]`).
 
     Scans every `docs/**.md` file, never just the ledger — the defect this
     guards against was found in prose, not in a heading, and there is no
@@ -304,7 +318,7 @@ def _find_inline_tags(files: list[Path]) -> list[tuple[Path, int, str]]:
     for path in files:
         text = path.read_text(encoding="utf-8")
         for line_no, line in enumerate(text.splitlines(), start=1):
-            if _INLINE_TAG in line:
+            if _INLINE_TAG_RE.search(line):
                 offenders.append((path, line_no, line.strip()))
     return offenders
 
@@ -319,13 +333,15 @@ def _find_inline_tags(files: list[Path]) -> list[tuple[Path, int, str]]:
     ),
 )
 def test_no_inline_r_next_tag_in_docs_on_the_merge_target() -> None:
-    """The substitution pass's own guard (#2400/#2403), so the 18-tag
-    backlog this delivery clears cannot silently reaccrue."""
+    """The substitution pass's own guard (#2400/#2403), extended to the
+    combined shape #2510 found it blind to, so neither backlog can
+    silently reaccrue."""
     offenders = _find_inline_tags(_markdown_files(_docs_dir()))
     assert not offenders, (
-        f"inline {_INLINE_TAG} tag(s) reached the merge target — each "
-        "marks a rule whose shipping revision was never substituted for "
-        "the real one (#2400):\n"
+        f"an inline {_INLINE_TAG}-shaped tag, bare or combined with an "
+        "already-shipped revision (`[R131, R-NEXT]`), reached the merge "
+        "target — each marks a rule whose shipping revision was never "
+        "substituted for the real one (#2400, #2510):\n"
         + "\n".join(
             f"  {p.relative_to(_repo_root())}:{n}: {line}"
             for p, n, line in offenders
@@ -333,21 +349,52 @@ def test_no_inline_r_next_tag_in_docs_on_the_merge_target() -> None:
     )
 
 
-def test_the_inline_tag_scan_can_fail(tmp_path: Path) -> None:
-    """Canary, red direction (#112). Both shapes #2403 distinguished — a
-    tag on a heading line and one mid-sentence — must actually be found,
-    or the guard above is silently vacuous on the shape that matters most
-    (13 of the 18 real instances were mid-sentence, not headings)."""
-    heading_doc = tmp_path / "heading.md"
-    heading_doc.write_text("### 1.1 A heading `[R-NEXT]`\n", encoding="utf-8")
-    inline_doc = tmp_path / "inline.md"
-    inline_doc.write_text(
-        "A claim, scoped `[R-NEXT]` mid-sentence.\n", encoding="utf-8"
+#: Canary matrix (#2510: "the canary matrix is the deliverable, because
+#: the defect is not that the string was wrong but that one shape was
+#: never enumerated"). Two axes — bare vs. combined, heading vs.
+#: mid-sentence — four red cases, crossed explicitly rather than folded
+#: into one assertion so a regression in any one cell fails on its own
+#: line instead of behind a passing `len() == 4`.
+_RED_CANARY_CASES = {
+    "bare_heading": "### 1.1 A heading `[R-NEXT]`\n",
+    "bare_mid_sentence": "A claim, scoped `[R-NEXT]` mid-sentence.\n",
+    "combined_heading": "### 11.5 A heading `[R131, R-NEXT]`\n",
+    "combined_mid_sentence": (
+        "A claim, scoped `[R131, R-NEXT]` mid-sentence.\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("case_name", sorted(_RED_CANARY_CASES))
+def test_the_inline_tag_scan_can_fail(case_name: str, tmp_path: Path) -> None:
+    """Canary, red direction (#112), one case per cell of the matrix
+    above. The combined cases are the ones ISSUE #2510 found missing: a
+    section that already shipped one revision and was amended by another
+    writes `[R131, R-NEXT]`, and an exact-substring test for `[R-NEXT]`
+    alone — `"[R-NEXT]" in "[R131, R-NEXT]"` — is False. That exact tag
+    reached the merge commit at `97239cc` with the un-fixed guard reading
+    it clean; this is the case that must not go quiet again."""
+    doc = tmp_path / f"{case_name}.md"
+    doc.write_text(_RED_CANARY_CASES[case_name], encoding="utf-8")
+    found = _find_inline_tags([doc])
+    assert found == [(doc, 1, _RED_CANARY_CASES[case_name].strip())]
+
+
+def test_the_inline_tag_scan_stays_quiet_on_unrelated_brackets(
+    tmp_path: Path,
+) -> None:
+    """Canary, green direction, the control the combined-form fix needs on
+    its own: a bracket pair that does NOT contain `R-NEXT`, on a line that
+    separately names `R-NEXT` outside any brackets, must not match — the
+    regex is anchored to one bracket pair and must not let an unrelated
+    pair on the same line stand in for it."""
+    clean_doc = tmp_path / "clean.md"
+    clean_doc.write_text(
+        "See item [3] about the R-NEXT convention, unbracketed here.\n"
+        "Two pairs: [ok] then more text, R-NEXT named but not bracketed.\n",
+        encoding="utf-8",
     )
-    found = _find_inline_tags([heading_doc, inline_doc])
-    assert len(found) == 2
-    assert found[0][0] == heading_doc and found[0][1] == 1
-    assert found[1][0] == inline_doc and found[1][1] == 1
+    assert _find_inline_tags([clean_doc]) == []
 
 
 def test_the_inline_tag_scan_stays_quiet_on_a_clean_doc(tmp_path: Path) -> None:
