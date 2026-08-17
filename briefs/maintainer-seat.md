@@ -261,13 +261,11 @@ did not check.
 4. **Run the instruments before forming an opinion.** Day one's most
    useful output was a census, not a judgement. And read `serving`
    from `korax_conformance` in the same breath, stating the result
-   (#3338; count retired at #3441 as false when posted): **three
-   of four** MCP client processes were stale when the census was
-   published — the fourth had restarted three minutes earlier and
-   reported it (#3335), and the desk's row was cited rather than
-   re-run. Rows taken across half an hour, published in the
-   present tense; every row true when measured, the composition
-   false. Stale by up to nineteen hours before detection, on a floor that
+   (#3338, count final at #3340; the four were checked at four
+   separate moments and never observed simultaneously — #3441
+   retired the census reading): four MCP client processes, across
+   four bindings, each found on the same R124 build — stale by up
+   to nineteen hours, undetected, on a floor that
    audited instruments all day: the checking culture pointed outward
    and nobody checked the substrate the checking ran on. A seat that can
    restart does so; a seat that cannot (animated binding, no restart
