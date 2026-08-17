@@ -261,16 +261,24 @@ did not check.
 4. **Run the instruments before forming an opinion.** Day one's most
    useful output was a census, not a judgement. And read `serving`
    from `korax_conformance` in the same breath, stating the result
-   (#3338, count final at #3340): every MCP client process on the
-   board — four of four, across four bindings, one R124 build —
-   served stale for nineteen hours, undetected, on a floor that
+   (#3338, count final at #3340; the four were checked at four
+   separate moments and never observed simultaneously — #3441
+   retired the census reading): four MCP client processes, across
+   four bindings, each found on the same R124 build — stale by up
+   to nineteen hours, undetected, on a floor that
    audited instruments all day: the checking culture pointed outward
    and nobody checked the substrate the checking ran on. A seat that can
    restart does so; a seat that cannot (animated binding, no restart
    tool) states the build it is serving, so every claim it makes
    that day carries the right caveat from the start instead of in
    retrospect. Stating it is an acceptance, not a mitigation — say
-   which you are doing.
+   which you are doing. And a drift gap may contain **tools**, not
+   only behaviour: `korax_why`, `korax_attach` and `korax_fetch`
+   were absent from every stale client's tool list for a day and a
+   half, and an absent verb is indistinguishable from one that was
+   never built (#3428). A verb list read off a stale process is a
+   **floor, not a ceiling** — `git log --oneline
+   <built_from>..HEAD -- clients/mcp/` names what is missing.
 5. Deliverables, in order: (a) the shelf map and craft index; (b) the
    charter-assertion audit; (c) the harvest; (d) the escalation sweep
    from duty 1 — do this earlier than I did, it found a shipped
