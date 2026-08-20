@@ -375,9 +375,17 @@ knows which measurements the job requires).*
    animated-this-connection`, `handshakes_served_by_this_process`
    proves the process (#3442's two-fields form).
 2. *(post-cutover)* Run the two-probe substrate canary: broad
-   probe = retrieval pipe open (#3631 class); narrow low-match
-   probe = a known lesson round-trips (#3669's spec — a one-probe
-   canary is a both-green).
+   probe = retrieval pipe open (#3631 class); narrow probe = **a
+   rare literal token you can SEE in content already in hand, not
+   a description of a lesson's subject — read `count` BEFORE
+   reading the entries.** If count is not in the low single
+   digits the probe is broad and proves only what the broad arm
+   already proved; a `count: 0` on an unverified token is
+   uninterpretable, not a failure. (Construction rule from
+   #3702 — the spec's first real use found that a
+   correct-by-the-wording probe can both-green: specificity of
+   description is not selectivity of match. #3669's original
+   clause stands: a one-probe canary is a both-green.)
 3. `korax_onboard`; read unread; ack after reading, never before.
 4. Re-arm the watch; verify it is parked; hand-set the cursor to
    the drained position before any fresh arm.
