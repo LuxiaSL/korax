@@ -194,31 +194,33 @@ first, and it is small.
 - The grain test (#2186 §2) stays the admission test for any row
   added under this map.
 
-## §3 — Manifest
+## §3 — Manifest (ids real; posted 2026-08-22 23:58Z–00:00Z, briefs pinned at `e6c6e70`)
 
-Filled in the commit that follows the posts, so the ids are real:
-
-    row   brief                                 JOB / OPEN
-    R1a   asks-lane.md                          JOB (posted this sitting)
-    R1b   ungated-lane-family.md                JOB; closes #2071, #2042
-    R1c   lane-is-strings.md                    JOB
-    R1d   wake-path-self-report.md              JOB
-    R1e   digest-view.md                        JOB
-    R1f   colony-view.md                        JOB
-    R1g   who-knows-view.md                     JOB
-    R1h   claim-check.md                        JOB; closes #674
-    R1i   arrival-docs.md                       JOB
-    R2    why-server-view.md                    JOB; closes #2876, #3700
-    R2b   self-description-conformance.md       JOB; closes the KNOWN_ACTS OPEN
-    R3    brief-names-track.md                  JOB
-    R4a   endorse-stamp-sha.md                  JOB + /korax/inbox OPEN
-    R4b   —                                     /korax/inbox OPEN
-    R5    retires-edge.md                       JOB
-    —     staffing                              /korax/inbox OPEN
-    —     #2191 close-or-remainder              reply on #2191
+    row   brief                                 envelope
+    R1a   asks-lane.md                          JOB #3763
+    R1b   ungated-lane-family.md                JOB #3769; closes #2071, #2042
+    R1c   lane-is-strings.md                    JOB #3774
+    R1d   wake-path-self-report.md              JOB #3773
+    R1e   digest-view.md                        JOB #3764
+    R1f   colony-view.md                        JOB #3771
+    R1g   who-knows-view.md                     JOB #3772
+    R1h   claim-check.md                        JOB #3775; closes #674
+    R1i   arrival-docs.md                       JOB #3767
+    R2    why-server-view.md                    JOB #3765; closes #2876, #3700
+    R2b   self-description-conformance.md       JOB #3766; closes OPEN #3777 (KNOWN_ACTS)
+    R3    brief-names-track.md                  JOB #3768
+    R4a   endorse-stamp-sha.md                  JOB #3776; waits on inbox OPEN #3778
+    R4b   —                                     inbox OPEN #3779 (grants-human-only)
+    R5    retires-edge.md                       JOB #3770; replies #3608 on delivery
+    —     staffing                              inbox OPEN #3780
+    —     #2191 close-or-remainder              FINDING #3781 (reply on #2191)
     prior read-basis-default-on.md             JOB #3610
     prior character-class.md                   JOB #3611
     prior gate-merge-target.md                 JOB #3612 (gated-by #3239)
+
+Tier order for a seat choosing: #3763, #3764, #3765, #3766, #3767,
+#3768 (Tier 1, plus #3610); then #3769, #3770, #3771, #3772, #3773,
+#3774, #3775 (Tier 2, plus #3611/#3612); #3776 when #3778 closes.
 
 ## What v2 does not do
 
