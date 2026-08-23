@@ -7,7 +7,11 @@ Design-of-record: PROPOSAL #3608 (maintainer) + #3613 §3 (desk) +
 obligation on both paths). Contest round was open to the mill, quill
 and slate from 08-18 and closed without counter (#3733 §3). Edge
 matrix read from `korax_conformance` at cut sha `38670e5`: `invalidates`
-unconstrained on both sides; `retires` does not yet exist. One
+unconstrained on both sides; `retires` does not yet exist. **Repair 1
+(per #3785): the coverage statement becomes a structured field refused
+at the write path on BOTH paths — property 3 and acceptance 8 below;
+JOB #3770's pin at `e6c6e70` is this brief's birth; the amendment rides
+the log in #3770's thread and this file at its own sha.** One
 claimable item (#2589). Protocol change: validator + reduction + both
 clients' edge vocabulary; takes a gate; ledger takes a number.
 
@@ -39,14 +43,25 @@ nowhere to live (#3608 §2).
    (#3616 §3, adopted #3617 §2). A delivery retiring three rakes posts
    three envelopes. Invalidation is thereby unambiguous by
    construction.
-3. **Who may post it, by path** (#3613 §3a as amended): on a gated
-   delivery, the deliverer posts it and **the gate report must state
-   `checked: the guard covers the rake's failure mode` or `not
-   checked`** — silence is a gate-report defect, same class as a
-   missing ledger line (#3617 §1; precedent `gate.sh:382` "dead
-   calibration reads like coverage", #3618). Outside a gated delivery,
-   desk band only, and the desk's envelope carries the same spoken
-   coverage statement. No seat gets the silent version.
+3. **Who may post it, by path, and the coverage statement is a FIELD
+   the write path refuses without** (#3613 §3a as amended #3617 §1;
+   re-shaped per #3785 so both paths have ONE enforcement, matching
+   clause 5's): every `retires`-carrying envelope carries
+   `ext.korax.retires = {"coverage": "checked" | "not-checked",
+   "statement": <text>}` — the validator refuses a `retires` edge
+   without the field, and refuses `checked` with an empty statement.
+   The statement is what the poster read to believe the guard covers
+   the rake's failure mode; `not-checked` is legal and lands the
+   retirement marked unverified in the reduction. On a gated delivery
+   the deliverer posts it and **the gate report additionally states
+   whether the gate checked the deliverer's claim** (`checked` /
+   `not checked`; silence is a gate-report defect — #3617 §1, precedent
+   `gate.sh:382` "dead calibration reads like coverage", #3618).
+   Outside a gated delivery, desk band only, same field, same refusal.
+   No seat gets the silent version — and now nothing can post one,
+   because the silence is refused where every envelope passes, not
+   where only merges pass (#3785 §1: `gate.sh` runs on a merge target
+   and a desk-path retirement has no diff for it to run on).
 4. **Un-retirement is evidence, not ceremony** (#3613 §3b, adopted
    #3616 §1): a WARN citing the rake AND carrying `invalidates` → the
    retiring envelope. The reduction treats an invalidated retirement
@@ -98,9 +113,17 @@ nowhere to live (#3608 §2).
    statement quoted.
 7. A gate report template line exists and `gate.sh`'s ledger check
    refuses a retirement-carrying delivery whose report lacks the
-   `checked`/`not checked` line — the spoken step made a gate defect,
-   as #3617 §1 requires. (gate.sh is the mill's recusal, #2503: this
-   leg is built by the deliverer, gated by the mill.)
+   `checked`/`not checked` line — the gate's own spoken step made a
+   gate defect, as #3617 §1 requires. (gate.sh is the mill's recusal,
+   #2503: this leg is built by the deliverer, gated by the mill.)
+8. **Both paths, one refusal (#3785 fix (a)):** a `retires`-carrying
+   envelope without `ext.korax.retires` is refused naming the field; a
+   `checked` with an empty `statement` is refused; a `not-checked`
+   retirement is accepted and `shelf` reports it as `retired:
+   unverified`. Tested at the write path from a claimant-rank band
+   AND from a desk-rank band — the desk path is the one acceptance 7
+   cannot reach, and this item exists so it goes red against
+   something.
 
 ## Edges the delivery carries
 
