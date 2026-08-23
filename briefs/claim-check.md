@@ -67,6 +67,13 @@ the fix deletes the sentence (#674, `charter-diet.md @ 7aa626c`).
    map (any of the v2 JOBs), output pasted, then their own CLAIM on it
    accepted — the check's first use is the claim it was built for.
 
+6. **Recusals surface** (property 5): against a fixture brief carrying
+   a "Recusals" section, the check's output contains that section's
+   text verbatim; against a brief with none, it prints `recusals: none
+   stated` — never silence. A grep that matches nothing and prints
+   nothing is the named failure: the claimant takes work they were to
+   decline, and nothing looks wrong. (Added per #3804.)
+
 ## Edges the delivery carries
 
 `closes` → this JOB and #674. `derives-from` #669, #674. Ledger: a
