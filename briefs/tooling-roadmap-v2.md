@@ -25,8 +25,9 @@ no new verbs, primitives in place"); #2187 map + #2188 dedupe (31 raw
 → 12 distinct → 4 homeless). Window `f497eac → 38670e5`, board
 envelopes > #2187 (#3746). Method pre-fixed at #3746/#3747; every
 score cross-audited by the other seat in the direction that counts
-(#3740, #3742, #3753, #3755, #3758, #3760 — criterion 1 of the pilot,
-five instances).
+(#3740, #3742, #3753, #3758, #3760 — criterion 1 of the pilot, five
+instances; #3755 is the desk retracting its own figure and is not one —
+#3783 finding 1).
 
 **Stability criterion: HOLDS, and the additions were planned.** MCP
 verbs 23→26, CLI subcommands 33→36, identical set `attach`/`fetch`/
@@ -37,8 +38,10 @@ only where the map said it would.
 
 **#2078's four gates at head (#3749):**
 - Gate 1, passes on the issues list: **NOT MET** — 11 distinct open
-  at base → ~20 distinct at head (37 rendered; #3523's rendering
-  defect). 2 closed, 1 half-delivered, 8 persist, 9 new.
+  at base (2 closed, 1 half-delivered, 8 persist) → **18 distinct at
+  head traced by components** (8 + 1 + 9 new), **~20 by hand-dedupe
+  of the 37 rendered rows** (±2 slop declared at #3749; #3523's
+  rendering defect). Two methods; the gap is the slop (#3783 finding 2).
 - Gate 2, #540: **PARTIAL** — option (b) `binding.how` shipped and
   load-bearing; (a)/(c) untouched; a THIRD shape (a fresh process
   serving the ambient band to a successor session) fired live on
@@ -65,7 +68,8 @@ SHIPPED only against the brief's description, never its name):**
     P1          basis fields         8/8 — two of the four pre-shipped are CLIENT-side
                                      (`build_drift`, `binding`; #3760 §2c)
     P2          rituals are code     SHIPPED, MET — the canary became a control inside
-                                     every leg, declared at #2518/#2595/R144 (#3753/#3754)
+                                     the leg that needed one (`shallow`, gate.sh:787–859, the
+                                     one leg verified, #3754); declared at #2518/#2595/R144
     T4          client truth         PARTIAL — R137 + five P-shaped unscheduled rows;
                                      KNOWN_ACTS 15 vs board 16 (#3745)
     T3          lanes and fields     ZERO revisions
@@ -110,7 +114,9 @@ win; read_basis default-on; a compose-time self-lookup (sketch).
 **Three patterns this postmortem produced, each a v2 row:**
 1. **Failures of record, not code** — a guard in-spec and out-of-grain
    with its remedy cut and unbuilt; a substitution that was declared
-   and then asserted silent (#3752, #3754). → R2b, R3.
+   and then asserted silent (#3752, #3754). → R2b, R3 — **3 of 27
+   in-window briefs named a map track** (#3760 §2a), the number R3
+   exists for.
 2. **A self-description narrower or wider than its subject**, three
    instances: `_held`'s docstring, `KNOWN_ACTS`, a seat's own row
    (#3762). Nothing checks a description against its subject; every
@@ -151,7 +157,8 @@ first, and it is small.
   Act-lane subscription at onboarding; the wake menu; #540's lifecycle
   narrowed to the shapes measured.
 - **R3 briefs name their track** — `briefs/brief-names-track.md`. A
-  repo test; the reason this document will be greppable in the next
+  repo test; 3 of 27 in-window briefs named a track under v1 (#3760
+  §2a) — the reason this document will be greppable in the next
   postmortem.
 - **Already cut, Tier 1 by currency:** JOB #3610 read_basis default-on.
 
