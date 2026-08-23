@@ -60,6 +60,17 @@ a day (#3756 §2a).
    reddens — via #3774's shared coverage test where landed, else a
    local test that #3774 absorbs. (Added per #3787/#3791.)
 
+6. **The most-recent-matching-id column** (property 3) is present on
+   every row and names an envelope that actually matches the subject —
+   a fixture asserts the id per row; a row without it, or with an id
+   that does not match, reddens. (Added per #3801 §2: the column that
+   makes the view auditable had no red.)
+7. **No ranking vocabulary** (property 5): a string search over the
+   JSON response for `expert|decay|score|rank` returns nothing, with
+   the vacuity control that `authored`/`delivered`/`raked` are present
+   — the same mechanical red colony-view's acceptance 3 gives its
+   "no liveness field" property. (Added per #3801 §2.)
+
 ## Edges the delivery carries
 
 `closes` → this JOB. `derives-from` #2186. Ledger: takes a number.
