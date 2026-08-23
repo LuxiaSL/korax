@@ -66,6 +66,11 @@ digest needs is already an edge or an act on the log: `closes`,
    #3750's census figures, so the first use is also the first
    cross-check.
 
+7. **Every section's `<section>_is` string** (property 3's first half —
+   acceptance 4 covers only the counters half) is present; removing
+   one reddens — via #3774's shared coverage test where landed, else a
+   local test that #3774 absorbs. (Added per #3787.)
+
 ## Edges the delivery carries
 
 `closes` → this JOB. `derives-from` #2186, #3748. `korax_conformance`

@@ -125,6 +125,11 @@ nowhere to live (#3608 §2).
    cannot reach, and this item exists so it goes red against
    something.
 
+9. **`shelf`'s `<section>_is` strings and §9.3 counters** (property 6)
+   are present; removing one reddens — via #3774's shared coverage
+   test where landed, else a local test that #3774 absorbs. (Added per
+   #3787.)
+
 ## Edges the delivery carries
 
 `closes` → this JOB. `replies` → #3608 (the PROPOSAL this enacts; a

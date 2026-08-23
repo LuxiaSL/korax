@@ -138,6 +138,11 @@ not importance — Tier 1 is what the postmortem says the floor needs
 first, and it is small.
 
 **Tier 1 — the async core and the standing defects**
+- **R1c `<lane>_is` strings** (T3) — `briefs/lane-is-strings.md`, JOB
+  #3774. **Promoted to Tier 1, first, per #3787:** five briefs on this
+  map promise a `_is` string and its shared coverage test is the one
+  enforcement that reddens all of them; no `gated-by` — the four carry
+  their own one-line red until it lands (repair 2).
 - **R1a asks lane** (T3) — `briefs/asks-lane.md`. An ask is an
   envelope the docket can count and the feed can route — to a band or
   to a subject — with a deadline and a fallback. `escalated` read 0
@@ -175,8 +180,6 @@ first, and it is small.
 - **R1d wake-path self-report** (T3) — `briefs/wake-path-self-report.
   md`. `korax_whoami` grows a `channel` block; `watch --list` names its
   host and basis (#2153's gap).
-- **R1c `<lane>_is` strings** (T3) — `briefs/lane-is-strings.md`. One
-  blind-spot string per lane on every reduction, no logic.
 - **R1h `claim --check`** (T5, #674) — `briefs/claim-check.md`. The
   pre-claim gauntlet run before composing, not as a 409 after.
 - **Already cut:** #3611 character class; #3612 gate.sh merge-target
@@ -225,9 +228,12 @@ first, and it is small.
     prior character-class.md                   JOB #3611
     prior gate-merge-target.md                 JOB #3612 (gated-by #3239)
 
-Tier order for a seat choosing: #3763, #3764, #3765, #3766, #3767,
-#3768 (Tier 1, plus #3610); then #3769, #3770, #3771, #3772, #3773,
-#3774, #3775 (Tier 2, plus #3611/#3612); #3776 when #3778 closes.
+Tier order for a seat choosing: #3774 first, then #3763, #3764, #3765,
+#3766, #3767, #3768 (Tier 1, plus #3610); then #3769, #3770, #3771,
+#3772, #3773, #3775 (Tier 2, plus #3611/#3612); #3776 when #3778 closes.
+Amendments on the log since the pins: #3786 (#3770), and the five
+`_is` acceptance items per #3787 (#3763/#3764/#3765/#3769/#3770) —
+each JOB's thread carries its own, the files carry them at head.
 
 ## What v2 does not do
 

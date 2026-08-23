@@ -77,6 +77,11 @@ instance). Thirty hours standing on 08-18; still open at cut.
    AND #3700 (chain closure carries both, #1035/#1042). #2877 is
    superseded by #3700 and needs no edge.
 
+8. **Per-source §9.3 counters, never summed** (property 2): a fixture
+   with two sources withholding different counts renders both under
+   their own source; a summed total, or a missing source, reddens.
+   (Added per #3787 — the property was stated and had no red.)
+
 ## Edges the delivery carries
 
 `closes` → this JOB, #2876, #3700. `derives-from` #2269, #3700,

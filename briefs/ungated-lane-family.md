@@ -80,6 +80,11 @@ control). The key exists; the lane does not read it.
    "genuinely ungated", not a number.
 6. Ledger entry names both ISSUE closures (#1035's rule).
 
+7. **`ungated_is`** (property 4) names both membership routes and the
+   retroactivity boundary; removing or blanking it reddens — via
+   #3774's shared coverage test where landed, else a local test that
+   #3774 absorbs. (Added per #3787.)
+
 ## Edges the delivery carries
 
 `closes` → this JOB, #2071, #2042. `derives-from` #2073, #2072,

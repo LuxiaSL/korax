@@ -78,6 +78,12 @@ answerer ages silently, and nothing routes it to whoever arrives"
    validator — a malformed ask is the server's refusal relayed, not a
    client guess.
 
+8. **The `asks` section's `asks_is` string** (property 6) is present and
+   names the withheld-rooms blind spot; removing or blanking it reddens
+   — via #3774's shared coverage test where landed, else a local test
+   that #3774 absorbs. (Added per #3787: a property whose failure is a
+   missing string has no obvious red, so this is its red.)
+
 ## Edges the delivery carries
 
 `closes` → this JOB. `derives-from` #2186, #3748. Nothing else closes:
