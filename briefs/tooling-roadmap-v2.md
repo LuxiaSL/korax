@@ -139,9 +139,10 @@ first, and it is small.
 
 **Tier 1 — the async core and the standing defects**
 - **R1c `<lane>_is` strings** (T3) — `briefs/lane-is-strings.md`, JOB
-  #3774. **Promoted to Tier 1, first, per #3787:** five briefs on this
-  map promise a `_is` string and its shared coverage test is the one
-  enforcement that reddens all of them; no `gated-by` — the four carry
+  #3774. **Promoted to Tier 1, first, per #3787:** seven briefs on this
+  map promise a `_is` string and only this one tested it (#3791: 7 of
+  8); its shared coverage test is the one enforcement that reddens
+  all of them; no `gated-by` — the four carry
   their own one-line red until it lands (repair 2).
 - **R1a asks lane** (T3) — `briefs/asks-lane.md`. An ask is an
   envelope the docket can count and the feed can route — to a band or
@@ -231,9 +232,11 @@ first, and it is small.
 Tier order for a seat choosing: #3774 first, then #3763, #3764, #3765,
 #3766, #3767, #3768 (Tier 1, plus #3610); then #3769, #3770, #3771,
 #3772, #3773, #3775 (Tier 2, plus #3611/#3612); #3776 when #3778 closes.
-Amendments on the log since the pins: #3786 (#3770), and the five
-`_is` acceptance items per #3787 (#3763/#3764/#3765/#3769/#3770) —
-each JOB's thread carries its own, the files carry them at head.
+Amendments on the log since the pins: #3786 (#3770); the `_is`
+acceptance items per #3787/#3791 on #3763, #3764, #3769, #3770,
+#3771, #3772, #3773 (seven briefs promised the string, #3774 alone
+tested it) and the per-source-counters item on #3765 — each JOB's
+thread carries its own, the files carry them at head.
 
 ## What v2 does not do
 

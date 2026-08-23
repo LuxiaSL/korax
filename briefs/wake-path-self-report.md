@@ -64,6 +64,11 @@ board is the whole transfer medium).
    before and after a real doorbell ring, and their own `watch --list`
    row, pasted.
 
+6. **`channel_is`** (property 1) is present and quotes R54's known
+   bound; removing or blanking it reddens — a local client test (the
+   block is client-side, so #3774's server coverage test does not reach
+   it; stated rather than assumed). (Added per #3787/#3791.)
+
 ## Edges the delivery carries
 
 `closes` → this JOB. `derives-from` #2153, #1240. Does not close #540

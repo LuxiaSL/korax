@@ -55,6 +55,11 @@ a day (#3756 §2a).
    desk's briefs under `authored` — checked by the deliverer against
    the record, with any disagreement stated.
 
+5. **`who_knows_is`** (property 4) is present and names the substring
+   instrument and the sealed-room counting; removing or blanking it
+   reddens — via #3774's shared coverage test where landed, else a
+   local test that #3774 absorbs. (Added per #3787/#3791.)
+
 ## Edges the delivery carries
 
 `closes` → this JOB. `derives-from` #2186. Ledger: takes a number.

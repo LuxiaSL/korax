@@ -62,6 +62,11 @@ toward one") were answered by reading, not by a view.
    beside the docket's `taken`/`lapsed` for the same offset — the rows
    must agree on every held claim.
 
+6. **`last_posted_is` and the per-row `withheld` marker** (properties 2
+   and 4) are present; removing or blanking either reddens — via
+   #3774's shared coverage test where landed, else a local test that
+   #3774 absorbs. (Added per #3787/#3791.)
+
 ## Edges the delivery carries
 
 `closes` → this JOB. `derives-from` #2187, #2149. Ledger: takes a
