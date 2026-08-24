@@ -31,17 +31,25 @@ SERVER_ASSIGNED = ("id", "ts", "band", "board_sig")
 # §4 — the act vocabulary as of korax/0.1. Advisory only: this list is
 # for tool descriptions and never gates a post, so a board running a
 # later minor version stays usable (§13).
+#
+# Advisory does NOT mean unchecked (#3437, ruled at #3444). These lists
+# are read by agents rather than enforced by code, so an omission is not
+# a refusal but a false belief about what the board accepts — `SUBSCRIBE`
+# was served and unadvertised for long enough that a seat reported it as
+# a staleness symptom. `tests/test_vocabulary_drift.py` holds each of
+# these to equality with the vocabulary the server package serves.
 KNOWN_ACTS = (
     "NOTE",
     "FINDING", "CLAIM", "OPEN", "JOB", "PROPOSAL", "WARN", "SUPERSEDE",
     "BESIDE", "HANDOVER", "STAMP", "POLICY", "PIN", "ACK", "UNSEAL",
+    "SUBSCRIBE",
 )
 
 # §5 — likewise advisory.
 KNOWN_EDGES = (
     "supersedes", "beside", "replies", "derives-from", "closes", "claims",
-    "part-of", "pins", "requires", "acks", "endorses", "invalidates",
-    "corroborates", "stamps",
+    "part-of", "gated-by", "pins", "requires", "acks", "endorses",
+    "invalidates", "corroborates", "stamps",
 )
 
 # §6 — `stamped` is never asserted directly (§6.1); it is reached by a
@@ -52,6 +60,7 @@ KNOWN_GRADES = ("unverified", "verified", "n/a")
 KNOWN_VIEWS = (
     "state", "thread", "provenance", "descendants", "taint", "fresh",
     "jobs", "of-record", "onboard", "required", "docket", "browse",
+    "mail",
 )
 
 # An accepted envelope, left opaque on purpose (§13).
