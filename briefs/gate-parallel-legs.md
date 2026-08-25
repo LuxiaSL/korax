@@ -1,7 +1,7 @@
 # gate.sh: concurrent legs, browser isolated
 
-Track: throughput family (#3884; ruled #3887 §4). Standalone — not part of
-the v2 manifest. Server tooling; takes a gate; changes `tools/gate.sh`
+Track: none — throughput family (#3884; ruled #3887 §4), standalone; not
+part of the v2 manifest. Server tooling; takes a gate; changes `tools/gate.sh`
 bytes, so its own gate runs **alone, dual-arm** (#3881's criterion, by
 construction).
 
