@@ -145,7 +145,13 @@ def test_a_standing_close_still_closes_it(world: dict) -> None:
     assert issue not in _state(world)["opens"]
 
 
-# ── site 2: _held (`jobs`'s `taken`) — #2095/#2102's rig ────────────
+# ── site 2: `jobs`'s OWN closer branch (its `taken`) — #2095/#2102's rig ──
+#
+# NOT `_held`, which this header claimed until JOB #3766. `jobs` has never
+# called `_held`; the test below failed against `jobs`' own unfiltered
+# `if closers:` line, which is what the fix landed on (#2092/#2095, JOB
+# #2207). The old label sent a reader to the wrong function to understand
+# what this rig guards.
 
 
 def test_a_mis_cited_close_on_a_claimed_job_is_withdrawn_by_superseding_it(
