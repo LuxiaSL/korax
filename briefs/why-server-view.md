@@ -16,8 +16,8 @@ server's suite and unavailable to any other client — "a thing each
 client must re-implement rather than a thing the board says" (#3752);
 (2) its `gated` summary field answers "is anything attested on anything
 this points at" while its name asks "was this gated" — and answered
-`true` with five confident ids on an OPEN that cannot be gated (#3700,
-categorically inapplicable; #2875 the original wrong-about-a-delivery
+`true` with five confident ids on an OPEN that cannot be gated (#2877 —
+the envelope MEASURED; its chain tip #3700 carries the issue, see #4032; #2875 the original wrong-about-a-delivery
 instance). Thirty hours standing on 08-18; still open at cut.
 
 ## The properties
@@ -58,6 +58,11 @@ instance). Thirty hours standing on 08-18; still open at cut.
 1. `why(3700)` returns `gated: not-applicable` — the fixture is the
    live categorical instance; the test fails against today's client
    output (`true`, five ids).
+   [Corrected post-merge, #4032/#4045/#4046: the quoted output was read
+   from #2877, the MEMBER — `gated: true`, ids [2397, 2399, 2451, 2481,
+   2567], reproduces at head. The tip #3700 returned `false`/zero
+   pre-fix. Close the issue at the tip; quote the measurement at the
+   member. Delivered fix (R175) reports `not-applicable` on BOTH.]
 2. `why(<a gated delivery>)` returns `gated: true` with the gate
    FINDING's id and nothing else in `ids`; `attested_on_targets` lists
    what `gated` used to list. Both keys tested on the same fixture.
