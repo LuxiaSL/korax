@@ -9263,3 +9263,86 @@ the server suite moves, by exactly the ten tests above. Floors untouched —
 substitute (#3160/#3239). **Re-measured at delivery rather than at build,
 because a queued delivery's base moves by definition (#4017, learned the
 expensive way one revision ago).**
+
+## R177 — `KORAX_MERGE_TARGET=1` stops being a claim the tool makes about a tree it never checked (JOB #3612)
+
+`tools/gate.sh` declares `KORAX_MERGE_TARGET=1` — *"CI's condition on main"* —
+and until this revision it declared it against **whatever sha it was handed**.
+A correct battery on a tree that can never be main reported `fail=0` with
+nothing flagged, because every leg genuinely passed; the only false thing in
+the report was the one line nothing checked. **Measured, not predicted: the
+mill gated three branch tips in one night that measured trees which will
+never exist on main (#3471).** Defect of record #3495 (quill), binding form
+#3497 §3 (slate), ruled #3483.
+
+On `MERGE_TARGET=1` the gate now requires
+`merge-base(target, origin/main) == origin/main` before any leg runs.
+
+**THREE OUTCOMES, NEVER TWO, AND THAT IS THE WHOLE DESIGN.** A DIVERGED tree
+is the **defect**; an unreadable ref is the **instrument**. Collapsing them is
+how a guard gets disabled inside a week — the first time the network flaps,
+someone makes the check skip, and it never checks again. So `cannot-resolve`
+**dies**: it does not warn and it does not skip, and it dies with its own
+message *and its own exit code* rather than borrowing the defect's.
+
+    exit 2   your tree is wrong    (diverged)
+    exit 3   I could not check     (cannot-resolve)
+
+The two codes are machine-readable on purpose. The mill reads exit codes, and
+*"the network was down"* must never be reportable as *"the delivery
+diverged"* — that substitution is exactly what #3497 §2 refused when it
+rejected warn-in-a-green-report.
+
+**REMOTE TRUTH, NOT THE LOCAL REF — the brief's one binding property, and it
+decides the mechanism.** A local `refs/remotes/origin/main` is a **cache**.
+Read with no network it answers `verified-equal` against a main that moved
+hours ago: a stale green, which is the same class of defect as the one being
+fixed, wearing a robustness fix's clothes. So the predicate asks origin via
+`ls-remote`, and a run that cannot reach origin lands in `cannot-resolve`.
+A sha that resolves remotely but is **absent locally** is also
+`cannot-resolve` — the shallow-checkout shape, and the case where falling
+back to the cache is most tempting.
+
+**THE BOUND IS THERE BECAUSE OF A MEASUREMENT, not a worry.** `ls-remote`
+against a host whose packets are blackholed does **not** fail — it **hangs**,
+because the connect never gets an RST to refuse it. Measured against
+203.0.113.1 (TEST-NET-3):
+
+    DNS failure (host does not resolve)      rc=128 in     0.012s
+    blackholed packets (unbounded)           rc=128 in   134.5s   (2m14s)
+    blackholed packets (bounded)             rc=124 in    20s
+
+The fast shape hides the slow one, which is why an unbounded resolver passes
+every behavioural test in the acceptance suite. A precondition that hangs for
+over two minutes before the battery starts is its own defect, so the call is
+bounded and **the bound is asserted by a test that no behavioural fixture
+could have caught**.
+
+**A NO-OP FOR EVERY BUILDER.** Placement was measured across five runs: four
+builder runs by two seats all used `--branch` (#3497 §1). The predicate fires
+under `MERGE_TARGET=1` only — exactly where the error occurred — and adds no
+flag, because `--branch` already exists and already means the right thing.
+The acceptance parametrises the no-op over the *diverged* tree too, since
+that is the one where a leaked check would actually bite.
+
+**THE REPORT NOW EVIDENCES THE CHECK INSTEAD OF ANNOUNCING THE MODE.** The
+mode line has always asserted *"CI's condition on main"*; it now names the
+origin sha the predicate verified against. This tool's own denominator rule
+(#2485), applied to its precondition rather than to its legs.
+
+**The repo is an explicit argument defaulting to the shipped one** —
+`load_floors`' rule, for `load_floors`' reason (#2668, #2682). `REPO_ROOT` is
+`readonly`, so a primitive that reads it directly is one the acceptance suite
+cannot point at a fixture, and a primitive the suite cannot point at a
+fixture is one the suite has to reimplement — which is how a test comes to
+agree with a bug in the real thing. The entry function passes nothing and
+gets the default; nothing about a real run changes.
+
+**Cost.** One network round trip per merge-target run, bounded at 20s,
+measured at 1.5s against the real origin. Zero on `--branch`. 16 tests,
+`server/tests/test_gate_merge_target_predicate.py`, all 16 red against the
+unmodified file. The fixtures are hermetic — `origin` is a local bare repo,
+so `ls-remote` is genuinely exercised with no dependency on GitHub being
+reachable from wherever the suite runs.
+
+Closes **#3495** and **#3497**.
