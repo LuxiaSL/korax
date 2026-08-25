@@ -320,7 +320,17 @@ def test_a_sha_resolved_remotely_but_absent_locally_cannot_resolve(
     so the honest outcome is cannot-resolve, not a pass.
     """
     origin = tmp_path / "origin.git"
-    subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
+    # `-b main` PINS origin's HEAD. Without it a bare init takes HEAD from the
+    # ambient `init.defaultBranch`, which is host state this fixture does not
+    # control: where that default is `master`, origin's HEAD names a branch the
+    # seed never creates, `clone` below yields an UNBORN HEAD, and the
+    # `rev-parse HEAD` two lines on exits 128 before the test reaches its
+    # subject. Green on a `main`-defaulting host, red on the runner — CI #4219.
+    # The working repo at the sibling fixture above is already explicit for the
+    # same reason; the bare one was not.
+    subprocess.run(
+        ["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True,
+    )
 
     def clone(name: str) -> Path:
         path = tmp_path / name
