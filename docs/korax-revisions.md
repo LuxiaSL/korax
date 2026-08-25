@@ -8821,3 +8821,66 @@ the 2 skipped and quoting the wrong one is the basis error this ledger
 has recorded before): server 1024 → 1032, cli 335 → 337, mcp 254 → 256.
 Six of the eight server tests are this job's own; the other two are the
 `mail` row reaching two parametrized sweeps that had never run it.
+
+## R-NEXT — a merge-target battery that skipped a leg is not a pass (ISSUE #3880)
+
+`tools/gate.sh` reported skipping in prose and passing in the exit status,
+so the two channels disagreed about how serious a skip is. A merge-target
+run that skipped a leg exited 0 — indistinguishable, to any supervisor or
+automation reading the status, from a complete one — and the final line led
+with `GATE fail=0 — but N of M legs did NOT run`, where the true clause
+trails the token people grep. The mill caught this on their own run, ten
+minutes from catch to re-run, and filed it against the instrument they are
+recused from editing (#2503). They were the most motivated possible reader
+and still had to be told by the line beneath the one they read.
+
+**Ruled at #3883, shape (b): scoped to `KORAX_MERGE_TARGET=1`, not a new
+flag.** The decisive reason is that this defect *is* a forgotten flag, so a
+`--strict` to remember restates the defect as its own remedy. The
+merge-target env already marks the battery that must be complete;
+completeness becomes a property of the mode rather than of anyone's memory.
+Generalized per §2 to `not reached` as well as `skipped` — the same channel
+mismatch one column over in the same `legs` line, and closing one while
+leaving the other builds the next instance of this issue into itself.
+
+**Two decisions, each extracted into its own function.** `battery_status`
+holds the exit rule; under merge-target a `SKIP` now reds the gate.
+`verdict_line` holds the final line; under merge-target with any leg unrun
+it LEADS with `GATE INCOMPLETE`, and a red leg is still named on that same
+line so leading with incompleteness cannot hide a failure. Extracted rather
+than edited in place for two reasons: the acceptance exercises the real
+decisions against a planted leg table instead of running twelve legs per
+fixture, and neither rule is restated in a test that could agree with a bug
+in it (#2668).
+
+**`--branch` is unchanged in both channels, deliberately.** A builder's
+`--branch` run skips the two merge-target ledger guards *by design* —
+reddening those would break self-checking before delivery, which is the
+need `--branch` exists to serve. The recusal boundary is untouched: the
+mill gates this, an enactor built it.
+
+**FLAG DAY (#2337).** From this merge, a merge-target gate run that skips a
+leg exits non-zero where it exited 0 the day before. The likely encounter
+is `tools/gate.sh <sha>` without `--base origin/main`, which skips
+`ledger-disposition` — that run has always been incomplete and is now also
+red, and the red lands on whoever gates next rather than on this diff.
+Pass `--base` on merge-target runs and nothing changes. Announced at #3981
+before the branch existed, per the convention's own reason for putting it
+in the announce.
+
+**Cost:** one file of logic, two extracted functions, no new flag, no new
+dependency, and no change to what any leg measures. Eleven tests: the four
+acceptance items with their controls — `--branch` unchanged in both
+channels, a red leg still reds both modes, and a complete battery still
+exits 0 in both, which is the canary a guard that reddened everything would
+fail — plus one asserting the two decisions are actually WIRED IN, because
+the other ten call the functions directly and would all keep passing if the
+entry point stopped calling them. That guard was broken on purpose and
+watched fail before it was kept (#112/#921).
+
+Suite deltas, same-instrument before/after on the SELECTED count (collected
+minus deselected), measured in this worktree and at `b5c8ee4`: server
+1032 → 1043, cli 337 → 337, mcp 256 → 256. Only the server suite moves, by
+exactly the eleven tests above. The floors file is untouched — 1043 clears
+the standing 1032 floor, and the calibration is the gate's data to
+substitute at the merge, never the claimant's (#3160/#3239).
