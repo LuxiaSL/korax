@@ -754,3 +754,182 @@ def test_two_harnesses_produce_DIFFERENT_harness_lines(tmp_path: Path) -> None:
     assert outs[0].split("sha256 ")[1] != outs[1].split("sha256 ")[1], (
         "the content hash did not differ between different bytes"
     )
+
+
+# ── completeness under merge-target (#3880, ruled #3883) ──────────────
+# A leg that never ran is not a leg that passed, and under merge-target
+# it is not a gate that may exit 0. These call gate.sh's OWN decisions
+# against a planted leg table rather than running a twelve-leg battery
+# per fixture — the same reason the count-contract block above calls the
+# real bash: a test that restates the rule can agree with a bug in it.
+
+
+def _planted_statuses(overrides: dict[str, str]) -> dict[str, str]:
+    """Every declared leg PASS, with named overrides.
+
+    The leg names are read out of the script; this suite never carries a
+    copy of them, so it cannot pass while the two drift apart (#2482).
+    """
+    table = {name: "PASS" for name in _bash_array("LEG_NAMES")}
+    for name, state in overrides.items():
+        assert name in table, f"{name!r} is not a declared leg in gate.sh"
+        table[name] = state
+    return table
+
+
+def _status_rc(overrides: dict[str, str], *, merge_target: int) -> int:
+    """The real exit decision, over a planted leg table."""
+    assigns = " ".join(
+        f"LEG_STATUS[{n}]={v};" for n, v in _planted_statuses(overrides).items()
+    )
+    proc = _call_gate_fn(
+        "declare -F battery_status >/dev/null || exit 99; "
+        f"{assigns} MERGE_TARGET={merge_target}; battery_status"
+    )
+    # A MISSING function exits 127 — non-zero — which would satisfy every
+    # "must be non-zero" assertion below for entirely the wrong reason.
+    # Fail loudly on the rename instead of passing on the accident.
+    assert proc.returncode != 99, (
+        "gate.sh no longer defines battery_status; this suite exercises the "
+        "real decision and must not report green against a missing function"
+    )
+    return proc.returncode
+
+
+def _verdict(
+    ran: int, failed: int, skipped: int, missing: int, *, merge_target: int
+) -> str:
+    """The real final line, over planted counts."""
+    proc = _call_gate_fn(
+        "declare -F verdict_line >/dev/null || exit 99; "
+        f"MERGE_TARGET={merge_target}; "
+        f"verdict_line {ran} {failed} {skipped} {missing}"
+    )
+    assert proc.returncode != 99, "gate.sh no longer defines verdict_line"
+    return proc.stdout.strip()
+
+
+def test_merge_target_exits_non_zero_when_a_leg_skipped() -> None:
+    """(i) THE DEFECT. `KORAX_MERGE_TARGET=1` already marks the battery
+    that must be complete, so completeness is a property of the mode and
+    not of anyone's memory (#3883 §1). Before this fix the same status
+    came back from a run that skipped a leg and one that did not, so no
+    supervisor or automation reading the status could tell them apart
+    (#3880 §2).
+    """
+    assert _status_rc({"ledger-disposition": "SKIP"}, merge_target=1) != 0, (
+        "a merge-target battery with a skipped leg exited 0 — the status "
+        "channel cannot distinguish it from a complete run"
+    )
+
+
+def test_merge_target_exits_non_zero_when_a_leg_not_reached() -> None:
+    """(iv) 'Not reached' is the same channel mismatch one column over in
+    the same `legs` line; a fix closing one and leaving the other builds
+    the next instance of this issue into itself (#3883 §2).
+    """
+    assert _status_rc({"ledger-disposition": "MISSING"}, merge_target=1) != 0
+
+
+def test_branch_runs_still_exit_zero_on_a_legitimate_skip() -> None:
+    """(iii) THE CONTROL, and the whole reason this is scoped to the mode.
+    A builder's `--branch` run skips the two merge-target ledger guards by
+    design — reddening those would make self-checking before delivery
+    impossible, which is the need `--branch` exists to serve.
+    """
+    assert _status_rc({"ledger-disposition": "SKIP"}, merge_target=0) == 0
+
+
+def test_a_red_leg_still_reds_the_gate_in_both_modes() -> None:
+    """The new guard must sit BESIDE the old one, not replace it."""
+    assert _status_rc({"suite-server": "FAIL"}, merge_target=1) != 0
+    assert _status_rc({"suite-server": "FAIL"}, merge_target=0) != 0
+
+
+def test_a_complete_battery_still_exits_zero_in_both_modes() -> None:
+    """THE CANARY. A guard that reds everything passes every assertion
+    above and is worthless; this is the one that must stay QUIET when
+    nothing is wrong (#112/#921).
+    """
+    assert _status_rc({}, merge_target=1) == 0
+    assert _status_rc({}, merge_target=0) == 0
+
+
+def test_the_verdict_leads_with_incompleteness_under_merge_target() -> None:
+    """(i)'s report half — #3883 §3, stated as a property.
+
+    The mill read `fail=` off a battery that had skipped a leg and took
+    the gate for clean. The prose and status channels must not disagree
+    about severity, so what LEADS the line is correctness, not layout.
+    """
+    line = _verdict(11, 0, 1, 0, merge_target=1)
+    assert re.match(r"GATE INCOMPLETE\b", line), (
+        f"the merge-target verdict must LEAD with the incompleteness: {line!r}"
+    )
+    assert "1 of 12" in line, f"the verdict must carry its denominator: {line!r}"
+
+
+def test_the_verdict_leads_with_incompleteness_when_a_leg_is_not_reached() -> None:
+    """(iv)'s report half. Before this, a not-reached leg with no red legs
+    printed `GATE FAILED — 0 of 11 ran legs red` — true in status, wrong
+    in the property, and it names a redness that did not happen.
+    """
+    line = _verdict(11, 0, 0, 1, merge_target=1)
+    assert re.match(r"GATE INCOMPLETE\b", line), line
+
+
+def test_a_red_leg_is_still_named_when_the_battery_is_also_incomplete() -> None:
+    """Leading with incompleteness must not HIDE a failure — a reader
+    grepping for the red must still find it on the same line.
+    """
+    line = _verdict(10, 1, 1, 0, merge_target=1)
+    assert re.match(r"GATE INCOMPLETE\b", line), line
+    assert "red" in line, f"a failed leg vanished from the verdict: {line!r}"
+
+
+def test_the_branch_verdict_is_byte_identical_to_today() -> None:
+    """(iii)'s report half. `--branch` is unchanged in BOTH channels."""
+    assert _verdict(11, 0, 1, 0, merge_target=0) == (
+        "GATE fail=0 — but 1 of 12 legs did NOT run (named above)"
+    )
+    assert _verdict(12, 0, 0, 0, merge_target=0) == (
+        "GATE fail=0 — 12 of 12 legs, none skipped, none missing"
+    )
+
+
+def test_the_clean_verdict_is_unchanged_under_merge_target() -> None:
+    """(ii) A complete, green merge-target run reads exactly as before."""
+    assert _verdict(12, 0, 0, 0, merge_target=1) == (
+        "GATE fail=0 — 12 of 12 legs, none skipped, none missing"
+    )
+
+
+def test_the_completeness_decisions_are_actually_wired_in() -> None:
+    """THE GAP THE TESTS ABOVE LEAVE. Every assertion in this block calls
+    `battery_status` and `verdict_line` directly, so all of them keep
+    passing if the entry point stops calling one and goes back to
+    deciding for itself. A unit test on an orphaned function is a check
+    that cannot fail for the reason it exists (#111).
+
+    Asserted off the artifact because the alternative is a twelve-leg
+    battery per assertion; the end-to-end run is the gate's own job.
+    """
+    text = GATE.read_text(encoding="utf-8")
+
+    entry = text.split("\nmain() {", 1)
+    assert len(entry) == 2, "gate.sh no longer declares an entry function"
+    body = entry[1].split("\n}", 1)[0]
+    assert "battery_status" in body, (
+        "the entry function no longer calls battery_status — the exit "
+        "status is being decided somewhere this suite does not test"
+    )
+    assert "LEG_STATUS" not in body, (
+        "the entry function reads the leg table again; the exit decision "
+        "lives in battery_status and must not be restated beside it"
+    )
+
+    summary = text.split("report()")[-1]
+    assert "verdict_line" in summary, (
+        "the summary no longer calls verdict_line — the final line is "
+        "being composed somewhere this suite does not test"
+    )
