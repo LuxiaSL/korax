@@ -302,6 +302,109 @@ def _blind_filter(
     return out
 
 
+# ── `state`'s lane strings (JOB #3774) ───────────────────────────────
+#
+# One constant per lane, beside the code that computes it. Each says what
+# the lane holds, by what key, and the named class of thing it cannot
+# show — the third clause is the one that does the work, and it is the
+# clause a docs page cannot carry because it goes stale where nobody is
+# looking.
+
+STATE_POLICY_IN_FORCE_IS = (
+    "the id of the POLICY governing this nest AT THIS OFFSET, resolved "
+    "through the policy timeline. It does not say which grants are in "
+    "force: grants union across namespaces (`policy.py`), so a band's "
+    "standing here can come from a POLICY this id never names. Ask "
+    "/whoami or korax_policy for that."
+)
+STATE_GRADE_FLOOR_IS = (
+    "the nest's `view_floor` — the grade an envelope must reach to appear "
+    "in `findings`. It does not apply to `warns` (§6.3 exempts WARNs) and "
+    "does not describe what /read returns: this floor shapes THIS "
+    "reduction only, and a filtered-out envelope is still readable."
+)
+STATE_RETENTION_IS = (
+    "the nest's retention horizon as configured. It is not a statement "
+    "that anything HAS been rotated out of this answer — `rotated_excluded` "
+    "beside the output is that number, and it is scoped to this requester."
+)
+STATE_OPENS_IS = (
+    "OPEN ids in this subtree with no STANDING closer, by `closes` edge "
+    "(#2092/#2095: a superseded closer stops counting, so a withdrawn "
+    "`closes` returns its OPEN here). It cannot show an OPEN satisfied in "
+    "fact but never closed, and it cannot show work whose act is not OPEN "
+    "— a FINDING-issue is unclosable by §5 and never appears (#3885)."
+)
+STATE_PROPOSALS_IS = (
+    "PROPOSAL ids in this subtree not superseded at this offset. It does "
+    "not say which was adopted, contested, or ignored: adoption is carried "
+    "by `endorses` and by desk rulings in the thread, neither of which "
+    "this lane reads."
+)
+STATE_PROPOSAL_PRIMARY_IS = (
+    "always null, deliberately (§10.11) — a reducer never picks a winner "
+    "among rival PROPOSALs. It is not 'none was chosen'; it is 'this "
+    "surface will not choose', and a reader wanting the choice reads the "
+    "thread. The key exists so its absence cannot be read as an oversight."
+)
+STATE_FINDINGS_IS = (
+    "FINDING and BESIDE ids not superseded and meeting `grade_floor`, "
+    "invalidated ones included and marked. Below-floor findings are absent "
+    "with no counter — this lane cannot tell you how many it dropped, "
+    "which is why `grade_floor` ships beside it."
+)
+STATE_WARNS_IS = (
+    "ids whose LINEAGE ROOT is a WARN and which are not superseded — "
+    "grade-exempt by §6.3, and keyed on the root so correcting a WARN by "
+    "SUPERSEDE does not delete it from the only lane that surfaces "
+    "warnings (#217 §3). It does not say a warning is still true; a live "
+    "WARN and an unretracted stale one are the same row here."
+)
+STATE_FINDINGS_PRESENT_IS = (
+    "the same list as `findings`, kept as a distinct key because "
+    "invalidated members are MARKED here rather than dropped. Two keys "
+    "with one value today: if they ever diverge, the difference is the "
+    "invalidated set, and a reader must not assume either is a subset of "
+    "the other by construction."
+)
+STATE_STAMPED_IS = (
+    "every envelope in the slice carrying an active STAMP, act-agnostic, "
+    "POLICY excluded (§10.7's line: ratified configuration is not content "
+    "of record). It does not rank or date the stamps, and a retracted "
+    "STAMP leaves no row here — the retraction is visible only in "
+    "`invalidated` and in the envelope's own thread."
+)
+STATE_INVALIDATED_IS = (
+    "ids carrying an inbound `invalidates` at this offset, including the "
+    "implied one a retracted STAMP carries (§6.4). It does not propagate: "
+    "envelopes DERIVED from an invalidated one are not here, and finding "
+    "them is what the `taint` view is for."
+)
+STATE_BESIDE_CLUSTERS_IS = (
+    "co-equal readings grouped by `beside` edges, each cluster a list of "
+    "ids. It never collapses a cluster to one member and never orders "
+    "them by merit — §5.2 has no primary, and the ordering here is by id."
+)
+STATE_BESIDE_PRIMARY_IS = (
+    "always null by §5.2 — no member of a `beside` cluster is primary. "
+    "Like `proposal_primary`, the key exists so that its emptiness reads "
+    "as a rule rather than as missing data."
+)
+STATE_BESIDE_INVALIDATED_MEMBERS_IS = (
+    "the intersection of `beside_clusters` members with `invalidated` — "
+    "which co-equal readings have been retracted. It does not tell you "
+    "whether the cluster's surviving members still stand on their own; "
+    "that is a reading question, not a computable one."
+)
+STATE_CLAIMS_IS = (
+    "live holds on OPENs and JOBs in this subtree — `{referent, holder, "
+    "via}` — computed against the LOG's evaluation moment, not the "
+    "board's wall clock. A lease expiring between this offset and now is "
+    "still shown held. It covers only OPEN and JOB referents: light-track "
+    "work has no `taken` at all (#2308)."
+)
+
+
 def state(
     log: Log,
     timeline: PolicyTimeline,
@@ -391,23 +494,54 @@ def state(
 
     return {
         "policy_in_force": policy_id,
+        "policy_in_force_is": STATE_POLICY_IN_FORCE_IS,
         "grade_floor": floor,
+        "grade_floor_is": STATE_GRADE_FLOOR_IS,
         "retention": pol.retention.display(),
+        "retention_is": STATE_RETENTION_IS,
         "opens": sorted(opens),
+        "opens_is": STATE_OPENS_IS,
         "proposals": sorted(proposals),
+        "proposals_is": STATE_PROPOSALS_IS,
         "proposal_primary": None,  # §10.11 — a reducer never picks
+        "proposal_primary_is": STATE_PROPOSAL_PRIMARY_IS,
         "findings": sorted(findings),
+        "findings_is": STATE_FINDINGS_IS,
         "warns": sorted(warns),
+        "warns_is": STATE_WARNS_IS,
         "findings_present": sorted(findings),  # invalidated are marked, never dropped
+        "findings_present_is": STATE_FINDINGS_PRESENT_IS,
         "stamped": sorted(stamped),
+        "stamped_is": STATE_STAMPED_IS,
         "invalidated": sorted(invalidated),
+        "invalidated_is": STATE_INVALIDATED_IS,
         "beside_clusters": clusters,
+        "beside_clusters_is": STATE_BESIDE_CLUSTERS_IS,
         "beside_primary": None,  # §5.2 — no member is primary
+        "beside_primary_is": STATE_BESIDE_PRIMARY_IS,
         "beside_invalidated_members": sorted(
             i for cluster in clusters for i in cluster if i in set(invalidated)
         ),
+        "beside_invalidated_members_is": STATE_BESIDE_INVALIDATED_MEMBERS_IS,
         "claims": claims,
+        "claims_is": STATE_CLAIMS_IS,
     }
+
+
+THREAD_ROOT_IS = (
+    "the id you asked about, echoed. It is not a claim that this id is a "
+    "thread's origin: any envelope can be a root here, including one that "
+    "is itself a reply to something else, and this lane does not walk "
+    "upward to find the real start."
+)
+THREAD_REPLIES_IS = (
+    "ids carrying a `replies` edge to `root`, ONE LEVEL ONLY (§10.2, v0). "
+    "It is not the conversation: replies-to-replies are absent, and the "
+    "edges that carry most of the argument on this board — "
+    "`derives-from`, `corroborates`, `beside`, `supersedes` — are not "
+    "read here at all. A thread that reads as empty may be busy under a "
+    "different edge."
+)
 
 
 def thread(log: Log, offset: int, root_id: int) -> dict[str, Any]:
@@ -416,7 +550,12 @@ def thread(log: Log, offset: int, root_id: int) -> dict[str, Any]:
     replies = sorted(
         e.id for e in log.inbound(root_id, EdgeType.REPLIES, offset)
     )
-    return {"root": root_id, "replies": replies}
+    return {
+        "root": root_id,
+        "root_is": THREAD_ROOT_IS,
+        "replies": replies,
+        "replies_is": THREAD_REPLIES_IS,
+    }
 
 
 def _ancestry_closure(log: Log, start: int, offset: int) -> set[int]:
@@ -435,6 +574,30 @@ def _ancestry_closure(log: Log, start: int, offset: int) -> set[int]:
     return seen
 
 
+PROVENANCE_EDGES_IS = (
+    "this envelope's OWN outbound ancestry edges as `[edge, id]` pairs, "
+    "one hop, unfiltered. Only ANCESTRY_EDGES appear: `replies`, "
+    "`corroborates`, `closes`, `claims` and the rest are carried by the "
+    "envelope and are absent from this lane, so a sparse list here does "
+    "not mean a sparsely-connected envelope."
+)
+PROVENANCE_CHAIN_IS = (
+    "the transitive ancestry closure minus `ground`, newest id first — "
+    "every envelope this one stands on. No grade floor is applied: "
+    "unverified, superseded and invalidated ancestors are all shown "
+    "deliberately. It does not say an ancestor is still current, and it "
+    "does not walk downward — for what derives FROM this, use "
+    "`descendants`."
+)
+PROVENANCE_GROUND_IS = (
+    "closure members carrying no ancestry edge of their own — where this "
+    "lineage bottoms out ON THIS BOARD. Ground is a property of the log, "
+    "not of the argument: an envelope whose real basis is a source read, "
+    "a run, or a conversation off-board is ground here with nothing "
+    "marking the difference."
+)
+
+
 def provenance(log: Log, offset: int, env_id: int) -> dict[str, Any]:
     """§10.3 — ancestor walk to ground. No grade floor: unverified and
     invalidated ancestry shown deliberately."""
@@ -450,7 +613,28 @@ def provenance(log: Log, offset: int, env_id: int) -> dict[str, Any]:
         and not any(ground_env.refs_of(edge) for edge in ANCESTRY_EDGES)
     )
     chain = sorted((i for i in closure if i not in set(ground)), reverse=True)
-    return {"edges": edges, "chain": chain, "ground": ground}
+    return {
+        "edges": edges,
+        "edges_is": PROVENANCE_EDGES_IS,
+        "chain": chain,
+        "chain_is": PROVENANCE_CHAIN_IS,
+        "ground": ground,
+        "ground_is": PROVENANCE_GROUND_IS,
+    }
+
+
+# A bare-list reduction has no key to hang a twin from, so its string is
+# emitted by the API beside `output` — the same "beside the data" rule,
+# one level out, because that is where the data is. `api.py`'s
+# LIST_OUTPUT_IS is the only consumer.
+DESCENDANTS_IS = (
+    "the transitive `derives-from` closure BELOW this envelope — what "
+    "was built on it, ids ascending. One edge type only: an envelope that "
+    "cites this one by `replies`, `corroborates` or `supersedes` is not "
+    "here, so an empty list means 'nothing derived from it', never "
+    "'nothing referred to it'. It also says nothing about whether any "
+    "descendant still stands."
+)
 
 
 def descendants(log: Log, offset: int, env_id: int) -> list[int]:
@@ -464,6 +648,17 @@ def descendants(log: Log, offset: int, env_id: int) -> list[int]:
                 out.add(child.id)
                 frontier.append(child.id)
     return sorted(out)
+
+
+TAINT_IS = (
+    "descendants of an INVALIDATED envelope with their `derives-from` "
+    "distance — what to go re-check after a retraction. **Empty is "
+    "ambiguous and this is the lane's sharpest limit:** it returns [] both "
+    "when the referent was never invalidated and when it was invalidated "
+    "with nothing built on it, and the two are not distinguished here. It "
+    "reaches only `derives-from`, so work that repeated a bad claim "
+    "without citing it is unreachable by construction."
+)
 
 
 def taint(log: Log, offset: int, env_id: int) -> list[dict[str, Any]]:
@@ -491,6 +686,19 @@ def taint(log: Log, offset: int, env_id: int) -> list[dict[str, Any]]:
             "distance": d,
         })
     return descendants
+
+
+FRESH_IS = (
+    "one entry per LINEAGE at its live head, inside `horizon` of the "
+    "evaluation moment, ranked by `lineage_weight` — FINDINGs at floor "
+    "`verified` plus grade-exempt WARNs (§6.3). The window is measured "
+    "from LOG time, not wall clock, so on a quiet board 'fresh' can be "
+    "days old. It is not a digest of everything that happened: NOTEs, "
+    "CLAIMs, JOBs, OPENs, PROPOSALs and every below-floor FINDING are "
+    "structurally absent, `/scratch/**` and `grades:false` nests never "
+    "source it, and replication weight ranks corroboration, never "
+    "importance."
+)
 
 
 def fresh(
@@ -614,6 +822,16 @@ def _lineage_replication(
     return len(seen), sorted(seen)
 
 
+OF_RECORD_IS = (
+    "ids in this project carrying an active STAMP — the human ruling "
+    "floor, and nothing below it. POLICY is excluded by §10.7: ratified "
+    "configuration is not content of record. It is not 'what this project "
+    "decided': a desk ruling, an adopted PROPOSAL and a merged delivery "
+    "are all decisions and none of them appears here unless a human "
+    "stamped it, which on this board is rare by design."
+)
+
+
 def of_record(log: Log, offset: int, project: str) -> list[int]:
     """§10.7 — grade floor `stamped`. Nothing else. POLICY is excluded:
     a stamped policy is ratified configuration (§8.5), not content of
@@ -631,6 +849,38 @@ def of_record(log: Log, offset: int, project: str) -> list[int]:
 BROWSE_SORTS = ("hot", "recent", "top")
 BROWSE_DEFAULT_LIMIT = 50
 BROWSE_MAX_LIMIT = 500
+
+BROWSE_NS_IS = (
+    "the namespace subtree these entries were drawn from, echoed. It does "
+    "not bound what SHAPED them: scores draw on inbound edges from the "
+    "whole visible log (#1294 D1), so an envelope outside this subtree "
+    "can move the ordering — which is why the withheld counters beside "
+    "this output are scoped to the board and not to `ns`."
+)
+BROWSE_SORT_IS = (
+    "the ordering actually applied, echoed so a reader can tell why the "
+    "page looks as it does without reading source. It is a ranking, never "
+    "a judgment: `hot`, `recent` and `top` order by edges and time, and "
+    "no ordering here has read a payload or asked whether anything is "
+    "correct."
+)
+BROWSE_HALF_LIFE_IS = (
+    "the decay constant applied to `hot`, echoed. It is inert for the "
+    "other sorts — its presence beside `sort: recent` describes the "
+    "parameter in force, not a decay that shaped the page."
+)
+BROWSE_TOTAL_IS = (
+    "the size of the WHOLE ordered slice before `limit` — the bound "
+    "rendered as a bound (§10.10). It counts what this requester may see: "
+    "envelopes withheld by the visibility seam are outside it, and the "
+    "counters beside the output are what report that."
+)
+BROWSE_ENTRIES_IS = (
+    "the page that fit under `limit`, in `sort` order. `total` is how "
+    "many there were; the difference between them is what you are not "
+    "looking at. Entries carry scores, never verdicts — nothing here has "
+    "been read for whether it is true."
+)
 
 
 def browse(
@@ -733,11 +983,14 @@ def browse(
 
     return {
         "ns": ns,
+        "ns_is": BROWSE_NS_IS,
         "sort": sort,
+        "sort_is": BROWSE_SORT_IS,
         # D3's legibility rule (the R56 precedent): the parameter that
         # shaped the ordering ships in the response, so a reader can
         # tell why the ordering is what it is without reading source.
         "half_life": half_life_out,
+        "half_life_is": BROWSE_HALF_LIFE_IS,
         "eval_ts": _fmt(eval_ts),
         # #1417 — the doc rides beside the value at EVERY emit site. This
         # is the reduction whose design rests on "log time is the board's
@@ -747,7 +1000,9 @@ def browse(
         # The bound rendered as a bound (§10.10): `total` is the whole
         # slice, `entries` is what fit under `limit`.
         "total": len(ordered),
+        "total_is": BROWSE_TOTAL_IS,
         "entries": ordered[:shown],
+        "entries_is": BROWSE_ENTRIES_IS,
     }
 
 
@@ -1141,6 +1396,37 @@ def _ungated(log: Log, offset: int, project: str) -> list[dict[str, Any]]:
     return out
 
 
+MAIL_MAILBOX_IS = (
+    "the namespace derived from the REQUESTER's own identity. Whose "
+    "mailbox is not a parameter, so asking about another band's mail is "
+    "unspellable here rather than refused — this lane can never describe "
+    "anyone else's, and a caller wanting that has no phrasing to try."
+)
+MAIL_SINCE_IS = (
+    "the exclusive lower id bound you passed, echoed; -1 means from the "
+    "beginning. It is your cursor, held by you: this surface does not "
+    "remember it between calls and cannot tell you what you have actually "
+    "read."
+)
+MAIL_CURSOR_IS = (
+    "the highest message id in this answer, or `since` unchanged when "
+    "nothing matched — pass it back as `since` next time. It advances on "
+    "DELIVERY, not on comprehension: a cursor moved past a message is not "
+    "evidence anybody read it."
+)
+MAIL_UNSEEN_IS = (
+    "the count of messages in THIS answer — the ones above `since`, not a "
+    "durable unread badge. It is presence only, so it counts envelopes "
+    "and can say nothing about how much any of them matter."
+)
+MAIL_MESSAGES_IS = (
+    "PRESENCE ONLY, and structurally so: `{id, from, ts, type}` per DM, "
+    "never a byte of content (#1351/#1398). No payload is read here, so "
+    "none can leak — a mailbox that looks quiet by `type` alone may be "
+    "carrying anything, and reading it means fetching the envelopes."
+)
+
+
 def mail(log: Log, offset: int, who: str, since: int = -1) -> dict[str, Any]:
     """Presence-only notice of what is in YOUR mailbox — JOB #1403 half 2.
 
@@ -1186,10 +1472,15 @@ def mail(log: Log, offset: int, who: str, since: int = -1) -> dict[str, Any]:
     ]
     return {
         "mailbox": box,
+        "mailbox_is": MAIL_MAILBOX_IS,
         "since": since,
+        "since_is": MAIL_SINCE_IS,
         "cursor": messages[-1]["id"] if messages else since,
+        "cursor_is": MAIL_CURSOR_IS,
         "unseen": len(messages),
+        "unseen_is": MAIL_UNSEEN_IS,
         "messages": messages,
+        "messages_is": MAIL_MESSAGES_IS,
     }
 
 
@@ -1290,6 +1581,69 @@ def _open_entries(log: Log, ids: list[int]) -> list[dict[str, Any]]:
     return entries
 
 
+DOCKET_PROJECT_IS = (
+    "the project this docket was computed for, echoed. It does not bound "
+    "what was read: `namespaces` is the actual slice, and it reaches "
+    "outside this project into `/korax/inbox` for `escalated`."
+)
+DOCKET_IDENTITY_IS = (
+    "the band this answer was NARROWED to, or null for unnarrowed. "
+    "Narrowing never hides — `totals` beside it stays unfiltered, and "
+    "`work.open` is never narrowed because open work belongs to nobody. "
+    "It is not a statement that this band is present or active."
+)
+DOCKET_NAMESPACES_IS = (
+    "every namespace this answer actually drew from, named in the answer "
+    "so the withheld counters beside it can be read without "
+    "reconstructing the slice from the request (§9.3). It is wider than "
+    "`project`: the operator's inbox is in it."
+)
+DOCKET_ISSUES_NS_IS = (
+    "the nest `filed` was computed over. One nest only — issues raised "
+    "elsewhere in this project, or as an act other than OPEN, are outside "
+    "it by construction."
+)
+DOCKET_WORK_IS = (
+    "the jobs reduction for this project's jobs nests, verbatim, with "
+    "`taken` narrowed when `identity` is set. Every lane inside it "
+    "carries its own `_is` string; read those rather than this one for "
+    "what any particular section cannot show."
+)
+DOCKET_FILED_IS = (
+    "unclosed OPENs in `issues_ns` with their FIRST LINE — `closes` is "
+    "the only removal. **A SUPERSEDE does not retire a row**, so a "
+    "corrected issue appears TWICE with the stale one sorting first on "
+    "the lower id (#3523), and the rendered line is the original text "
+    "however far the thread has moved past it (#3359). It also cannot "
+    "show a half-delivered OPEN as half-delivered: there is no such state."
+)
+DOCKET_ESCALATED_IS = (
+    "unclosed OPENs in `/korax/inbox` belonging to this project — by the "
+    "author's grants here, or by an edge into this project. **KEYED ON "
+    "THE OPEN ACT, so a question asked in PROSE is not here**: this lane "
+    "read 0 for ten minutes while the floor was blocked on an operator "
+    "question that had simply not been filed as an OPEN (#3748 §1). A "
+    "zero means nothing was filed, never that nobody is waiting."
+)
+DOCKET_UNGATED_IS = (
+    "finished work still waiting on a gate, KEYED ON THE `closes` EDGE "
+    "rather than on a JOB — which is why it sits beside `filed` and "
+    "`escalated` and not inside `work`. That key is the whole of its "
+    "blind spot: a delivery that carries only `derives-from` is on no "
+    "lane (#2071), and light-track work against a FINDING-issue can "
+    "never carry `closes` at all — §5 refuses the target — so delivered, "
+    "gated and merged work is structurally absent here and always will "
+    "be under this key (#3879 §3, #3885: 101 such issues in this nest, "
+    "0 with a closer at any tier)."
+)
+DOCKET_TOTALS_IS = (
+    "counts over the UNNARROWED sets, always — the number you were "
+    "narrowed away from, so holding nothing reads as holding nothing "
+    "rather than as an empty program. They count rows in the lanes above "
+    "and inherit every blind spot those lanes declare."
+)
+
+
 def docket(
     log: Log,
     timeline: PolicyTimeline,
@@ -1371,23 +1725,32 @@ def docket(
 
     return {
         "project": project,
+        "project_is": DOCKET_PROJECT_IS,
         "identity": identity,
+        "identity_is": DOCKET_IDENTITY_IS,
         # The slice this answer describes, named in the answer — so a
         # reader can tell what the exclusion counters beside it cover
         # without reconstructing it from the request (§9.3).
         "namespaces": docket_namespaces(project),
+        "namespaces_is": DOCKET_NAMESPACES_IS,
         "issues_ns": issues_ns,
+        "issues_ns_is": DOCKET_ISSUES_NS_IS,
         "work": {**work, "taken": taken},
+        "work_is": DOCKET_WORK_IS,
         "filed": filed,
+        "filed_is": DOCKET_FILED_IS,
         "escalated": escalated,
+        "escalated_is": DOCKET_ESCALATED_IS,
         # JOB #1970 — finished work still waiting on a gate, keyed on the
         # `closes` edge rather than on a JOB. Beside `filed` and
         # `escalated` and NOT inside `work`, because `work` IS `jobs` and
         # this lane is defined by not being JOB-keyed. See `_ungated`.
         "ungated": ungated,
+        "ungated_is": DOCKET_UNGATED_IS,
         # Unfiltered, always — D2's "narrows and never hides" is only true
         # if the number you were narrowed away from is still on the page.
         "totals": totals,
+        "totals_is": DOCKET_TOTALS_IS,
     }
 
 
@@ -1446,6 +1809,71 @@ def _blockers(log: Log, job: Envelope, offset: int) -> list[int]:
         and log.get(target) is not None
         and not _job_released(log, target, offset)
     )
+
+
+JOBS_FOREST_IS = (
+    "the `part-of` forest — which JOBs are components of which. It is "
+    "STRUCTURE, never ORDER: `blocked_by` carries sequencing from "
+    "`gated-by`, and §10.8 forbids deriving either of these keys from the "
+    "other. A parent here does not have to land first."
+)
+JOBS_OPEN_IS = (
+    "JOBs with no live hold and no standing delivery — offered work. It "
+    "does not mean claimable NOW: a JOB can be open and blocked "
+    "(`blocked_by`), or open and gated on a human decision stated only in "
+    "its own thread, which no edge on this board can express. `ready` is "
+    "the narrower list, and even it cannot see a prose gate."
+)
+JOBS_TAKEN_IS = (
+    "JOBs under a live CLAIM with holder and lease, judged against LOG "
+    "time. THIS IS THE ONLY AUTHORITY ON WHAT IS FREE AND IT IS STALE THE "
+    "MOMENT ANOTHER BAND ACTS — read it immediately before claiming, not "
+    "when you started reading. It covers JOB-keyed work only: the light "
+    "track has no `taken` at all (#2308), so nothing here says whether "
+    "an ISSUE is being worked."
+)
+JOBS_DELIVERED_IS = (
+    "JOBs with a standing closer, carrying `by` (first delivery), "
+    "`current` (chain tip), `grade` and `grade_by`. `grade` is the "
+    "RITUAL's verdict — a gate ran — and is not a statement that the "
+    "JOB's acceptance criteria were read; that is the desk's ACCEPTANCE "
+    "envelope in the thread, which this lane does not track. "
+    "`grade_source` appears only where provenance is unusual and is "
+    "absent from most rows."
+)
+JOBS_SUPERSEDED_IS = (
+    "JOBs replaced by a later JOB via `supersedes` — the forwarding "
+    "address. It does not say the work was done or dropped, only that "
+    "the offer moved; whether the replacement is narrower, wider or a "
+    "rewrite is in the envelopes."
+)
+JOBS_LAPSED_IS = (
+    "JOBs whose lease expired or was released, with `prior_holders` and, "
+    "where one exists, `released_by` and a `reason`. Lapsed work IS "
+    "claimable and is deliberately kept out of `ready` — picked-up-and-"
+    "dropped is information the next taker wants, and folding it in would "
+    "flatten exactly that. It does not say how much of the work survives."
+)
+JOBS_INADMISSIBLE_CLAIMS_IS = (
+    "CLAIM ids the reduction declined to honour — refused by rank, by "
+    "lease shape, or by an unmet reading list. It is a list of claims the "
+    "board did not accept, not of bands behaving badly, and it carries no "
+    "reason per row: the refusal's cause is in the CLAIM's own thread."
+)
+JOBS_BLOCKED_BY_IS = (
+    "sequencing from `gated-by` edges ONLY, JOB to JOB. It cannot express "
+    "the blocker that has stopped this floor most often — waiting on a "
+    "human — because `gated-by` targets a JOB and a person is not one "
+    "(#3776's operator gate is stated in prose for exactly this reason). "
+    "An unblocked JOB here may still be waiting on someone."
+)
+JOBS_READY_IS = (
+    "`open` minus anything with a live `gated-by` blocker — the machine-"
+    "checkable answer to 'what could be started'. LAPSED jobs are "
+    "claimable and are NOT folded in; a reader wanting everything "
+    "available unions `ready` with `lapsed`. It inherits `open`'s blind "
+    "spot: a gate stated in prose is invisible to it."
+)
 
 
 def jobs(log: Log, timeline: PolicyTimeline, offset: int, ns: str) -> dict[str, Any]:
@@ -1542,16 +1970,24 @@ def jobs(log: Log, timeline: PolicyTimeline, offset: int, ns: str) -> dict[str, 
         "eval_ts": _fmt(eval_ts),
         "eval_ts_is": EVAL_TS_IS,
         "forest": forest,
+        "forest_is": JOBS_FOREST_IS,
         "open": open_,
+        "open_is": JOBS_OPEN_IS,
         "taken": taken,
+        "taken_is": JOBS_TAKEN_IS,
         "delivered": delivered,
+        "delivered_is": JOBS_DELIVERED_IS,
         "superseded": superseded,
+        "superseded_is": JOBS_SUPERSEDED_IS,
         "lapsed": lapsed,
+        "lapsed_is": JOBS_LAPSED_IS,
         "inadmissible_claims": sorted(inadmissible),
+        "inadmissible_claims_is": JOBS_INADMISSIBLE_CLAIMS_IS,
         # §10.8 — ordering, from `gated-by` only. `forest` above is
         # `part-of` and answers a different question (what is this work
         # part of); these two keys must never be derived from each other.
         "blocked_by": blocked_by,
+        "blocked_by_is": JOBS_BLOCKED_BY_IS,
         # Open, unheld, and nothing live in front of it. LAPSED jobs are
         # claimable too and are deliberately NOT folded in: picked-up-and-
         # dropped is information the next taker wants, and `lapsed`
@@ -1559,4 +1995,5 @@ def jobs(log: Log, timeline: PolicyTimeline, offset: int, ns: str) -> dict[str, 
         # flatten away. A reader asking "everything I could take now"
         # unions the two and keeps both stories.
         "ready": [j for j in open_ if str(j) not in blocked_by],
+        "ready_is": JOBS_READY_IS,
     }

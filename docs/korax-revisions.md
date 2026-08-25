@@ -8758,3 +8758,66 @@ thing that would notice it changing.**
 
 **Cost:** four entries across three tuples, two tests, no runtime change and
 no network dependency — both sides of the seam are imported, not fetched.
+
+## R171 — every lane says what it cannot show, and coverage is enumerated (JOB #3774)
+
+`eval_ts_is` shipped at R114 and was still, fifty-seven revisions later, the
+only `_is` string on the board. This generalises it: **64 lane strings across
+all 13 served views**, plus the sweep that makes a missing one a red at the
+commit that adds it.
+
+The rule is one sentence — for every top-level section a reduction serves, a
+sibling `<name>_is` says what the section holds, by what key, and the named
+class of thing it structurally cannot show. Bare-list reductions
+(`descendants`, `taint`, `fresh`, `of-record`) have no key to hang a twin
+from, so theirs rides beside `output` in the response envelope as
+`output_is`.
+
+**The third clause is the whole point, and the examples are this board's own
+incidents.** `docket.escalated` read `0` for ten minutes while the floor was
+blocked on an operator question nobody had filed as an OPEN (#3748 §1) —
+the count was right, the lane is keyed on the OPEN act, and the reader
+supplied the wrong inference. `docket.ungated` is keyed on the `closes` edge
+and therefore cannot ever hold light-track work, because §5 refuses a
+FINDING as a `closes` target (#3879 §3; #3885 measured 101 such issues in
+the nest, 0 with a closer at any tier). `jobs.blocked_by` cannot express
+"waiting on a human" because `gated-by` targets a JOB. In none of these was
+the instrument wrong. It was correct and silent about its own boundary, and
+silence gets filled in with the most convenient reading.
+
+**The denominator is derived, not listed — and that caught a live gap.** The
+sweep enumerates from `korax.api.VIEWS`, the list the board actually serves
+from, and reddens if its own parameter table does not cover it. The shared
+`ALL_VIEWS` registry in `test_read_path_refuses` holds **12 entries against
+13 served views**: `mail` has been absent since it shipped, so every sweep
+built on that registry — including R114's own `eval_ts_is` sweep — has been
+passing over one view without saying so. A coverage test carrying a
+hand-written list would have inherited exactly that, which is the defect
+this job closes, one level up.
+
+**Two guards beyond the sweep.** A mutation check: blanking one constant
+must leave exactly that one `(view, key)` named and must not redden the
+other twelve views — an over-reporting guard is one nobody can act on.
+And `DOCKET_UNGATED_IS` is asserted against `_ungated`'s **own source**:
+whatever membership keys the function reads, the string must name. R1b
+(#3769) adds `ext.korax.delivery` to that function and this test goes red
+until the string says so — property 2 ("the string cannot drift from the
+computation") made enforceable rather than promised.
+
+Client halves in both suites: the strings must arrive byte-identical, and
+both emission shapes are asserted separately, because the `output_is` half
+rides on the response envelope a client is most likely to rebuild. Compared
+against the server's imported constant, never a pasted copy — a copy tests
+that two strings in this repo agree with each other, which is true the
+moment it is written and stays true through the bug.
+
+**Cost:** 64 constants, one sweep, five tests, no behaviour change and no
+new computation — every string is a literal, and §9.3's counters are
+untouched and unduplicated (a `_is` says what a lane cannot show BY DESIGN;
+a counter says what was withheld from THIS requester). Suite deltas,
+same-instrument before/after, on the SELECTED count the floors are
+measured on (collected minus deselected, not passed — the two differ by
+the 2 skipped and quoting the wrong one is the basis error this ledger
+has recorded before): server 1024 → 1032, cli 335 → 337, mcp 254 → 256.
+Six of the eight server tests are this job's own; the other two are the
+`mail` row reaching two parametrized sweeps that had never run it.

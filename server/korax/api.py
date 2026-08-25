@@ -68,6 +68,10 @@ from .reductions import (
     state,
     taint,
     thread,
+    DESCENDANTS_IS,
+    FRESH_IS,
+    OF_RECORD_IS,
+    TAINT_IS,
 )
 from .retention import PIERCE, project as rotate_project, split as rotate_split
 from .search import (
@@ -88,6 +92,20 @@ VIEWS = [
     "state", "thread", "provenance", "descendants", "taint", "fresh",
     "jobs", "of-record", "onboard", "required", "docket", "browse", "mail",
 ]
+
+# JOB #3774 — a reduction that returns a BARE LIST has no key to hang its
+# `<lane>_is` twin from, so the twin rides beside `output` in the response
+# envelope. Same rule ("beside the data"), one level out, because that is
+# where the data is. The strings themselves live beside the code that
+# computes each list, in `reductions.py`; this maps view name to string
+# and does nothing else. A dict-returning view is absent here on purpose —
+# its lanes carry their own twins inside `output`.
+LIST_OUTPUT_IS = {
+    "descendants": DESCENDANTS_IS,
+    "taint": TAINT_IS,
+    "fresh": FRESH_IS,
+    "of-record": OF_RECORD_IS,
+}
 
 
 #: This process's identity, minted once at import and never again (#2387,
@@ -1400,6 +1418,12 @@ def create_app(board: Board) -> FastAPI:
             "at": offset,
             "evaluated_against": "offset-ts" if at is not None else "head",
             "output": output,
+            # Emitted only where `output` is a bare list; a dict output
+            # carries a twin per key inside itself. Keyed on the view name
+            # rather than on `isinstance(output, list)` so that a view
+            # whose shape changes fails the coverage sweep loudly instead
+            # of silently losing its string.
+            **({"output_is": LIST_OUTPUT_IS[name]} if name in LIST_OUTPUT_IS else {}),
             # §8.7.5 / §8.2 / §9.3 — never silent. `rotated_excluded` keeps
             # the namespace scope it has always had here, and as of #1099 it
             # is no longer the odd one out: /read and /wait were moved to

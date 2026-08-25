@@ -41,6 +41,17 @@ ALL_VIEWS = [
     ("onboard", {}),
     ("required", {"id": "1"}),
     ("browse", {"ns": "/korax-dev"}),
+    # JOB #3774 — `mail` was served and unswept from the day it shipped.
+    # This registry is the input to every view sweep in the suite, so a
+    # view missing here is not covered by any of them and nothing says
+    # so: the sweeps kept passing, which is the flattering direction.
+    # Found by the #3774 coverage test, which derives its denominator
+    # from `korax.api.VIEWS` instead of from a hand-kept list precisely
+    # so that it could not inherit this. Adding it is a strengthening,
+    # not a fix: all 44 tests in this file pass with `mail` included,
+    # measured before the line was added, so the gap was coverage and
+    # never a latent refusal bug.
+    ("mail", {}),
 ]
 
 READ_SURFACES_WITH_NS = [
