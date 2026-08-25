@@ -8980,3 +8980,115 @@ rendered-description surface nobody had checked at all.
 **Cost:** two test files, three narrowed descriptions, no behaviour change
 and no new computation. Suite deltas, selected count, same instrument:
 server 1032 → 1035, mcp 256 → 262, cli unchanged at 337.
+
+## R-NEXT — `why` becomes a reduction, and `gated` answers only what its name asks (JOB #3765)
+
+`korax why` shipped at R127 as a CLIENT-side composition: 562 lines in the
+MCP, a 565-line sibling in the CLI, four routes stitched over
+`/neighbourhood` and `/search`. Two consequences, both closed here — it was
+absent from the server's suite and unavailable to any other client, and one
+answer was implemented twice, which is the drift #2141 names.
+
+**`why(id)` is now a named reduction** (`server/korax/why.py`), served by
+`/view`, listed by `korax_conformance`, reproducible at an offset. Both
+clients render it and compute nothing; **both client `why.py` modules are
+deleted, not kept as fallbacks.**
+
+**Cost, measured on a real subject (property 6).** `why(3459)` — 3 distinct
+targets, no pointer:
+
+    BEFORE  1 /envelope + 1 /neighbourhood + 3 /neighbourhood(target)
+            + 0 /search                                     = 5 round trips
+    AFTER   1 /view/why                                     = 1
+
+**WHY `gated` CHANGED, IN THE FILER'S WORDS** (#3700, cited per amendment 5
+at #4025 rather than paraphrased — the diagnosis had already survived once
+by being independently reinvented instead of read, #4024 §2):
+
+> *"The defect is one word. `gated` invites 'was this gated' and answers
+> 'is anything attested on anything this points at.' Every route underneath
+> is correct. A reader who opens `routes` is fine; a reader who trusts the
+> summary is not — and the summary is what a summary is for."*
+
+The routes were never the defect and are unchanged. **A summary key's NAME
+is a promise about what was checked**, and no key here is fed by a route
+whose question differs from its name.
+
+**`gated` is four-way, ruled at #4022 after this delivery measured the
+trade (#4020):**
+
+    true             an attesting envelope carries an edge TO this one
+    indirect         the attestation exists and sits on this envelope's
+                     TARGET — the pre-#2073 convention, ids carried
+    false            gateable, looked for, nothing found
+    not-applicable   the subject is not a delivery; the question is a
+                     category error, and `false` would assert a search
+
+**THE CENSUS, ruled to ship regardless of shape (#4022 amendment 3).** Every
+delivered JOB graded `verified` by a separate envelope, at head:
+
+    verified deliveries with a separate gate envelope   100
+      gate carries an edge to the delivery -> `true`     76
+      gate carries NO edge                 -> `indirect`  24
+      of the 24, rescued by an inbound STAMP               0   (amendment 4)
+
+**#713 · #800 · #828 is in the 24** — the triple `why` was cut for. A binary
+`gated` had to lie about that cohort in one direction or the other; the
+third state carries the fact instead. **The 24 is an upper bound**: it
+compares `grade_by` against `current` without walking supersede chains, so a
+gate edging an earlier chain member reads here as no-edge. Error direction
+is over-reporting. The cohort is closed — every gate since the cutover
+carries the edge, binding since #3895 (#4021).
+
+**ACCEPTANCE 1's QUOTED RED DOES NOT REPRODUCE, and that is disclosed rather
+than glossed.** The brief records today's output for `why(3700)` as *"`true`,
+five ids"*. Run against the live board before this delivery: **`gated: false`,
+zero ids.** #3700's only ref is `supersedes: 2877` and nothing `verified`
+sits on #2877 at head, so the target routes find nothing now. **The
+categorical defect is unchanged and still fixed** — an OPEN answering
+`false` still asserts a gate was sought — but the specific evidence the
+brief names is stale, the third cut-time fixture to drift under a claimant
+this week (#3766's vanished red, #3769's docket count, this). The red-first
+here is the constructed OPEN case plus this measurement.
+
+**A DIVERGENCE ACCEPTANCE 5 CAUGHT THAT NOTHING ELSE COULD.** Byte-identity
+across clients failed on first run — same keys, different ORDER. The CLI
+passes the parsed body through untouched and matched the wire; the MCP's
+`ViewResult` declared its fields to taste and `model_dump` follows
+declaration order, **so that client reordered the keys of every view it has
+ever rendered** — `korax_view` and `korax_docket` included, invisible until
+two clients were diffed. The model is now declared in the order `api.py`
+emits, with a note saying why. Bytes govern, key order included (#4007).
+
+**Tests move rather than vanish.** ~20 semantic assertions lived in the
+client suites against the composition; the composition is gone and the
+semantics are not, so they are ported to `server/tests/test_why.py`. The
+contract test moves to `server/tests/test_why_contract.py` and **keeps its
+literals** — a test reading expectations out of the code it guards passes
+through any change to that code — while dropping the duplication, whose
+rationale was two sibling implementations that no longer exist (#3996's
+boundary applied to its own original instance).
+
+**One test deliberately NOT written:** "a below-desk `verified` FINDING does
+not gate" is unbuildable — `verified` requires desk band and is *rejected,
+not downgraded* (§6.1), and a STAMP requires a human band. The rank check in
+`summarise` is defence in depth, so the test pins the invariant it leans on
+(the write path refuses first) instead of a branch nothing can reach.
+
+**Closes JOB #3765, ISSUE #2876 and its chain tip #3700** (chain closure
+carries both, #1035/#1042); #2877 is superseded by #3700 and needs no edge.
+
+**Cost:** one server module, four client files thinned or deleted. Suite
+deltas on the SELECTED count (collected minus deselected — not `passed`,
+which differs by the 2 skipped and is the basis error this ledger has now
+recorded twice), same instrument before/after:
+
+    server   1035 -> 1078   +43   the ported semantics, the contract test,
+                                  the reduction's own suite
+    cli       337 ->  309   -28   logic tests moved server-side, e2e kept
+    mcp       262 ->  256    -6   -8 contract duplication (acceptance 6),
+                                  +2 byte-identity
+
+**The two negative rows are named test-by-test rather than reported as a
+number** — a shrunken battery that is named is not the #2485 defect, and
+one that is not named is indistinguishable from it.

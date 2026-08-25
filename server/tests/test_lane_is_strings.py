@@ -63,6 +63,10 @@ PARAMS: dict[str, dict] = {
     "docket": {"ns": "/korax-dev"},
     "browse": {"ns": "/korax-dev"},
     "mail": {},
+    # JOB #3765 — added at the commit that serves the view, because
+    # R171's sweep reddened on it. That is the guard working: a lane
+    # without a twin is a red now, not a documentation debt later.
+    "why": {"id": "1"},
 }
 
 

@@ -73,6 +73,7 @@ from .reductions import (
     OF_RECORD_IS,
     TAINT_IS,
 )
+from .why import why as why_reduction
 from .retention import PIERCE, project as rotate_project, split as rotate_split
 from .search import (
     DEFAULT_DEPTH,
@@ -91,6 +92,9 @@ ROTATING_VIEWS = frozenset({"state", "jobs", "fresh", "of-record", "docket", "br
 VIEWS = [
     "state", "thread", "provenance", "descendants", "taint", "fresh",
     "jobs", "of-record", "onboard", "required", "docket", "browse", "mail",
+    # JOB #3765 — `why` moves from a client-side composition to a named
+    # reduction so one answer serves every client (#3752, #2141).
+    "why",
 ]
 
 # JOB #3774 — a reduction that returns a BARE LIST has no key to hang its
@@ -1354,7 +1358,7 @@ def create_app(board: Board) -> FastAPI:
             Scope.union(docket_namespaces(ns))
             if name == "docket" and ns
             else Scope.whole_board()
-            if name == "browse"
+            if name in ("browse", "why")
             else Scope.of_query(ns, ns_set)
         )
         counts = withheld_counts(
@@ -1379,6 +1383,13 @@ def create_app(board: Board) -> FastAPI:
                 output = taint(log, offset, _req(id, "id"))
             elif name == "thread":
                 output = thread(log, offset, _req(id, "id"))
+            elif name == "why":
+                # Whole-board scope: the routes read inbound edges and
+                # payloads anywhere, so an ns-derived counter would report
+                # zero-withheld on an answer a hidden envelope shaped.
+                output = why_reduction(
+                    log, offset, _req(id, "id"), [sealed_envs, private_envs], dump
+                )
             elif name == "fresh":
                 output = fresh(log, tl, offset, _req(ns_set, "ns_set").split(","), horizon)
             elif name == "onboard":
