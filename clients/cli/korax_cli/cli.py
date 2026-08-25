@@ -35,7 +35,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from . import PROTO, conventions, why
+from . import PROTO, conventions
 from .backoff import escalating_delay, notice_delay
 from .client import (
     DEFAULT_ATTEMPTS,
@@ -1918,64 +1918,21 @@ async def cmd_why(
     reader who asks "what points at #800" is told nothing does, truly,
     while the delivery had been verified four hours earlier.
 
-    Every route in `why.ROUTE_NAMES` runs and reports on every call,
+    Every route in the reduction's declared table runs and reports on
+    every call,
     including the ones that found nothing and the ones that could not
     run — those are different facts and they carry different `status`
     values. An empty route that cannot say why it is empty is the defect
     this verb was cut to remove (#2183 family A).
     """
-    envelope = await client.envelope(args.id)
-    _check_shape(Envelope, envelope, f"/envelope/{args.id}")
-
-    counter_bodies: list[dict[str, Any]] = []
-
-    root = await client.neighbourhood(args.id, depth=1)
-    _check_shape(NeighbourhoodResult, root, "/neighbourhood")
-    counter_bodies.append({**root, "_why_source": f"/neighbourhood/{args.id}"})
-    hop1 = why.hop_one(root)
-
-    # One walk per target. Bounded deliberately: a delivery closing five
-    # JOBs is five calls, and a subject with a hundred outbound edges is
-    # not a shape this board produces. If that changes, the cap reports
-    # itself rather than silently shortening the answer.
-    targets = sorted(set(why.outbound_targets(hop1)))
-    truncated_targets = targets[args.max_targets :]
-    target_hops: dict[int, list[dict[str, Any]]] = {}
-    for target in targets[: args.max_targets]:
-        body = await client.neighbourhood(target, depth=1)
-        _check_shape(NeighbourhoodResult, body, "/neighbourhood")
-        counter_bodies.append({**body, "_why_source": f"/neighbourhood/{target}"})
-        target_hops[target] = why.hop_one(body)
-
-    pointer = envelope.get("pointer") or {}
-    sha = pointer.get("sha256") if isinstance(pointer, Mapping) else None
-    search_body: dict[str, Any] | None = None
-    if sha:
-        try:
-            search_body = await client.search(q=sha, limit=args.limit)
-            _check_shape(SearchResult, search_body, "/search")
-            counter_bodies.append({**search_body, "_why_source": "/search"})
-        except ApiError as exc:
-            # A failed search must not read as "nothing quotes this sha".
-            # The route reports `bounded` when its body is None, which is
-            # exactly what a None here produces.
-            rt.warn(
-                f"sha-in-prose route did not complete ({exc.code}): the route is "
-                f"reported `bounded`, not empty — absence in it proves nothing"
-            )
-            search_body = None
-
-    body = why.build(
-        subject=envelope,
-        hop1=hop1,
-        target_hops=target_hops,
-        search_body=search_body,
-        sha=sha,
-        counter_bodies=counter_bodies,
-    )
-    if truncated_targets:
-        body["bounds"]["targets_not_walked"] = truncated_targets
-        body["bounds"]["any_withheld_or_bounded"] = True
+    # JOB #3765 — ONE call. This command composed the answer itself
+    # until R2: an /envelope, a /neighbourhood for the subject, one more
+    # per target, and a /search. `why` is a named reduction now, so both
+    # clients render one answer instead of each computing their own —
+    # #2141's drift, closed by construction rather than by keeping two
+    # implementations in step.
+    body = await client.view("why", {"id": args.id, "at": args.at})
+    _check_shape(ViewResult, body, "/view/why")
     rt.emit(body)
     return 0
 
@@ -2998,16 +2955,14 @@ def build_parser() -> argparse.ArgumentParser:
         "over a slice that withheld envelopes says so.",
     )
     why_cmd.add_argument("id", type=int, help="the envelope to explain")
+    # JOB #3765 — `--max-targets` and `--limit` are GONE, not defaulted.
+    # They bounded an HTTP composition this client no longer performs;
+    # the reduction walks every target and the whole payload slice in one
+    # pass. A flag that promised to cap either would describe nothing.
     why_cmd.add_argument(
-        "--max-targets", type=int, default=12,
-        help="walk at most this many of the subject's targets (default 12); "
-             "any beyond it are named in `bounds.targets_not_walked` rather "
-             "than dropped silently",
-    )
-    why_cmd.add_argument(
-        "--limit", type=int, default=50,
-        help="cap on the sha-in-prose search (default 50); truncation marks "
-             "that route `bounded`",
+        "--at", type=int, default=None,
+        help="compute at this log offset instead of the head, making the "
+             "answer reproducible",
     )
     why_cmd.set_defaults(func=cmd_why)
 

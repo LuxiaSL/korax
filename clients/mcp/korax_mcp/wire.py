@@ -60,6 +60,7 @@ KNOWN_GRADES = ("unverified", "verified", "n/a")
 KNOWN_VIEWS = (
     "state", "thread", "provenance", "descendants", "taint", "fresh",
     "jobs", "of-record", "onboard", "required", "docket", "browse",
+    "why",
     "mail",
 )
 
@@ -281,12 +282,18 @@ class ViewResult(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="allow")
 
+    # FIELD ORDER IS THE WIRE'S, NOT THIS FILE'S CONVENIENCE (JOB #3765).
+    # `model_dump` follows declaration order, so a model ordered to taste
+    # makes every view this client renders come out in a different key
+    # order than the board sent — invisible until two clients are diffed,
+    # which is exactly what acceptance 5 does. The CLI passes the parsed
+    # body through untouched and therefore matched the wire already; this
+    # was the divergent side. Keep these in the order `api.py` emits them.
     view: str
     at: int
-    output: Any = None
     evaluated_against: str | None = None
+    output: Any = None
     sealed_excluded: ExclusionCount
-    rotated_excluded: ExclusionCount
     participation_excluded: ExclusionCount
 
     # §9.3 / §8.2 (#802, ruled #1099) — REQUIRED, NO DEFAULT, and the
@@ -298,6 +305,10 @@ class ViewResult(BaseModel):
     # server stopped shipping it. Absent is a shape error (#662): the server
     # is expected to say what its numbers name, every time.
     withheld_scope: str
+
+    # Last, because that is where `api.py` emits it — see the field-order
+    # note above. Its position is not a judgement about its importance.
+    rotated_excluded: ExclusionCount
 
 
 class _CountedResult(BaseModel):

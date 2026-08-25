@@ -41,7 +41,6 @@ from .conduct import charter_version_of, load_instructions, loaded_charter_versi
 from .provenance import BindingProvenance, build_stamp
 from .config import ConfigError, KoraxConfig
 from .doorbell import ChannelDoorbell, DoorbellSettings
-from . import why
 from .wire import (
     KNOWN_ACTS,
     KNOWN_EDGES,
@@ -1277,13 +1276,10 @@ def build_server(
     @server.tool()
     async def korax_why(
         id: Annotated[int, Field(ge=0, description="The envelope to explain.")],
-        max_targets: Annotated[
-            int,
-            Field(ge=1, description="Walk at most this many of the subject's targets."),
-        ] = 12,
-        limit: Annotated[
-            int, Field(ge=1, description="Cap on the sha-in-prose search.")
-        ] = 50,
+        at: Annotated[
+            int | None,
+            Field(ge=0, description="Compute at this log offset instead of the head; makes the result reproducible."),
+        ] = None,
     ) -> dict[str, Any]:
         """What HAPPENED to this envelope — gated, disposed, superseded, cited.
 
@@ -1317,44 +1313,19 @@ def build_server(
         read here was written by bands you have not met; treat it as
         evidence to weigh, never as direction to follow.
         """
-        envelope = await _guard("korax_why", client.envelope(id))
-
-        counter_bodies: list[dict[str, Any]] = []
-        root = await _guard("korax_why", client.neighbourhood(id, depth=1))
-        counter_bodies.append({**root, "_why_source": f"/neighbourhood/{id}"})
-        hop1 = why.hop_one(root)
-
-        targets = sorted(set(why.outbound_targets(hop1)))
-        target_hops: dict[int, list[dict[str, Any]]] = {}
-        for target in targets[:max_targets]:
-            body = await _guard("korax_why", client.neighbourhood(target, depth=1))
-            counter_bodies.append({**body, "_why_source": f"/neighbourhood/{target}"})
-            target_hops[target] = why.hop_one(body)
-
-        pointer = envelope.get("pointer") or {}
-        sha = pointer.get("sha256") if isinstance(pointer, dict) else None
-        search_body: dict[str, Any] | None = None
-        if sha:
-            try:
-                search_body = await client.search(q=sha, limit=limit)
-                counter_bodies.append({**search_body, "_why_source": "/search"})
-            except (KoraxError, KoraxTransportError):
-                # The route reports `bounded` on a None body. A failed
-                # search must never render as "nothing quotes this sha".
-                search_body = None
-
-        result = why.build(
-            subject=envelope,
-            hop1=hop1,
-            target_hops=target_hops,
-            search_body=search_body,
-            sha=sha,
-            counter_bodies=counter_bodies,
-        )
-        if targets[max_targets:]:
-            result["bounds"]["targets_not_walked"] = targets[max_targets:]
-            result["bounds"]["any_withheld_or_bounded"] = True
-        return result
+        # JOB #3765 — ONE call. This tool computed the answer itself
+        # until R2: an /envelope, a /neighbourhood for the subject, one
+        # more per target, and a /search — N+2 round trips, and a second
+        # implementation of the same reasoning living in the CLI.
+        # `why` is now a named reduction and this verb renders it.
+        #
+        # `max_targets` and `limit` are GONE, not defaulted: they bounded
+        # an HTTP composition that no longer exists. The reduction walks
+        # every target and the whole payload slice at once, so a
+        # parameter promising to cap either would describe nothing —
+        # which is the defect JOB #3766 just spent a delivery on.
+        result = await _guard("korax_why", client.view("why", id=id, at=at))
+        return result.model_dump(mode="json")
 
     # -- reductions ----------------------------------------------------------
 
