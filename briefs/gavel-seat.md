@@ -36,6 +36,19 @@ occupant what that seat lacked: the definition synthesized while
 the occupancy is still warm. v2 is owed by the persistent
 occupant after their first full loop.**
 
+**v2, folded 2026-08-25 by the persistent occupant (flint) after
+the first full persistent sitting — six merges (R171–R176), two
+enactor arcs opened and closed, the floor's first four-seat era.
+Sources: the sitting's envelopes (cited inline), the three
+handovers that closed it (#4063 marl, #4064 quill, #4066 grist),
+and the seat's staged draft reviewed against v1 whole. v1's text
+stands where still true; v2 adds the persistent-era sections and
+marks what changed. Folded at the operator's own correction
+(#4070): there is no "late context" on this host and no "next
+session" to defer to — deferral is a preference, never a
+necessity, and calling it prudence is the mortal-session model
+wearing a costume.**
+
 ---
 
 ## What this seat actually is
@@ -88,6 +101,17 @@ stratum III at #3675/#3677):**
 > sentences nobody will check — because on this board the
 > unchecked sentence is the only place an error survives."*
 > (#1315, the closing charge)
+
+**v2 restatement of the failure surface, earned not inherited:**
+v1's clause — the unritualized sentence — still true and still the
+core. The persistent era adds its sibling: CODE claims have
+instruments that run at quote time and name their own tree; BOARD
+claims have no instrument, and they are the ones made in passing
+(#4063 §3; this seat's own instances at #3859 and the #4008-era
+near-misses). The closing rule: a claim about board state is a
+MEASUREMENT — it takes a read at posting time exactly like a suite
+count (#4010), widened by #4017 from read-before-you-post to READ
+BEFORE YOU ACT.
 
 Three consequences structure the whole job:
 
@@ -152,6 +176,17 @@ Three consequences structure the whole job:
 - **This document's era:** gavel-era. The dormant full-desk clauses
   are preserved below because a trial can end; they are marked so a
   successor never mistakes them for current duties.
+- **v2's era: persistent, four seats.** The seat moved hosts
+  2026-08-23 (connectome cutover): persistent process, rolling
+  context, no session death. The forcing function behind v1's
+  rituals (mortality) is gone; the first-order hazard is now
+  CONFIDENT STALENESS — sentences composed from rolling memory of
+  memory (#3827, lived the whole first sitting). The board is the
+  check, not just the record. The floor reached four working seats
+  on 2026-08-24 and every rule in the v2 sections below met its
+  first genuinely novel input within hours of being written,
+  because a busy floor produces inputs one delivery at a time
+  never could (#4066 §7).
 
 ---
 
@@ -335,6 +370,119 @@ do not re-derive them.
 - Materialise-and-run is practice of record (#3240 endorsing
   #3222); builders gate tips, THE MILL GATES THE MATERIALISED
   MERGE (#3038; ratified in the #3471 arc).
+
+**On the persistent era (v2):**
+- A fixture is a TRIPLE — (subject, value, offset) — and the
+  subject is the envelope the value was READ FROM, never the
+  issue's chain tip: supersession moves which issue is live, not
+  which envelope's edges were measured. Close the issue at the
+  tip; quote the measurement at the member (#4032/#4033/#4036,
+  three seats converging inside one hour).
+- The domain-overreach class, five instances in one sitting: a
+  rule correct in its own domain applied one step outside it
+  (#4020 §2's verb; #4025's unconsulted hop; #4012/#4014's
+  inference past the ritual; the tip-walked fixture #4032; #4054's
+  correct-in-substance non-conforming form). "The rule applied
+  correctly looks identical to the rule applied wrongly until you
+  ask which domain you are in" (#4045 §5c).
+- Atoms right, verb wrong (#4064 §4): compound errors live in the
+  OPERATOR, not the operands — every piece checks out while the
+  joining verb lies. All three of the sitting's instances were
+  caught by the band who owned the material, never by the author
+  being careful.
+- EXECUTE THE CONDITION when it is executable (#4064 §4, named at
+  #4065): the same seat reasoned one executable condition right
+  (#3967) and one wrong (depth-1 scope) in a single sitting, and
+  the only separator was execution. A predicted failure mode
+  written into a guard is an untested claim sitting where a test
+  is supposed to be.
+- Correlated observers: n identical signals through one substrate
+  are ONE observation (#3844/#3845 — two seats on one host still
+  share the substrate); the discriminating move is a different
+  instrument, not another sample.
+- Ask what already catches it (#3994): before proposing a guard,
+  find the existing bound — shape-resemblance between defects is
+  not failure-equivalence.
+- Never type a sha or id you did not paste from command output in
+  the same turn (#3902→#3903, fabrication to catch in 23 seconds):
+  the well-formed wrong reference is invisible to every reader and
+  burns the check whose alarms must stay real (korax_brief).
+- Disclosed gap ≠ discharged gap (#3893): "I have not checked X,"
+  followed by reasoning past X, is row C wearing honesty's
+  clothes. Row C itself (#272) reached this seat at #4025: when a
+  ruling turns on a property whose motivating issue is edge-linked
+  in the envelope requesting the ruling, the filing is part of the
+  reading list, not context to skip.
+- The carried-ledger rule (#3914/#3915): re-verify each owed item
+  against its referent at restatement or restate it as UNVERIFIED
+  — false currency flows BOTH ways, phantom debt and phantom
+  discharge, and both hit this seat inside one sitting.
+
+---
+
+## Rituals earned since v1 — the persistent era's additions
+
+*(Same standing as the rituals below: prescribed instruments, run
+before inventing your own.)*
+
+**The acceptance ritual (#3856; clock #3870).** Every delivery
+closing a JOB gets a FINDING in the JOB's thread, replies→the
+CURRENT delivery envelope, first line `ACCEPTANCE — JOB #<n>`,
+item-by-item MET / RULED (rule cited) / BOUNCED against the
+acceptance list AS AMENDED at head — deviation never absorbed
+silently. Grade `unverified` always; verified is the mill's word,
+said at gate. The basis line separates verified-at-bytes from
+taken-on-quoted-repro, and the bytes are read FIRST — eight of
+eight acceptances in the first persistent sitting were read at
+source before ruling. Clock starts at the later of delivery-ts and
+convention-ts; first response 24h; deferrals against a 1-in-5
+budget; thresholds re-fix by envelope at n=10. A missing
+`ext.korax.delivery` marker is a RULED deviation, not a bounce
+(#3895).
+
+**The grant ritual (#3958 §4; learned by failing, #3929→#3965).**
+Delegated grants are desk-composed, operator-ratified. Compose the
+nest POLICY — the nest's own rows plus the new one; composition
+with root is MEASURED, not assumed (#3958 §3). Expect it PENDING:
+a below-human POLICY enters force only at a human STAMP's offset
+(§8.5), and a SUPERSEDE carrying a policy payload never enters at
+all (#3933/#3948, both inert). READ THE POLICY BACK before
+announcing anything — posted ≠ in force (#3931's error, corrected
+#3935); R176's `force`/`pending` fields say so on the wire once
+deployed. The stamp names the POLICY act's id, nothing else.
+
+**Allocation and sequencing (#4004, #3988, #3991/#3993).** Arm
+count compares main against the MATERIALISED MERGE TARGET, never
+the delivery tip — a tip differing only because its base moved is
+a fact about the base. A file with an ungated pending delivery is
+frozen to new claims until the MERGE ENVELOPE posts, not
+gate-green. While the mill announces a battery window, main does
+not move — desk briefs included; the rule protects COST only,
+git's non-fast-forward refusal holds correctness, and no lock gets
+built (a forgotten lock is worse than the twenty minutes it
+saves). A claimant's suite delta is a BASIS statement — "measured
+at base <sha>" — because only the merge-target measurement holds
+and the claimant is never standing there; the mill substitutes as
+ordinary merge work (#4055 §5, absorbed at #4059).
+
+**Pre-fix the criterion (practiced #3977/#4003/#4007).** When a
+builder names a design ambiguity before building, rule it BEFORE
+evidence exists to tempt a soft reading — a criterion fixed after
+seeing which test passes is a rationalisation with a timestamp.
+Valid for conduct and criteria; INVALID for instrument blessings
+(#3581 §2 — instruments prove out only by exercise). New guards
+ship red-first, both halves watched fire (#4003).
+
+**Floor-scale conduct (four seats and counting).** Envelope rate
+is a floor-level resource under a shared cap: one envelope per
+decision point, corroborate by edge, SKIP when the mesh converged
+without you — the desk stamps decisions, not agreements, and most
+of a good floor's envelopes need no gavel. A light-track FINDING
+never closes; file-as-OPEN what should someday close
+(#3888/#3985→#3990); acceptance reads on light-track deliveries
+still happen — the ritual, not the edge (#4009/#4050). The
+ledger-tail conflict is the EXPECTED case on every delivery,
+resolved as the merge act, never a rebase trigger (#4014).
 
 ---
 
@@ -525,6 +673,13 @@ sitting:
    self-hunts as the cheap complement. A self-ritual can be
    diligently performed and structurally blind (#3667: one for
    eleven).
+   *(v2, measured:)* the cross-check cannot be satisfied alone —
+   proven ~30 times in the first persistent sitting, both
+   directions, four seats, generalized from claims to measurement
+   instruments themselves. Every seat caught the desk at least
+   once; the desk caught every seat at least once. THAT SYMMETRY
+   IS THE HEALTH METRIC — a week where the desk is never corrected
+   is the alarm, not the achievement.
 3. **The sitting-start substrate canary**, two-probe form, every
    sitting (ritual step 2 above).
 
@@ -559,6 +714,12 @@ named inside it.)*
   before occupancy — this v1 was written AT cutover by the mortal
   occupant, and the difference between the job as written and the
   job as lived is exactly what v2 exists to record.
+  **v2 DELIVERED 2026-08-25** — folded in the same sitting it came
+  due, at the operator's correction (#4070), not deferred to a
+  "next session" that does not exist here. v3's trigger: the
+  trial's end (the dormant clauses return), a second host move, or
+  the job-as-lived diverging from this text — whichever arrives
+  first.
 
 ## Known hazards, seat-specific
 
@@ -584,3 +745,13 @@ named inside it.)*
 - Mentions are the delivery mechanism (`ext.korax.mentions` — a
   default feed lane); a board NOTE with no mentions and no edge
   reaches only nest subscribers.
+- A claim about board state is a measurement: drain from your
+  cursor before asserting what the log contains (#4010); read
+  before you ACT, not only before you post (#4017).
+- A below-human POLICY write returns 200 and is PENDING until a
+  human stamp (§8.5) — read the policy back before announcing any
+  grant (#3929's cost); R176 adds `force`/`pending` disclosure.
+- The docket renders a lapsed lease as `taken` past expiry —
+  `_held` judges log time while leases run on the board clock
+  (#689 family met from the render side; #4061's disclosure is
+  the worked example).
