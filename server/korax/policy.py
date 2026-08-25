@@ -8,7 +8,7 @@ which namespace when — is first-class state here.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -207,6 +207,99 @@ class PolicyTimeline:
         stamps = log.inbound(env.id, EdgeType.STAMPS)
         human_stamps = [s for s in stamps if s.band == Band.HUMAN]
         return min((s.id for s in human_stamps), default=None)
+
+    #: The one place the two disclosure surfaces agree on wording. A write
+    #: path and a read path describing the same condition in two phrasings
+    #: is how a reader concludes they are two conditions.
+    _AWAITS = "a human STAMP naming this envelope (§8.5)"
+    _INERT_WHY = (
+        "only a POLICY act enters the timeline — the act type is checked "
+        "before band or stamp, so no STAMP can ever make this take effect. "
+        "Re-post the payload as a POLICY act (§8.5)."
+    )
+
+    @staticmethod
+    def _is_policy_shaped(env: Envelope) -> bool:
+        """Payload that looks like nest configuration, whatever act carries it.
+
+        Keys rather than a model validation on purpose: a payload that is
+        ALMOST a policy is exactly the case worth disclosing, and
+        `NestPolicy.model_validate` would reject it and leave the poster
+        with the same silence this exists to end.
+        """
+        return isinstance(env.payload, dict) and (
+            "grants" in env.payload or "acts" in env.payload
+        )
+
+    def force_state(self, log: Log, env: Envelope) -> dict[str, Any] | None:
+        """Whether this envelope's policy payload is in force, and if not, why.
+
+        `None` for anything carrying no policy-shaped payload — the field is
+        absent rather than false, so a reader never has to distinguish "not
+        a policy write" from "a policy write that failed" (#287: a schema
+        default standing in for a missing signal fabricates the signal).
+        """
+        if not self._is_policy_shaped(env):
+            return None
+        if env.type != Act.POLICY:
+            return {"in_force": False, "state": "inert", "why": self._INERT_WHY}
+        if env.band == Band.HUMAN:
+            return {"in_force": True, "state": "in-force", "effective_at": env.id}
+        return {"in_force": False, "state": "pending", "awaits": self._AWAITS}
+
+    def pending_for(self, log: Log, ns: str, offset: int) -> list[dict[str, Any]]:
+        """Policy writes that are STORED and not in force for `ns` at `offset`.
+
+        **THE SILENCE THIS EXISTS TO END (#4043).** `__init__` skips a
+        never-stamped POLICY with `continue  # never stamped; never in
+        force`, and `apply` returns without entering one. So a pending
+        successor is not merely unreported by `policy_at` — it is absent
+        from `self.entries`, the structure that query reads. A band asking
+        "why is my row not here" was asking a surface that had the answer
+        and no field to say it in; three bands spent an evening on that
+        (#3929-#3968), and every diagnosis error in the arc flowed from it.
+
+        TWO KINDS, SEPARATED BECAUSE THEY NEED DIFFERENT ACTIONS:
+
+        `pending` — a below-human POLICY awaiting a human STAMP. It enters
+        the moment one lands (§8.5). The remedy is to ask for the stamp.
+
+        `inert` — an act carrying a policy payload that can NEVER enter,
+        because the timeline gates on `type == Act.POLICY` before band or
+        stamp is consulted. A SUPERSEDE carrying a policy payload is the
+        case that cost real time: #3933 and #3948 are both inert, and
+        #3948 was the desk's DEFENSIVE fix silently doing nothing. No
+        stamp will ever help it; it must be re-posted as a POLICY act.
+        Listing it beside `pending` is the difference between "wait" and
+        "you are waiting for something that cannot come".
+
+        Bounded by `offset` at both ends: an act posted after it is not
+        pending, it has not happened.
+        """
+        pending: list[dict[str, Any]] = []
+        entered = {e.policy_id for e in self.entries if e.effective_at <= offset}
+        for env in log.envelopes:
+            if env.id > offset or not self._is_policy_shaped(env):
+                continue
+            if not governs(env.ns, ns):
+                continue
+            if env.type == Act.POLICY:
+                if env.band == Band.HUMAN or env.id in entered:
+                    continue
+                pending.append({
+                    "id": env.id, "ns": env.ns, "author": env.author,
+                    "band": env.band.value if hasattr(env.band, "value") else env.band,
+                    "state": "pending",
+                    "awaits": self._AWAITS,
+                })
+            elif env.type in (Act.SUPERSEDE, Act.FINDING, Act.OPEN):
+                pending.append({
+                    "id": env.id, "ns": env.ns, "author": env.author,
+                    "type": env.type.value if hasattr(env.type, "value") else env.type,
+                    "state": "inert",
+                    "why": self._INERT_WHY,
+                })
+        return pending
 
     def policy_at(self, ns: str, offset: int) -> tuple[int, NestPolicy]:
         """The policy in force for `ns` at `offset`: most specific governing
