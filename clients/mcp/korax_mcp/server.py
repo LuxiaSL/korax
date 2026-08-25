@@ -39,6 +39,13 @@ from .channel import connection_notifier, declare_channel_capability
 from .client import KoraxClient
 from .conduct import charter_version_of, load_instructions, loaded_charter_version
 from .provenance import BindingProvenance, build_stamp
+from .read_basis import (
+    SUPPRESSED_KEY,
+    ledger_path as _read_basis_path,
+    load as _load_read_ledger,
+    record_drain as _record_drain,
+    record_subject as _record_subject,
+)
 from .config import ConfigError, KoraxConfig
 from .doorbell import ChannelDoorbell, DoorbellSettings
 from .wire import (
@@ -164,6 +171,109 @@ async def _guard(what: str, awaitable: Any) -> Any:
 #: a post's result stop naming its own author to satisfy a rule about
 #: submissions.
 _CALLER_OWN_FIELDS = frozenset({"payload", "ext"})
+
+#: JOB #3610 — the default for `korax_post`'s `read_basis`, and the ONLY
+#: way this wrapper can tell ABSENT from an explicit `null`. Both arrive
+#: as `None` through a plain `int | None = None`, which would collapse
+#: "fill it in for me" and "I am deliberately sending none" into one
+#: value — the exact distinction the brief's property 4 turns on. A
+#: negative sentinel is safe because the validator refuses any negative
+#: basis outright, so -1 can never be mistaken for a real offset.
+_READ_BASIS_AUTO = -1
+
+
+def _warn_to_stderr(message: str) -> None:
+    """Bookkeeping trouble goes to stderr, never into the tool result.
+
+    An MCP tool result is the agent's reading; a note about this
+    wrapper's own cursor file is not an answer to what it asked. Stderr
+    is where this process's operator can find it.
+    """
+    print(f"korax-mcp: {message}", file=sys.stderr, flush=True)
+
+
+def _compose_read_basis(
+    ext: dict[str, Any] | None,
+    refs: Any,
+    requested: int | None,
+    identity: str | None,
+    warn: Callable[[str], None],
+) -> dict[str, Any] | None:
+    """`ext.korax.read_basis` for one post — JOB #3610, MCP side.
+
+    Three inputs the caller can give, and they are three different
+    statements rather than one field with a default:
+
+    - **absent** (`_READ_BASIS_AUTO`) — "fill it in from what I have
+      read". The wrapper computes MIN over subjects and omits the field
+      when it cannot justify one. Never 0 (property 3).
+    - **an integer** — the caller's own basis, passed through. Someone who
+      typed a number said what they meant.
+    - **an explicit null** — "I am deliberately sending none". Recorded as
+      `ext.korax.read_basis_suppressed: true`, ruled at #4109, because
+      `read_basis: null` is refused 400 by the deployed validator: its
+      escape is presence-based, so a null arrives as PRESENT and fails the
+      int check (measured six ways at #4104).
+    """
+    composed = dict(ext or {})
+    korax_ext = composed.get("korax")
+    korax_ext = dict(korax_ext) if isinstance(korax_ext, dict) else {}
+
+    suppressed = korax_ext.get(SUPPRESSED_KEY)
+    if suppressed is not None and suppressed is not True:
+        # #4109 constraint A — absent or literally `true`. `false` would
+        # mint a fourth state ("decided not to decide") and re-create the
+        # ambiguity the key exists to kill.
+        raise ValueError(
+            f"ext.korax.{SUPPRESSED_KEY} is absent or `true`, never "
+            f"{json.dumps(suppressed)}: the key records that an author "
+            "DECIDED to send no basis (JOB #3610, ruled #4109)"
+        )
+
+    explicit_in_ext = "read_basis" in korax_ext
+    asked_to_suppress = requested is None or suppressed is True
+
+    if asked_to_suppress and (explicit_in_ext or isinstance(requested, int)):
+        # #4109 constraint B — the CLIENT is the sole enforcement point:
+        # the validator reads only `read_basis` and would take the pair
+        # silently, rendering a decision that had no effect.
+        raise ValueError(
+            "a post cannot carry both ext.korax.read_basis and "
+            f"ext.korax.{SUPPRESSED_KEY}: the board checks only the first "
+            "(JOB #3610, ruled #4109)"
+        )
+
+    if not refs:
+        # No subject, so a basis would describe nothing and there is
+        # nothing to suppress.
+        return ext
+
+    if asked_to_suppress:
+        korax_ext[SUPPRESSED_KEY] = True
+        composed["korax"] = korax_ext
+        return composed
+
+    if explicit_in_ext:
+        return ext
+
+    if requested != _READ_BASIS_AUTO:
+        korax_ext["read_basis"] = requested
+        composed["korax"] = korax_ext
+        return composed
+
+    subjects = [
+        ref.id for ref in refs if isinstance(getattr(ref, "id", None), int)
+    ]
+    basis = _load_read_ledger(_read_basis_path(os.environ, identity), warn).basis_for(
+        subjects
+    )
+    if basis is None:
+        return ext
+    korax_ext["read_basis"] = basis
+    composed["korax"] = korax_ext
+    return composed
+
+
 
 
 def _trim(document: Any) -> Any:
@@ -565,6 +675,27 @@ def build_server(
                 )
             ),
         ] = None,
+        read_basis: Annotated[
+            int | None,
+            Field(
+                description=(
+                    "The log offset at which you last read what had LANDED "
+                    "ON every subject in `refs`. Leave it out and this "
+                    "wrapper fills it in from what this band has actually "
+                    "read; the board then REFUSES the post if a "
+                    "`supersedes`/`closes`/`stamps`/`pins` arrived on a "
+                    "subject after that offset (#2208, #2205 — it refuses "
+                    "rather than warns, because a wrong `closes` is not "
+                    "reversible by superseding the envelope that made it). "
+                    "Pass an integer to state one yourself. Pass an "
+                    "explicit null to send NONE deliberately — an archival "
+                    "correction, or a supersede of something you are "
+                    "knowingly not re-reading; that decision is recorded "
+                    "visibly as `ext.korax.read_basis_suppressed`, which is "
+                    "not the same as the field simply being absent."
+                ),
+            ),
+        ] = _READ_BASIS_AUTO,
         ext: Annotated[
             dict[str, Any] | None,
             Field(
@@ -668,6 +799,12 @@ def build_server(
             merged = dict(ext or {})
             merged.setdefault("lease_until", lease_until)
             ext = merged
+
+        # JOB #3610 — last, so an `ext` the caller composed by hand is
+        # already in place and is left alone.
+        ext = _compose_read_basis(
+            ext, refs, read_basis, client.config.identity, _warn_to_stderr
+        )
 
         return _trim(await _guard(
             "korax_post",
@@ -788,6 +925,16 @@ def build_server(
                 limit=limit, summary=summary or None,
             ),
         )
+        # JOB #3610 — an UNFILTERED drain is a floor under every subject.
+        # A narrowed one is not: it saw a subset, so it cannot speak for a
+        # subject that was never in its pages.
+        if not any((ns, type, author, grade, evidence, to, to_author, to_worked)):
+            _record_drain(
+                _read_basis_path(os.environ, client.config.identity),
+                since,
+                page.cursor,
+                _warn_to_stderr,
+            )
         return page.model_dump(mode="json")
 
     @server.tool()
@@ -1325,6 +1472,17 @@ def build_server(
         # parameter promising to cap either would describe nothing —
         # which is the defect JOB #3766 just spent a delivery on.
         result = await _guard("korax_why", client.view("why", id=id, at=at))
+        # JOB #3610 — the one read that enumerates a subject's INBOUND
+        # edges AND names the offset it did so at. `korax_neighbourhood`
+        # is deliberately not wired: it reports no `at` and truncates on a
+        # node budget, so it can neither name its offset nor promise the
+        # component was complete.
+        _record_subject(
+            _read_basis_path(os.environ, client.config.identity),
+            id,
+            result.at,
+            _warn_to_stderr,
+        )
         return result.model_dump(mode="json")
 
     # -- reductions ----------------------------------------------------------

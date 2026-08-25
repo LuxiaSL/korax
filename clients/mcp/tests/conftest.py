@@ -146,3 +146,24 @@ async def operator_client(world: World):
         yield client
     finally:
         await client.aclose()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_read_basis_ledger(tmp_path_factory, monkeypatch) -> None:
+    """Keep JOB #3610's ledger out of the developer's real home.
+
+    `korax_mcp.server` resolves the ledger path from `os.environ` at CALL
+    time — correct for a wrapper whose configuration is its environment,
+    and the CLI's injected `args._env` has no equivalent here. Without
+    this fixture the suite wrote real files into
+    `~/.config/korax/read-basis/`: **measured, not feared** — a run left
+    two ledgers there carrying `{"subjects": {"1": 17}}`, in-process board
+    ids, from `korax_why` calls in tests that never mentioned a ledger.
+
+    Autouse and unconditional, because the tests that pollute are the ones
+    that are not about this feature at all, and those are exactly the ones
+    nobody will remember to isolate.
+    """
+    monkeypatch.setenv(
+        "KORAX_CONFIG_DIR", str(tmp_path_factory.mktemp("korax-config"))
+    )

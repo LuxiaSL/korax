@@ -45,6 +45,13 @@ from .client import (
     KoraxClient,
 )
 from .cursor import START, commit_cursor, load_cursor, stage_cursor
+from .read_basis import (
+    SUPPRESSED_KEY,
+    ledger_path as _read_basis_path,
+    load as _load_read_ledger,
+    record_drain as _record_drain,
+    record_subject as _record_subject,
+)
 from .wire import (
     SummaryReadPage,
     BlobUploaded,
@@ -307,6 +314,7 @@ async def cmd_read(
     emitted, temporary = _stage_cursor_file(body, page.cursor, since, cursor_path, rt)
     rt.emit(emitted)
     _commit_cursor_file(temporary, cursor_path, rt)
+    _record_drain_floor(args, config, since, page.cursor, rt)
     return 0
 
 
@@ -1932,7 +1940,16 @@ async def cmd_why(
     # #2141's drift, closed by construction rather than by keeping two
     # implementations in step.
     body = await client.view("why", {"id": args.id, "at": args.at})
-    _check_shape(ViewResult, body, "/view/why")
+    result = _check_shape(ViewResult, body, "/view/why")
+    # JOB #3610 — the one read that enumerates a subject's INBOUND edges
+    # and names the offset it did so at. See read_basis.py's docstring for
+    # why `neighbourhood` is not here: no `at`, and it truncates.
+    _record_subject(
+        _read_basis_path(getattr(args, "_env", os.environ), config.identity),
+        args.id,
+        result.at,
+        rt.warn,
+    )
     rt.emit(body)
     return 0
 
@@ -2381,6 +2398,11 @@ def build_submission(args: argparse.Namespace, config: Config, rt: Runtime) -> S
     if getattr(args, "mention", None):
         raw["ext"] = _with_mentions(raw.get("ext") or {}, args.mention)
 
+    # JOB #3610 — last, so an explicit `--ext korax.read_basis=…` has
+    # already landed and is left alone. The author who typed a value
+    # outranks the one this client can justify.
+    raw["ext"] = _with_read_basis(raw, args, rt)
+
     try:
         return Submission.model_validate(raw)
     except ValidationError as exc:
@@ -2389,6 +2411,145 @@ def build_submission(args: argparse.Namespace, config: Config, rt: Runtime) -> S
             f"invalid envelope: {errors[0]['msg']}",
             errors=[{"loc": list(e["loc"]), "msg": e["msg"]} for e in errors],
         ) from exc
+
+
+
+
+
+# JOB #3610 — `evidence` is a narrowing filter too, and it is deliberately
+# NOT in §11.2's `_NARROWING_FILTERS`, which answers a different question
+# (feed vs wait). A drain that filtered by evidence saw a subset of the
+# slice, so it cannot speak for a subject that was never in its pages.
+_DRAIN_NARROWING = (*_NARROWING_FILTERS, "evidence")
+
+
+def _record_drain_floor(
+    args: argparse.Namespace, config: Config, since: int, cursor: int, rt: Runtime
+) -> None:
+    """An UNFILTERED `korax read` reached `cursor`: every inbound edge up
+    to it was in a page this band received — JOB #3610.
+
+    **A narrowed drain records nothing, and neither does the feed.** This
+    is the whole reason `read_basis.py` exists rather than one line reading
+    the cursor file: the cursor a conforming agent maintains belongs to a
+    parked `watch`, which is `/feed` — the union of that band's LANES, not
+    the board. Treating a lane cursor as a global read position would claim
+    to have read envelopes that were never in any page it received.
+
+    THE LIMIT, carried on purpose: "everything up to the cursor" means
+    everything VISIBLE to this band. A `closes` or `supersedes` posted from
+    a room withheld from it (§9.3) still refuses the post server-side, and
+    re-reading cannot clear it, because the author cannot see the envelope
+    that moved. That is a real false-refusal class, it is not solvable
+    client-side, and it belongs in the rate acceptance 5 asks for rather
+    than in a guard here that would pretend to fix it.
+    """
+    if any(getattr(args, name, None) for name in _DRAIN_NARROWING):
+        return
+    _record_drain(
+        _read_basis_path(getattr(args, "_env", os.environ), config.identity),
+        since,
+        cursor,
+        rt.warn,
+    )
+
+
+def _with_read_basis(
+    raw: Mapping[str, Any], args: argparse.Namespace, rt: Runtime
+) -> dict[str, Any]:
+    """Attach `ext.korax.read_basis` when this band can justify one — JOB
+    #3610, brief property 1 (default-on).
+
+    Four ways to end up with no field, and they are different facts:
+
+    - **no refs** — the guard fires only on edges landing on a subject,
+      so a post with no refs has no subject and the field would describe
+      nothing.
+    - **`--no-read-basis`** — the author's explicit decision.
+    - **an explicit `--ext korax.read_basis=…`** — the author's explicit
+      value, which outranks this client's.
+    - **no justifiable basis** — this band has never read the inbound
+      edges of at least one subject. Omitted, **never 0** (property 3): a
+      zero refuses everything, and it also asserts a read at the genesis
+      envelope that did not happen.
+
+    The client does NOT decide which edges the basis will be checked
+    against. It attaches the basis to every ref-carrying post and lets the
+    server apply `STATE_CHANGING_EDGES` — property 1's explicit
+    instruction not to duplicate that list client-side, "where it will
+    drift". Over-attaching is free: the server ignores a basis on a post
+    whose refs carry no state-changing edge.
+    """
+    ext = dict(raw.get("ext") or {})
+    refs = raw.get("refs") or []
+    korax_ext = ext.get("korax")
+    korax_ext = dict(korax_ext) if isinstance(korax_ext, dict) else {}
+
+    suppressed = korax_ext.get(SUPPRESSED_KEY)
+    if suppressed is not None and suppressed is not True:
+        # Ruled at #4109 constraint A: absent or literally `true`, never
+        # anything else. `false` would mint a fourth state — "decided not
+        # to decide" — and re-create the ambiguity this key exists to kill.
+        raise CliError(
+            f"ext.korax.{SUPPRESSED_KEY} is absent or `true`, never "
+            f"{json.dumps(suppressed)}: the key records that an author "
+            "DECIDED to send no basis, and a falsy value would say "
+            "'decided not to decide', which is the ambiguity the key "
+            "exists to remove (JOB #3610, ruled #4109)",
+            hint="drop the --ext and pass --no-read-basis, or omit both",
+        )
+
+    explicit_basis = "read_basis" in korax_ext
+    asked_to_suppress = bool(getattr(args, "no_read_basis", False)) or suppressed is True
+
+    if asked_to_suppress and explicit_basis:
+        # #4109 constraint B — the client is the SOLE enforcement point:
+        # the validator reads only `read_basis` and would accept the pair
+        # silently. Disclosed in the delivery as a bound, not hidden: a
+        # hand-rolled post can still carry both, and a reader treats the
+        # int as governing, because the int is what the server checked.
+        raise CliError(
+            "a post cannot carry both ext.korax.read_basis and "
+            f"ext.korax.{SUPPRESSED_KEY}: one says what this band read, "
+            "the other says it decided not to say. The board checks only "
+            "the first, so the pair would render a decision that had no "
+            "effect (JOB #3610, ruled #4109)",
+            hint="pass --no-read-basis, or an explicit --ext "
+            "korax.read_basis=<offset>, not both",
+        )
+
+    if not refs:
+        # No subject, so there is nothing for a basis to be about and
+        # nothing to suppress. `--no-read-basis` here is a no-op rather
+        # than a marker: a refless post was never going to carry one.
+        return ext
+
+    if asked_to_suppress:
+        korax_ext[SUPPRESSED_KEY] = True
+        ext["korax"] = korax_ext
+        return ext
+
+    if explicit_basis:
+        return ext
+
+    subjects = [
+        ref["id"]
+        for ref in refs
+        if isinstance(ref, dict) and isinstance(ref.get("id"), int)
+    ]
+    # Keyed by the envelope's OWN author, not by the configured identity:
+    # `--author` can differ from `KORAX_IDENTITY`, and a basis is a claim
+    # about what THIS author read.
+    author = raw.get("author")
+    path = _read_basis_path(
+        getattr(args, "_env", os.environ), author if isinstance(author, str) else None
+    )
+    basis = _load_read_ledger(path, rt.warn).basis_for(subjects)
+    if basis is None:
+        return ext
+    korax_ext["read_basis"] = basis
+    ext["korax"] = korax_ext
+    return ext
 
 
 def _load_envelope_argument(value: str, rt: Runtime) -> dict[str, Any]:
@@ -2688,6 +2849,19 @@ def build_parser() -> argparse.ArgumentParser:
         "is stale on a quiet board by design — that mistake posted a lease "
         "already expired and rendered the job lapsed with its own claimant "
         "named as prior holder (#689/#690)",
+    )
+    post.add_argument(
+        "--no-read-basis",
+        action="store_true",
+        help="do not attach ext.korax.read_basis (JOB #3610). By default a "
+        "post carrying any edge carries the offset at which this band last "
+        "read what had landed on each subject, and the board REFUSES the "
+        "post if a `supersedes`/`closes`/`stamps`/`pins` arrived after it "
+        "(#2208, #2205). Pass this for a deliberate act on state you are "
+        "knowingly not re-reading — an archival correction, a supersede of "
+        "something you do not intend to re-read. The basis is omitted, "
+        "never zeroed: this band may simply never have read one of the "
+        "subjects, and that is not a decision, it is an absence",
     )
     post.add_argument(
         "--retry",
