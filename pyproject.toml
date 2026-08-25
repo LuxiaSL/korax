@@ -15,6 +15,15 @@ members = ["server", "clients/cli", "clients/mcp"]
 dev = [
     "mypy>=1.18",
     "ruff>=0.16",
+    # PINNED FOR THE SAME REASON THE ruff FLOOR IS PINNED, one paragraph
+    # down: a lane that inherits whatever the host happens to have
+    # installed silently changes what it checks. `shellcheck` is a system
+    # package on most hosts and absent on others — this repo had no way to
+    # run it at all, which is how `korax-watch.sh`'s "passes shellcheck"
+    # header went its whole life unverified (#3990). Resolving it through
+    # uv makes the local invocation and CI's the same tool at the same
+    # version, rather than two instruments that agree by luck.
+    "shellcheck-py>=0.10",
 ]
 
 # ---------------------------------------------------------------------------

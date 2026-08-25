@@ -76,6 +76,32 @@ jobs:
       - run: uv sync
       - run: uv run tools/type_lane.py
 
+  # ISSUE #3990 — the shell scripts start being checked, and a header that
+  # claims `passes shellcheck` starts having something behind it.
+  #
+  # A LANE, not a step in `conformance`, for the reason the `types` lane
+  # states: a checker finding and a failing test are different facts, and
+  # a reader should be able to tell which went red without opening the
+  # log. `needs:` is absent for the same reason it is absent there.
+  #
+  # NOT folded into `deploy-script` either, though that job already runs
+  # `bash -n` on one file — `bash -n` answers "does it parse", which is a
+  # different question, over a deliberately narrower scope.
+  #
+  # THE INVOCATION IS THE LOCAL ONE, character for character (#2379's
+  # property, which is why this is a wrapper and not a bare `shellcheck`
+  # step): the tool is resolved through `uv` from the pinned
+  # `shellcheck-py`, NOT from the runner image, so this lane checks the
+  # same version a band checks locally instead of whatever the image
+  # happens to ship.
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run tools/shell_lane.py
+
   # JOB #163 part 3. NOT a rewrite of the job above: that job already did
   # what the brief asked for (three suites, separately, push and PR) as of
   # R37, and #794 warned specifically that a rewrite would silently eat
