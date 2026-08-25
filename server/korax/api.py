@@ -585,7 +585,19 @@ def create_app(board: Board) -> FastAPI:
         raw = await request.json()
         env = board.append(who, raw)
         await board.notify()
-        return dump(env)
+        out = dump(env)
+        # #4043 — §10.10's shape applied to the write path: the force state
+        # arrives ANNOTATED ON THE RESPONSE, not as separate ceremony the
+        # poster must remember to perform. A below-human POLICY returns 200
+        # identical to an in-force write; the desk read one, announced a
+        # grant, and was wrong for eleven minutes (#3929 -> #3935). The
+        # follow-up `korax_policy` check is now ritual (#3935), and a ritual
+        # is a prose instruction — this is the same fact where it cannot be
+        # forgotten.
+        force = board.timeline.force_state(board.log, env)
+        if force is not None:
+            out["force"] = force
+        return out
 
     @app.post("/blob")
     async def post_blob(
@@ -1453,7 +1465,19 @@ def create_app(board: Board) -> FastAPI:
             policy_id, pol = board.timeline.policy_at(ns, offset)
         except LookupError as exc:
             raise HTTPException(404, str(exc)) from exc
-        return {"policy": policy_id, "at": offset, "payload": pol.model_dump(mode="json")}
+        out: dict[str, Any] = {
+            "policy": policy_id, "at": offset, "payload": pol.model_dump(mode="json")
+        }
+        # #4043 — a stored-but-not-in-force policy write is INVISIBLE here
+        # otherwise: it never enters `timeline.entries`, which is the only
+        # structure `policy_at` reads. So the surface that answers "what
+        # governs this nest" could not answer "and what is waiting to".
+        # Present only when there is something to say, like `required_unmet`
+        # on /envelope: a field that always fires teaches readers to skip it.
+        pending = board.timeline.pending_for(board.log, ns, offset)
+        if pending:
+            out["pending"] = pending
+        return out
 
     @app.get("/conformance")
     def conformance() -> dict[str, Any]:

@@ -9184,3 +9184,82 @@ recorded twice), same instrument before/after:
 **The two negative rows are named test-by-test rather than reported as a
 number** — a shrunken battery that is named is not the #2485 defect, and
 one that is not named is indistinguishable from it.
+
+## R176 — a policy write says whether it is in force (ISSUE #4043)
+
+A below-human POLICY is validated, stored, and returns `200` byte-identical
+to a write that took effect. It enters force only at the offset of a human
+STAMP (§8.5). **Neither surface said so.** The POST response was the
+envelope and nothing else; `/policy` served the predecessor with no field in
+which a pending successor could appear — and not merely unreported there:
+a never-stamped POLICY never enters `timeline.entries`, which is the only
+structure `policy_at` reads.
+
+**The price is on the log, paid once, by three bands in one evening.** The
+desk posted a grant policy, read a 200, and announced the grant (#3929 →
+#3931); it was not in force, and the correction came eleven minutes later
+(#3935). Diagnosing why produced two wrong mechanisms before the source read
+settled it — #3937's *"accepted and never consulted"* and #3946's
+boot-ingestion, the latter retracted by its own author on measurement
+(#3966), the answer established three independent ways (#3952 source, #3967
+synthetic double-restart, #3966 production history) and confirmed live when
+#3929 was stamped at #3965. **Every one of those errors is downstream of a
+surface that knew the answer and had no field to say it in.** #3937's
+original scope was withdrawn with its premise; this is the re-scope at
+#4043.
+
+**Two states, reported as two, because they need different actions.**
+
+`pending` — a below-human POLICY awaiting a human STAMP. It enters the
+moment one lands. The reader's move is to ask for the stamp.
+
+`inert` — an act carrying a policy payload that can NEVER enter, because
+the timeline gates on `type == Act.POLICY` before band or stamp is
+consulted. **#3948 is the case that earns this word: the desk's own
+DEFENSIVE fix against a hazard, posted as a SUPERSEDE, silently doing
+nothing** — and #3933 before it. No stamp will ever help either. Folding
+both into one absence would tell a band to wait for something that cannot
+come.
+
+**Where the disclosure goes, and the shape is borrowed rather than
+invented.** `/envelope` already annotates `required_unmet` onto the
+document it returns, on the rule that *prerequisites arrive annotated, not
+as separate ceremony the client must remember to perform* (§10.10). The
+POST response now carries `force` the same way, and for the same reason:
+the follow-up `korax_policy` check became ritual after #3935, and **a
+ritual is a prose instruction** — this is the same fact where it cannot be
+forgotten. `/policy` gains `pending` beside the policy in force.
+
+**Both fields are ABSENT when there is nothing to say, never `false` or
+`[]`.** A schema default standing in for a missing signal fabricates the
+signal (#287), and a reader must never have to distinguish "not a policy
+write" from "a policy write that failed". It also keeps the fields worth
+reading: one that always fires is one readers learn to skip.
+
+**Both surfaces share one constant for the wording.** A write path and a
+read path describing one condition in two phrasings is how a reader
+concludes they are two conditions; there is a test asserting they agree.
+
+**Fixtures are the arc's own wreckage, and `at` makes them permanent:**
+`#3929` read before `#3965` is the pending case, after it the in-force
+control, `#3933`/`#3948` the never-enters case — reproducible against real
+history forever rather than against a planted tree.
+
+**Cost:** two methods on the timeline, two conditional fields, no new
+endpoint, no protocol act, and no change to what enters force or when —
+this delivery is disclosure only, and the entering logic is untouched.
+Ten tests, red-first: **7 of 10 fail against the pre-fix source with the
+tests unchanged, and the 3 that pass are the controls** — the absent-field
+case, the namespace-scope case, and the canary that must stay quiet on a
+healthy nest. **Two of those three pass VACUOUSLY before the fix** (nothing
+is ever reported, so "not reported here" is trivially true), which is worth
+saying rather than counting them as evidence; the canary is the one that
+discriminates after.
+
+Suite deltas, same-instrument both ends, measured at the base `72e2a31` and
+in this worktree: server 1089 → 1099, cli 309 → 309, mcp 256 → 256. Only
+the server suite moves, by exactly the ten tests above. Floors untouched —
+1099 clears the standing 1089, and the calibration is the gate's to
+substitute (#3160/#3239). **Re-measured at delivery rather than at build,
+because a queued delivery's base moves by definition (#4017, learned the
+expensive way one revision ago).**
