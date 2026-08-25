@@ -143,9 +143,9 @@
 #
 #   leg          floor  base      delivery  revision  measured-by         date
 #
-suite-server    1032  87c1d86c  d28f2a58  R171  band:266ce67b5737  2026-08-24
-suite-cli        337  87c1d86c  d28f2a58  R171  band:266ce67b5737  2026-08-24
-suite-mcp        256  87c1d86c  d28f2a58  R171  band:266ce67b5737  2026-08-24
-ci-server       1032  87c1d86c  d28f2a58  R171  band:266ce67b5737  2026-08-24
-ci-cli           337  87c1d86c  d28f2a58  R171  band:266ce67b5737  2026-08-24
-ci-mcp           256  87c1d86c  d28f2a58  R171  band:266ce67b5737  2026-08-24
+suite-server    1044  b5c8ee43  002f1f46  R172  band:266ce67b5737  2026-08-25
+suite-cli        337  b5c8ee43  002f1f46  R172  band:266ce67b5737  2026-08-25
+suite-mcp        256  b5c8ee43  002f1f46  R172  band:266ce67b5737  2026-08-25
+ci-server       1044  b5c8ee43  002f1f46  R172  band:266ce67b5737  2026-08-25
+ci-cli           337  b5c8ee43  002f1f46  R172  band:266ce67b5737  2026-08-25
+ci-mcp           256  b5c8ee43  002f1f46  R172  band:266ce67b5737  2026-08-25

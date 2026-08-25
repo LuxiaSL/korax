@@ -1097,6 +1097,37 @@ run_ledger_checks() {
   LEDGER_LINES+=("tree          conflict markers        ${markers:-0}   (files containing them)")
 }
 
+# ── the verdict line ────────────────────────────────────────
+# THE LAST LINE IS THE ONE PEOPLE ACTUALLY READ, so what leads it is a
+# correctness property and not a formatting choice. The mill read
+# `fail=` off a battery that had skipped a leg and took the gate for
+# clean (#3880 §1) — the most motivated possible reader, defeated by a
+# true clause that trailed the token they grepped.
+#
+# Its own function so the acceptance can exercise the real decision
+# against planted counts instead of running a battery to reach one
+# line, and so the rule lives in one place rather than being restated
+# in a test that could agree with a bug in it (#2668).
+verdict_line() {
+  local ran="$1" failed="$2" skipped="$3" missing="$4"
+  local unrun=$((skipped + missing))
+  if [ "$failed" -eq 0 ] && [ "$unrun" -eq 0 ]; then
+    echo "  GATE fail=0 — $ran of $LEG_COUNT legs, none skipped, none missing"
+  elif [ "$MERGE_TARGET" -eq 1 ] && [ "$unrun" -gt 0 ]; then
+    # INCOMPLETENESS LEADS. Never the `fail=0 — but ...` shape, where
+    # the true clause trails the token people grep.
+    if [ "$failed" -gt 0 ]; then
+      echo "  GATE INCOMPLETE — $unrun of $LEG_COUNT legs did NOT run (named above); $failed of $ran ran legs also red"
+    else
+      echo "  GATE INCOMPLETE — $unrun of $LEG_COUNT legs did NOT run (named above)"
+    fi
+  elif [ "$failed" -eq 0 ] && [ "$missing" -eq 0 ]; then
+    echo "  GATE fail=0 — but $skipped of $LEG_COUNT legs did NOT run (named above)"
+  else
+    echo "  GATE FAILED — $failed of $ran ran legs red, $missing not reached"
+  fi
+}
+
 # ── the report ────────────────────────────────────────────────────────
 report() {
   local ran=0 failed=0 skipped=0 unowed=0 missing=0 name
@@ -1229,13 +1260,7 @@ report() {
   echo "            which is why it is decided and cannot flake)"
   echo
 
-  if [ $failed -eq 0 ] && [ $skipped -eq 0 ] && [ $missing -eq 0 ]; then
-    echo "  GATE fail=0 — $ran of $LEG_COUNT legs, none skipped, none missing"
-  elif [ $failed -eq 0 ] && [ $missing -eq 0 ]; then
-    echo "  GATE fail=0 — but $skipped of $LEG_COUNT legs did NOT run (named above)"
-  else
-    echo "  GATE FAILED — $failed of $ran ran legs red, $missing not reached"
-  fi
+  verdict_line "$ran" "$failed" "$skipped" "$missing"
   echo
 }
 
@@ -1309,6 +1334,32 @@ cleanup() {
   return 0
 }
 
+# ── the exit status ───────────────────────────────────────────────────
+# THE STATUS CHANNEL AND THE PROSE CHANNEL MUST NOT DISAGREE ABOUT
+# SEVERITY. A leg that never ran is not a leg that passed, and under
+# merge-target it is not a gate that may exit 0 (#3880, ruled #3883).
+# Extracted from the entry function so the acceptance can call this
+# decision directly against a planted leg table, rather than running a
+# twelve-leg battery per fixture or restating the rule in Python — a
+# test that reimplements the logic can agree with a bug in it (#2668).
+battery_status() {
+  local name
+  for name in "${LEG_NAMES[@]}"; do
+    case "${LEG_STATUS[$name]:-MISSING}" in
+      FAIL|MISSING) return 1 ;;
+      SKIP)
+        # Under merge-target the battery must be COMPLETE. A builder's
+        # --branch run keeps its legitimate skips green: the two
+        # merge-target ledger guards skip there BY DESIGN, and
+        # reddening them would break self-checking before delivery,
+        # which is the need --branch exists to serve.
+        [ "$MERGE_TARGET" -eq 1 ] && return 1
+        ;;
+    esac
+  done
+  return 0
+}
+
 # Sourcing guard, so the acceptance suite can `source` this file and
 # call the ledger-disposition primitives directly against a planted
 # fixture repo — the leg's OWN LOGIC under real execution, at a cost
@@ -1326,14 +1377,7 @@ main() {
   run_battery
   run_ledger_checks
   report
-
-  local name
-  for name in "${LEG_NAMES[@]}"; do
-    case "${LEG_STATUS[$name]:-MISSING}" in
-      FAIL|MISSING) return 1 ;;
-    esac
-  done
-  return 0
+  battery_status
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
