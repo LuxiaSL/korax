@@ -8890,3 +8890,96 @@ minus deselected), measured in this worktree and at `b5c8ee4`: server
 exactly the twelve tests above. The floors file is untouched — 1044 clears
 the standing 1032 floor, and the calibration is the gate's data to
 substitute at the merge, never the claimant's (#3160/#3239).
+
+## R-NEXT — the shell scripts start being checked, and a header that claimed `passes shellcheck` starts having something behind it (ISSUE #3990)
+
+`tools/korax-watch.sh:56` says of itself *"Passes `shellcheck` with no
+disables."* Nothing checked it. **CI ran shellcheck on no file at all**, so
+from the day that sentence was written until this revision its truth was
+nobody's job — a documented invariant with nothing asserting it is not an
+invariant (#111).
+
+**It was TRUE, measured at `1bb797d`.** That is the outcome that makes the
+point rather than softens it: an unverified true claim is indistinguishable
+from an unverified false one until someone runs the check, and the whole
+shell surface here is four files that nobody had ever run shellcheck over
+at once. The issue was found sideways — while disclosing a pre-existing
+SC2034 in an unrelated delivery (#3983 §4), attributed to the wrong file
+(#3985→#3990), and corrected at bytes by the desk (#3986).
+
+**Three items from #3990, delivered together because measuring the scope
+showed it was one deletion plus one guard.** Two findings across four files
+was the entire blast radius; three separate gate cycles against a seat that
+merges one at a time would have cost more than the work.
+
+- **(a)** `local proto=` deleted from `gate.sh`. Dead since #2634 replaced
+  the narrow single-file read with the docs-wide scan directly below it —
+  the file records its own obituary at `:1075-1084`. Sequenced behind
+  R172's gate per the freeze rule (#3988 §1), which is the rule this band
+  proposed and then waited on.
+- **(b)+(c)** `tools/shell_lane.py`, a wrapper, plus a `shell` lane in CI.
+
+**WHY A WRAPPER AND NOT A BARE CI STEP** — #2378's asymmetry, one lane
+over. `shellcheck`'s output names no tree, no sha and no time, so
+"shellcheck clean" in a delivery binds to no bytes. The stamp is
+`tree_guard.header()`, byte-identical to the suites' and the type lane's,
+so one grep finds all three in a gate transcript. And the invocation is
+character-for-character the local one (#2379).
+
+**THE CHECKER IS PINNED, NOT TAKEN FROM THE HOST.** `shellcheck` is a
+system package — present on CI images, absent on at least one band's host,
+which is precisely why this repo could not run the check its own header
+claimed to pass. `shellcheck-py` now sits in `[dependency-groups]` beside
+the `ruff` and `mypy` floors, for the argument already written above them:
+a lane that inherits whatever the host ships silently changes what it
+checks. Local and CI now resolve the same tool at the same version rather
+than agreeing by luck.
+
+**TWO CLAIMS, CHECKED SEPARATELY, BECAUSE THE FILES PROMISE DIFFERENT
+THINGS.** Every tracked `*.sh` must be clean at `--severity=warning`; and
+`korax-watch.sh` additionally carries no disable directives, which is the
+stronger claim only that file makes. `gate.sh:386` carries a deliberate,
+commented `# shellcheck disable=SC2086` and that is CORRECT — that file
+promises nothing, and a guard demanding no-disables everywhere would red a
+legitimate suppression (#3986 §3). **The strong claim is asserted at the
+file that makes it and nowhere else**; a guard that checks a promise nobody
+made is how a rule starts being routed around.
+
+**The disable check reads the bytes rather than asking shellcheck**, because
+shellcheck HONOURS a disable — it is the one finding the tool can never
+report, by construction, and delegating it would come back clean forever.
+
+**The severity floor is a decision, not a default.** `--severity=warning`
+excludes `info`/`style`; the one info-level finding here is
+`deploy.sh:132`'s SC2029, a deliberate client-side ssh expansion. A lane
+whose first act is demanding a rewrite of a working line gets disabled
+rather than fixed. The floor is a named constant, so moving it shows up in
+a diff.
+
+**And the lane refuses to report clean over an empty file list** (#2485's
+denominator rule, in a lane instead of a suite): an empty scope means the
+query answered about the wrong tree, and "checked nothing" must never
+render as "found nothing wrong."
+
+**FLAG DAY (#2337), and it is small — measured, not asserted.** From this
+merge a new shell file, or a new undeclared disable in `korax-watch.sh`,
+reds the `shell` lane. Residual against the tree at delivery: **zero** —
+all four files pass at the floor after (a)'s deletion. Nothing in flight
+can be reddened by it except by adding shell that does not yet exist,
+which is the guard working on day one rather than a surprise.
+
+**Cost:** one deletion, one wrapper, one CI lane, one pinned dev
+dependency. Eleven tests, both failure paths canaried — a real SC2034
+planted in `deploy_predicate.sh` and a disable planted in
+`korax-watch.sh`, each watched red, each watched go quiet on restore
+(#112/#921). The suite file declares `needs-git-history` per #2831: it runs
+the real lane at `cwd=REPO`. It should survive depth 1 — `git ls-files`
+reads the index, which `checkout@v4` populates fully — but that is a
+prediction and the shallow leg is what measures it, which is the point of
+declaring rather than guessing.
+
+Suite deltas, same-instrument before/after on the SELECTED count, measured
+in this worktree and at `1bb797d`: server 1044 → 1055, cli 337 → 337, mcp
+256 → 256. Only the server suite moves, by exactly the eleven tests above.
+Floors untouched — 1055 clears the standing 1044, and the calibration is
+the gate's to substitute (#3160/#3239).

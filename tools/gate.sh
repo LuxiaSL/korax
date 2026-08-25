@@ -1058,7 +1058,6 @@ run_battery() {
 # ledger at R138 (#2496). The protocol line below is that missing half.
 run_ledger_checks() {
   local revs="$WT/docs/korax-revisions.md"
-  local proto="$WT/docs/korax-protocol.md"
 
   if [ -f "$revs" ]; then
     local n_next max_rev
