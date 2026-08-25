@@ -196,6 +196,9 @@ declare -A LEG_OWED=()     # name -> owed | unowed  (only when it RAN)
 LEG_PGIDS=()
 LEDGER_LINES=()
 SHALLOW_SHAPE=""
+#: The origin sha the merge-target predicate checked against, recorded so
+#: the report can PROVE the check ran instead of asserting the mode.
+MERGE_TARGET_MAIN_SHA=""
 
 TARGET_SHA=""
 BASE_REF=""
@@ -264,6 +267,122 @@ setup_worktree() {
 
   head="$(cd "$WT" && git rev-parse HEAD 2>/dev/null)"
   [ "$head" = "$TARGET_SHA" ] || die "worktree HEAD is $head, expected $TARGET_SHA"
+}
+
+# ── precondition: the target COULD become main ────────────────────────
+# `KORAX_MERGE_TARGET=1` is a CLAIM ABOUT THE TREE — "this is CI's
+# condition on main" — and until this check the tool declared it against
+# whatever sha it was handed. A correct battery on a tree that can never
+# be main reports green with nothing flagged: the mill gated three
+# branch tips in one night that measured trees that will never exist on
+# main (#3471). Defect of record #3495, binding form #3497 §3, ruled
+# #3483.
+#
+# THREE OUTCOMES, NEVER TWO. A DIVERGED tree is the DEFECT; an
+# unreadable ref is the INSTRUMENT, and collapsing them is how a guard
+# gets disabled inside a week. So `cannot-resolve` DIES — it does not
+# warn and it does not skip — and it dies with its own message and its
+# OWN EXIT CODE rather than borrowing the defect's:
+#
+#     exit 2   your tree is wrong        (diverged)
+#     exit 3   I could not check         (cannot-resolve)
+#
+# The two codes are machine-readable on purpose. The mill reads exit
+# codes, and "the network was down" must never be reportable as "the
+# delivery diverged" — that substitution is the whole reason #3497 §2
+# refused warn-in-a-green-report.
+#
+# REMOTE TRUTH, NOT THE LOCAL REF, and that is the brief's one BINDING
+# property rather than a preference. A local `refs/remotes/origin/main`
+# is a CACHE: reading it with no network answers `verified-equal`
+# against a main that moved hours ago, which is a stale green — exactly
+# what the property forbids. So this asks origin, and a run that cannot
+# reach origin lands in `cannot-resolve`.
+#
+# NO-OP UNDER `--branch`: measured across five runs, four builder runs
+# by two seats all ran with `--branch` (#3497 §1), so this fires exactly
+# where the error occurred and never on a claimant's self-check.
+MERGE_TARGET_REF='refs/heads/main'
+#: MEASURED, NOT ASSUMED: `ls-remote` against a host whose packets are
+#: BLACKHOLED does not fail, it HANGS — the connect never gets an RST to
+#: refuse it. A precondition that hangs for minutes is its own defect,
+#: so the call is BOUNDED. DNS failure needs no bound: it returns in
+#: milliseconds, because there is nothing to wait for.
+MERGE_TARGET_LS_TIMEOUT=20
+
+# Remote truth, or nothing. Echoes a 40-hex sha and returns 0; on any
+# failure returns non-zero having echoed nothing — the caller turns that
+# into `cannot-resolve`, and there is no path where it returns success
+# with an unverified sha.
+resolve_origin_main() {
+  local repo="${1:-$REPO_ROOT}"
+  local bound=() out sha
+  command -v timeout >/dev/null 2>&1 && bound=(timeout "$MERGE_TARGET_LS_TIMEOUT")
+  # BatchMode stops a credential prompt from turning a no-network run
+  # into a hang waiting on a human who is not there.
+  out="$(GIT_TERMINAL_PROMPT=0 \
+         GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes}" \
+         "${bound[@]}" git -C "$repo" ls-remote origin "$MERGE_TARGET_REF" 2>/dev/null)" \
+    || return 1
+  [ -n "$out" ] || return 1
+  sha="${out%%[!0-9a-f]*}"
+  [ ${#sha} -eq 40 ] || return 1
+  printf '%s\n' "$sha"
+}
+
+# ── outcome 2 of 3: the instrument could not answer ───────────────────
+_merge_target_unresolved() {
+  printf 'gate.sh: merge-target predicate CANNOT RESOLVE %s on origin (%s)\n' \
+         "$MERGE_TARGET_REF" "$1" >&2
+  printf 'gate.sh: nothing ran. This is the INSTRUMENT failing, not the tree passing —\n' >&2
+  printf '         a guard that skips when it cannot check is no guard (#3497 §2).\n' >&2
+  printf '         Restore the ref or the network, or pass --branch to self-check a branch.\n' >&2
+  exit 3
+}
+
+# ── outcome 3 of 3: the tree can never be main ────────────────────────
+_merge_target_diverged() {
+  printf 'gate.sh: merge-target predicate FAILED: %s is NOT an ancestor of %s\n' \
+         "$MERGE_TARGET_REF" "$TARGET_SHA" >&2
+  printf 'gate.sh: nothing ran. This tree can never become main as-is, so a green\n' >&2
+  printf '         battery here would certify a merge that will not happen (#3471).\n' >&2
+  printf '         Gate the MATERIALISED merge, or pass --branch to self-check this branch.\n' >&2
+  exit 2
+}
+
+# ── outcome 1 of 3 is the only `return 0` in this function ────────────
+assert_target_can_become_main() {
+  [ "$MERGE_TARGET" -eq 1 ] || return 0
+
+  # THE REPO IS AN EXPLICIT ARGUMENT, defaulting to the shipped one —
+  # `load_floors`' rule, for `load_floors`' reason. `REPO_ROOT` is
+  # readonly, so a primitive that reads it directly is one the
+  # acceptance suite cannot point at a fixture, and a primitive the
+  # suite cannot point at a fixture is one the suite has to reimplement
+  # — which is how a test comes to agree with a bug in the real thing
+  # (#2668, #2682). The entry function passes nothing and gets the
+  # default, so nothing about a real run changes.
+  local repo="${1:-$REPO_ROOT}"
+  local main_sha base
+  main_sha="$(resolve_origin_main "$repo")" \
+    || _merge_target_unresolved "origin did not answer with a sha"
+
+  # Resolved remotely but absent locally is STILL cannot-resolve, not a
+  # pass: merge-base cannot be computed against an object that is not
+  # here, and guessing from the local cache is the stale green again.
+  git -C "$repo" cat-file -e "${main_sha}^{commit}" 2>/dev/null \
+    || _merge_target_unresolved "origin says ${main_sha} but that commit is not in this repo — fetch first"
+
+  base="$(git -C "$repo" merge-base "$TARGET_SHA" "$main_sha" 2>/dev/null)" \
+    || _merge_target_unresolved "no merge-base between ${TARGET_SHA} and ${main_sha}"
+  [ -n "$base" ] \
+    || _merge_target_unresolved "merge-base returned nothing for ${TARGET_SHA} and ${main_sha}"
+
+  if [ "$base" = "$main_sha" ]; then
+    MERGE_TARGET_MAIN_SHA="$main_sha"
+    return 0
+  fi
+  _merge_target_diverged
 }
 
 # ── one leg ───────────────────────────────────────────────────────────
@@ -1148,6 +1267,7 @@ report() {
   [ -n "$BASE_REF" ] && echo "base:     $BASE_REF"
   if [ "$MERGE_TARGET" -eq 1 ]; then
     echo "env:      KORAX_MERGE_TARGET=1 — merge-target battery (CI's condition on main)"
+    echo "          predicate: origin $MERGE_TARGET_REF ${MERGE_TARGET_MAIN_SHA:-unrecorded} is an ancestor — CHECKED (#3495)"
   else
     echo "env:      KORAX_MERGE_TARGET unset (--branch) — the two merge-target"
     echo "          ledger guards SKIP; this is NOT the battery CI runs on main"
@@ -1373,6 +1493,7 @@ main() {
   # that leaked, and an EXIT-only trap does not cover a Ctrl-C that
   # kills the shell before it unwinds.
   trap cleanup EXIT INT TERM
+  assert_target_can_become_main
   run_battery
   run_ledger_checks
   report
