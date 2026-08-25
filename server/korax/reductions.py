@@ -193,8 +193,27 @@ def _lineage(log: Log, env_id: int, offset: int) -> list[int]:
 def _held(
     log: Log, referent: int, offset: int, eval_ts: datetime | None
 ) -> Hold | None:
-    """The live hold on a referent, or None — for `state` and `jobs`
-    alike (X2).
+    """The live hold on a referent, or None — `state`'s implementation.
+    ONE caller (JOB #3766).
+
+    **The reach claim this docstring used to make was false.** It read
+    "for `state` and `jobs` alike (X2)" from the day it landed, and
+    `jobs` has never called it: that branch computes its own closers and
+    reaches the same lease semantics through `resolve`/`live_holder` one
+    level down. The falsity was found and written up at the site that
+    disproves it (see `jobs`' "RAW fetch, deliberately" comment) and the
+    docstring was never brought into line — so the artifact a reader
+    meets first stayed wrong while its correction sat 1,700 lines away.
+    That gap is exactly what this JOB exists to close.
+
+    **X2 is still real; it is held by a TEST, not by a shared call.**
+    `test_fixture07.py::test_state_and_jobs_agree_at_every_offset`
+    asserts `state`'s `claims` referents equal `jobs`' `taken` job ids at
+    every offset in the fixture. That is where the invariant lives, and
+    naming it here is the point: a reader who believed the old sentence
+    would have gone looking for a shared call and concluded the guard was
+    gone. `test_reach_claims.py` pins this function's caller set so the
+    sentence above cannot drift again.
 
     Both reductions answered this question independently and disagreed:
     `jobs` learned about completion from the `closes` edge and never
@@ -486,7 +505,7 @@ def state(
     eval_ts = _eval_ts_or_none(log, offset)
     for env in envs:
         if env.type in (Act.OPEN, Act.JOB):
-            hold = _held(log, env.id, offset, eval_ts)  # X2 — shared with `jobs`
+            hold = _held(log, env.id, offset, eval_ts)  # X2 — see _held's docstring
             if hold:
                 claims.append(
                     {"referent": env.id, "holder": hold.author, "via": hold.current.id}

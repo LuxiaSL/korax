@@ -8821,3 +8821,94 @@ the 2 skipped and quoting the wrong one is the basis error this ledger
 has recorded before): server 1024 → 1032, cli 335 → 337, mcp 254 → 256.
 Six of the eight server tests are this job's own; the other two are the
 `mail` row reaching two parametrized sweeps that had never run it.
+
+## R-NEXT — a description is a claim, and the rendered one is what an agent reads (JOB #3766)
+
+R170 pinned the client's vocabulary CONSTANTS to the board's served sets. An
+agent never reads a constant. It reads the sentence those constants are
+joined into and shipped inside a tool's parameter description — a separate
+artifact, produced by a separate step (`server.py:56-60`'s joins, then an
+f-string per `Field`) — and nothing checked that step's output against
+anything.
+
+**The gap is not theoretical and its size is measured.** Re-breaking
+`KNOWN_ACTS` exactly as #3437 found it (SUBSCRIBE dropped) reddens the new
+test at **three** agent-facing sites — `korax_post.type`, `korax_read.type`,
+`korax_wait.type` — where R170's constant test names one. The historical
+defect touched three surfaces an agent reads and only this test says so.
+
+The vocabulary is parsed back OUT of the rendered description and compared
+to `korax_conformance`'s served sets: neither side is a copy held in the
+test (#2595). Equality, not subset, for the reason #3459 §1 measured —
+`advertised ⊆ served` is TRUE in exactly the broken state.
+
+**Mutation table (acceptance 2), one per vocabulary, each reddening exactly
+its own two cases and nothing else:**
+
+    control          11 passed
+    drop from ACTS    2 failed — drift[acts]   + descriptions[acts]
+    drop from EDGES   2 failed — drift[edges]  + descriptions[edges]
+    drop from VIEWS   2 failed — drift[views]  + descriptions[views]
+    drop from GRADES  2 failed — drift[grades] + descriptions[grades]
+    control after    11 passed
+
+**PROPERTY 4 — THE REACH-CLAIM ENUMERATION.** Grep terms, recorded as the
+acceptance requires: `alike`, `shared with`, `shared by`, `both reductions`,
+`both clients`, `every caller`, `all callers`, `used by (both|every)`,
+`callers of`, and the pattern `for \`x\` and \`y\``, run over
+`server/korax` and both `clients/*/korax_*` packages. **14 hits, 11 benign**
+(prose about shared streams, shared config, a shared counter contract — none
+naming a caller set over code). **Three were false and all three are the same
+claim:**
+
+| site | claim | disposition |
+|---|---|---|
+| `reductions.py` `_held` docstring | "for `state` and `jobs` alike (X2)" | **narrowed** — `state`'s implementation, one caller |
+| `reductions.py` `_held` call site | "X2 — shared with `jobs`" | **narrowed** — points at the docstring |
+| `test_supersession_audit_fix.py` §2 header | "site 2: `_held` (`jobs`'s `taken`)" | **narrowed** — it is `jobs`' own closer branch |
+
+**AND THE PART THAT MATTERS MOST: I DID NOT FIND THIS.** JOB #2207 did, in
+2026, and wrote it up *inside `jobs`* — "`_held`'s own docstring has always
+claimed 'for `state` and `jobs` alike,' but this branch never called it".
+The refutation has been in the tree the whole time, **1,700 lines away from
+the sentence it refutes**, and the sentence was never corrected. A reader
+meets the claim first and the correction only if they go looking in the
+function that disproves it. **That distance is the defect this JOB is
+actually about** — not a wrong sentence, but a wrong sentence whose known
+correction never travelled back to it.
+
+**X2 itself is intact and is held by a TEST, not by a shared call:**
+`test_fixture07.py::test_state_and_jobs_agree_at_every_offset` asserts
+`state`'s `claims` referents equal `jobs`' `taken` ids at all 13 fixture
+offsets. The narrowed docstring now names it — so a reader who would have
+gone hunting for a shared call is sent to the guard that exists.
+
+`test_reach_claims.py` makes the narrowed claim self-guarding: the caller
+set is derived by walking the AST (not grepped — a grep matches the
+definition, a string and a comment, which is how a reach check confirms
+itself), the retired sentence is pinned by text so it cannot be
+reintroduced, and the cited guard must resolve by name so the citation
+cannot rot into false reassurance.
+
+**Not fixed, deliberately, and it is not a defect:** `test_why_contract.py`
+duplicates `ROUTE_NAMES` as a literal. Its docstring argues the case — two
+sibling clients must independently meet one contract, and a test that
+imported its expectation from the code it guards would pass through any
+change to that code. **That is the opposite of #2595's rule and both are
+right in their own domain**: parse the subject when checking a client
+against the BOARD; hold a literal when pinning a contract two siblings must
+both satisfy. A reading of property 2 that collapses the two would turn a
+correct guard vacuous. `ROUTE_NAMES` also already has a runtime drift check
+(`why.py:537`), so property 1's clause for it is satisfied at head.
+
+**Closes JOB #3766 and ISSUE #3777** (`KNOWN_ACTS` advertises 15 against 16),
+named here per #1035's rule. **#3777's headline was already false at head** —
+R170 landed the one-line SUBSCRIBE fix and the equality guard — so what this
+delivery closes is the CLASS the OPEN was kept alive for, exactly as its own
+disposition said it would (#3777: *"the class is three instances deep and the
+JOB is the test that makes the next one red before it is read"*), plus the
+rendered-description surface nobody had checked at all.
+
+**Cost:** two test files, three narrowed descriptions, no behaviour change
+and no new computation. Suite deltas, selected count, same instrument:
+server 1032 → 1035, mcp 256 → 262, cli unchanged at 337.
