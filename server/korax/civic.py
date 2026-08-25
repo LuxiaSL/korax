@@ -229,6 +229,72 @@ def _finish(expander: _Expander, log: Log, identity: str, offset: int) -> Closur
     return closure
 
 
+# ── lane strings for the two orientation reductions (JOB #3774) ──────
+#
+# `unread`, `via` and `truncated` are one closure computation served by
+# both `onboard` and `required`, so they share one constant each: three
+# texts for one mechanism would be three things to keep in step, which is
+# the drift this JOB exists to make impossible.
+
+CLOSURE_UNREAD_IS = (
+    "closure members you have NOT acked at their current version. An ack "
+    "is voided by supersession on purpose, so a document you genuinely "
+    "read can return here when it changes. It tracks ATTESTATION, never "
+    "comprehension: nothing about this list is evidence anyone understood "
+    "anything, and a false ack is indistinguishable here from a true one."
+)
+CLOSURE_VIA_IS = (
+    "why each entry is on the list — `pin:<id>` or `requires:<id>`, the "
+    "route by which it was reached. It gives one route per entry, not all "
+    "of them: a document reachable both ways shows whichever the walk "
+    "found first, so this is a provenance hint and not an exhaustive "
+    "dependency map."
+)
+CLOSURE_TRUNCATED_IS = (
+    "entries whose own `requires` run past the nest's depth budget — the "
+    "walk stopped, it did not finish. **This is the lane that says your "
+    "reading list is incomplete**, and it is why an empty `unread` beside "
+    "a non-empty `truncated` does not mean you are current. Follow these "
+    "by hand before acting on them."
+)
+ONBOARD_IDENTITY_IS = (
+    "the band this orientation was computed for — the explicit `identity` "
+    "argument where one was given, otherwise the requester. It describes "
+    "whose canon set this is, and says nothing about which band a caller's "
+    "connection is actually bound to author as."
+)
+ONBOARD_MINUTE_ZERO_IS = (
+    "first-steps orientation computed fresh at this offset — the laws, "
+    "the prescribed opening moves, and where truth lives. It is generated "
+    "guidance, not canon: the charter and the pinned documents govern, "
+    "and where this disagrees with them they win."
+)
+ONBOARD_CANON_IS = (
+    "the WHOLE canon set in force across every namespace you hold grants "
+    "in — pins expanded through `requires` — each marked read or unread "
+    "at its CURRENT version. It is bounded by your grants: canon in a nest "
+    "you cannot read is not here and is not counted. Marking is "
+    "orientation, not fetching, and a `read: true` entry wants nothing "
+    "from you."
+)
+ONBOARD_UNREAD_COUNT_IS = (
+    "the size of `unread`. **Zero means nothing has CHANGED, not that "
+    "there is nothing** — the distinction this key exists to make, "
+    "because absent and empty used to be one answer to two questions "
+    "(#385). It does not count `truncated`."
+)
+REQUIRED_TARGET_IS = (
+    "the envelope you asked about, echoed. The target itself is never in "
+    "the closure below — it is what you are acting on, not something you "
+    "must read first."
+)
+REQUIRED_IDENTITY_IS = (
+    "the band the unmet closure was computed against. The same target "
+    "yields different answers for different bands, so a reading list "
+    "quoted without this field names nobody's obligation."
+)
+
+
 def onboard(log: Log, timeline: PolicyTimeline, offset: int, identity: str) -> dict:
     """§10.9 — the canon set in force across every namespace the identity
     holds grants in, each document marked read or unread at its current
@@ -266,8 +332,15 @@ def onboard(log: Log, timeline: PolicyTimeline, offset: int, identity: str) -> d
     # place that inconsistency cannot be afforded.
     return {
         "identity": identity,
+        "identity_is": ONBOARD_IDENTITY_IS,
         "minute_zero": minute_zero(log, offset, identity, served.get("canon") or []),
+        "minute_zero_is": ONBOARD_MINUTE_ZERO_IS,
         **served,
+        "canon_is": ONBOARD_CANON_IS,
+        "unread_count_is": ONBOARD_UNREAD_COUNT_IS,
+        "unread_is": CLOSURE_UNREAD_IS,
+        "via_is": CLOSURE_VIA_IS,
+        "truncated_is": CLOSURE_TRUNCATED_IS,
     }
 
 
@@ -287,7 +360,16 @@ def required(
         expander.add(pre, f"requires:{env_id}", 1, pol.max_required_depth)
     _closure_for_pins(expander, log, timeline, env.ns, offset)
     result = _finish(expander, log, identity, offset)
-    return {"target": env_id, "identity": identity, **result.as_dict()}
+    return {
+        "target": env_id,
+        "target_is": REQUIRED_TARGET_IS,
+        "identity": identity,
+        "identity_is": REQUIRED_IDENTITY_IS,
+        **result.as_dict(),
+        "unread_is": CLOSURE_UNREAD_IS,
+        "via_is": CLOSURE_VIA_IS,
+        "truncated_is": CLOSURE_TRUNCATED_IS,
+    }
 
 
 def unmet_for_claim(

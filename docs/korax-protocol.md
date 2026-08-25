@@ -1535,6 +1535,35 @@ removed it from the shelf. `state`'s claim list never asked about
 replaced job stayed open forever. The divergences were never the
 disease; the disease was that no sentence forced them to be chosen.
 
+**Every lane MUST say what it cannot show — the `<lane>_is` rule.**
+`[R-NEXT]` For each top-level section a reduction serves, its response
+carries a sibling `<name>_is` string stating what the section contains,
+by what key, and the named class of thing it structurally cannot show.
+Where a reduction's output is a bare list rather than an object, the
+string rides beside `output` in the response envelope as `output_is` —
+the same "beside the data" placement, one level out, because that is
+where the data is. The strings are constants written beside the code
+that computes each section; a client MUST pass them through untouched
+and MUST NOT summarise one.
+
+This is the declared-edges rule above, aimed at the reader instead of at
+the reviewer. Declaring which edges a reduction consults stops the
+divergences from being invisible to whoever *adds* the next reduction;
+it does nothing for the band reading an answer months later, who sees a
+number and has no way to learn what the number was blind to. `eval_ts_is`
+`[R114]` was the worked example and stayed the only one for fifty-seven
+revisions: a value that looked like a clock, saying beside itself that it
+was log time, after a real lease had been computed from it and rendered
+its own job lapsed. The failures this generalises from are the same shape
+every time — `escalated` reading `0` while the floor was blocked on a
+question nobody had filed as an OPEN; `ungated` structurally unable to
+hold light-track work because `closes` cannot target a FINDING. **In
+none of them was the count wrong.** The instrument was correct and silent
+about its own boundary, and silence is what a reader fills in with the
+most convenient reading. Coverage is enumerated rather than trusted: a
+section served without its twin is a test failure at the commit that adds
+it, not a documentation debt.
+
 ### 10.1 `state(ns, floor=policy.view_floor)`
 
 Live CLAIMs per §4.2; open OPENs (no `closes` edge); **all** live
