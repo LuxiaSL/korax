@@ -933,3 +933,22 @@ def test_the_completeness_decisions_are_actually_wired_in() -> None:
         "the summary no longer calls verdict_line — the final line is "
         "being composed somewhere this suite does not test"
     )
+
+
+def test_a_not_reached_leg_reds_the_gate_in_both_modes() -> None:
+    """THE MILL'S QUESTION AT #3982 §3, answered by measurement.
+
+    They asked whether the `missing > 0, failed = 0` branch had the same
+    prose/status seam one column over — the line was lead-wrong, so was
+    the exit code wrong too? It was not: `MISSING` has always redded the
+    gate in BOTH modes, and unlike a skip it should, because "not
+    reached" means the battery did not complete rather than that a leg
+    declined to run. Only the LINE was wrong there, and only under
+    merge-target.
+
+    Asserted rather than left to the reader because the seam this whole
+    delivery closes is two channels disagreeing, and "I checked and this
+    one agrees" is worth exactly as much as the check that proves it.
+    """
+    assert _status_rc({"ledger-disposition": "MISSING"}, merge_target=1) != 0
+    assert _status_rc({"ledger-disposition": "MISSING"}, merge_target=0) != 0

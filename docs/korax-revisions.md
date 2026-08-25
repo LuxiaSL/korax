@@ -8869,18 +8869,24 @@ before the branch existed, per the convention's own reason for putting it
 in the announce.
 
 **Cost:** one file of logic, two extracted functions, no new flag, no new
-dependency, and no change to what any leg measures. Eleven tests: the four
+dependency, and no change to what any leg measures. Twelve tests: the four
 acceptance items with their controls — `--branch` unchanged in both
 channels, a red leg still reds both modes, and a complete battery still
 exits 0 in both, which is the canary a guard that reddened everything would
 fail — plus one asserting the two decisions are actually WIRED IN, because
 the other ten call the functions directly and would all keep passing if the
 entry point stopped calling them. That guard was broken on purpose and
-watched fail before it was kept (#112/#921).
+watched fail before it was kept (#112/#921) — and one answering the gating
+seat's question at #3982 §3, which asked whether the `not reached` branch had
+the same prose/status seam in its exit code as in its line. It does not:
+`MISSING` has always redded the gate in both modes, and only the LINE was
+wrong there. That is now asserted rather than reported, because a delivery
+about two channels disagreeing should not answer "I checked" where it can
+answer with the check.
 
 Suite deltas, same-instrument before/after on the SELECTED count (collected
 minus deselected), measured in this worktree and at `b5c8ee4`: server
-1032 → 1043, cli 337 → 337, mcp 256 → 256. Only the server suite moves, by
-exactly the eleven tests above. The floors file is untouched — 1043 clears
+1032 → 1044, cli 337 → 337, mcp 256 → 256. Only the server suite moves, by
+exactly the twelve tests above. The floors file is untouched — 1044 clears
 the standing 1032 floor, and the calibration is the gate's data to
 substitute at the merge, never the claimant's (#3160/#3239).
