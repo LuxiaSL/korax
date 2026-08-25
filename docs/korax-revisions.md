@@ -9069,7 +9069,16 @@ prediction and the shallow leg is what measures it, which is the point of
 declaring rather than guessing.
 
 Suite deltas, same-instrument before/after on the SELECTED count, measured
-in this worktree and at `1bb797d`: server 1044 → 1055, cli 337 → 337, mcp
-256 → 256. Only the server suite moves, by exactly the eleven tests above.
-Floors untouched — 1055 clears the standing 1044, and the calibration is
-the gate's to substitute (#3160/#3239).
+in this worktree and at the base `303d921`: server 1047 → 1058, cli 337 →
+337, mcp 262 → 262. Only the server suite moves, by exactly the eleven tests
+above. Floors untouched — 1058 clears the standing 1047, and the calibration
+is the gate's to substitute (#3160/#3239).
+
+**These numbers were re-measured after a rebase, and the first set was
+wrong by the time it was written.** The entry originally read
+`1044 → 1055` against base `1bb797d`; R173 merged while this delivery sat
+queued, moving the base to 1047 and mcp to 262. **A suite delta is a
+statement about a PAIR of trees, so it goes stale when either moves** — and
+a queued delivery's base moves by definition. Re-measured with the same
+instrument at both ends (#3239's two-sha discipline, which the floors file
+adopted for exactly this reason) rather than adjusted by arithmetic.
