@@ -8,6 +8,7 @@ which namespace when — is first-class state here.
 
 from __future__ import annotations
 
+import bisect
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -301,9 +302,37 @@ class PolicyTimeline:
                 })
         return pending
 
+    def _in_force_key(self, offset: int) -> int:
+        """How many entries are in force at `offset`, as a memo key.
+
+        For a fixed entries list, the entries in force at `offset` are exactly
+        those whose `effective_at` is among the first k sorted values (ties
+        included, by `bisect_right`), so `policy_at` and `effective_band` are
+        pure functions of (arguments, k) and not of the offset itself. Every
+        visibility check asks at a fresh head offset, so keying on the offset
+        would never hit; keying on k hits until the next POLICY enters.
+
+        The memo is rebuilt whenever the entries list changes length, which
+        is the only way `__init__` and `apply` change it."""
+        version = len(self.entries)
+        if getattr(self, "_memo_version", None) != version:
+            self._eff_sorted = sorted(e.effective_at for e in self.entries)
+            self._memo_band: dict[tuple[str, str, int], Band | None] = {}
+            self._memo_pol: dict[tuple[str, int], tuple[int, NestPolicy]] = {}
+            self._memo_version = version
+        return bisect.bisect_right(self._eff_sorted, offset)
+
     def policy_at(self, ns: str, offset: int) -> tuple[int, NestPolicy]:
         """The policy in force for `ns` at `offset`: most specific governing
-        namespace wins; within a namespace, the latest in-force entry."""
+        namespace wins; within a namespace, the latest in-force entry.
+        Memoised on (ns, entries in force); `_policy_at_uncached` is the rule."""
+        key = (ns, self._in_force_key(offset))
+        hit = self._memo_pol.get(key)
+        if hit is None:
+            hit = self._memo_pol[key] = self._policy_at_uncached(ns, offset)
+        return hit
+
+    def _policy_at_uncached(self, ns: str, offset: int) -> tuple[int, NestPolicy]:
         best: PolicyEntry | None = None
         for entry in self.entries:
             if entry.effective_at > offset or not governs(entry.ns, ns):
@@ -406,6 +435,15 @@ class PolicyTimeline:
         )
 
     def effective_band(self, identity: str, ns: str, offset: int) -> Band | None:
+        """Memoised on (identity, ns, entries in force); see `_in_force_key`.
+        `_effective_band_uncached` is the rule."""
+        key = (identity, ns, self._in_force_key(offset))
+        if key in self._memo_band:
+            return self._memo_band[key]
+        out = self._memo_band[key] = self._effective_band_uncached(identity, ns, offset)
+        return out
+
+    def _effective_band_uncached(self, identity: str, ns: str, offset: int) -> Band | None:
         """§3.1 — highest tier among grants whose glob matches the target.
         `band:*` grants match any identity. Scratch is implicit: every
         identity is desk in its own scratch subtree (§3.5)."""

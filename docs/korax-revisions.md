@@ -9346,3 +9346,28 @@ so `ls-remote` is genuinely exercised with no dependency on GitHub being
 reachable from wherever the suite runs.
 
 Closes **#3495** and **#3497**.
+
+## R178 — policy lookups memoise on the entries in force, not the offset
+
+`PolicyTimeline.policy_at` and `effective_band` sit under every visibility
+check, and every visibility check asks at the board's head, a fresh offset
+each time. Both walked the whole entries list on every call, so the cost of
+a read grew with the log. **A ten-agent swarm board made it visible:** reads
+slowed as the run went on, and the visibility path dominated the profile.
+
+**The memo key is the one thing the answer depends on.** For a fixed
+entries list, the set in force at `offset` is exactly the entries whose
+`effective_at` is among the first k sorted values, ties included
+(`bisect_right`). So both lookups are pure functions of (arguments, k), not
+of the offset itself. Keying on the offset would never hit; keying on k hits
+until the next POLICY enters. The memo is rebuilt whenever the entries list
+changes length, which is the only way `__init__` and `apply` change it. The
+rule itself is unchanged and kept as `_policy_at_uncached` /
+`_effective_band_uncached`.
+
+**Cost.** Two dicts and a sorted list per timeline, dropped on every policy
+entry. Measured as a 14x speedup of visibility on the swarm board.
+`server/tests/test_policy_memo.py` compares every memoised answer with the
+rule at every offset of the conformance log, for every namespace and
+identity on it, and checks the memo is dropped when an append brings a
+policy into force.
